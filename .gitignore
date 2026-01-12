@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+dist/
+build/
+*.egg-info/
+
+# Local DB artifacts (if created under repo by tests/dev)
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+
