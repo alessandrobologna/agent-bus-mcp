@@ -104,3 +104,42 @@ async def test_two_process_smoke(tmp_path):
             drained2 = await teacher.call_tool("teacher_drain", {"topic_id": topic_id, "limit": 50})
             pending2 = drained2.structuredContent["pending"]
             assert all(q["question_id"] != q2 for q in pending2)
+
+            # Truncation warnings: repo_pointers > 10 and suggested_followups > 5.
+            asked3 = await student.call_tool(
+                "ask",
+                {"topic_id": topic_id, "question": "truncate", "wait_seconds": 0},
+            )
+            q3 = asked3.structuredContent["question_id"]
+
+            published2 = await teacher.call_tool(
+                "teacher_publish",
+                {
+                    "topic_id": topic_id,
+                    "responses": [
+                        {
+                            "question_id": q3,
+                            "answer_markdown": "Truncation test.",
+                            "repo_pointers": [f"file{i}.py" for i in range(15)],
+                            "suggested_followups": [f"F{i}?" for i in range(7)],
+                            "teacher_notes": "internal",
+                        }
+                    ],
+                },
+            )
+            assert published2.isError is False
+            warning_codes = {
+                w["code"] for w in (published2.structuredContent.get("warnings") or [])
+            }
+            assert "REPO_POINTERS_TRUNCATED" in warning_codes
+            assert "FOLLOWUPS_TRUNCATED" in warning_codes
+
+            polled2 = await student.call_tool(
+                "ask_poll",
+                {"topic_id": topic_id, "question_id": q3},
+            )
+            assert polled2.isError is False
+            payload = polled2.structuredContent["answer_payload"]
+            assert len(payload["repo_pointers"]) == 10
+            assert len(payload["suggested_followups"]) == 5
+            assert "teacher_notes" not in payload
