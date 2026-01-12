@@ -4,6 +4,11 @@
       "command": "uv",
       "args": ["--project", "/Users/alessandro/git/agent-bus", "run", "agent-bus-student"],
       "type": "stdio"
+    },
+    "agent-bus-teacher": {
+      "command": "uv",
+      "args": ["--project", "/Users/alessandro/git/agent-bus", "run", "agent-bus-teacher"],
+      "type": "stdio"
     }
   },
   "inputs": []
