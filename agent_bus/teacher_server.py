@@ -24,6 +24,7 @@ mcp = FastMCP(name="agent-bus-teacher")
 
 @mcp.tool()
 def ping() -> Any:
+    """Health check for the teacher MCP server."""
     return tool_ok(
         text="pong",
         structured={"ok": True, "role": ROLE, "spec_version": SPEC_VERSION},
@@ -36,6 +37,12 @@ def topic_create(
     metadata: dict[str, Any] | None = None,
     mode: Literal["reuse", "new"] = "reuse",
 ) -> Any:
+    """Create a topic (or reuse an existing open topic).
+
+    mode:
+    - reuse: return newest open topic with the same name
+    - new: always create a new open topic
+    """
     if metadata is not None and not isinstance(metadata, dict):
         return tool_error(code=ErrorCode.INVALID_ARGUMENT, message="metadata must be an object")
     try:
@@ -51,6 +58,7 @@ def topic_create(
 
 @mcp.tool()
 def topic_list(status: Literal["open", "closed", "all"] = "open") -> Any:
+    """List topics in the shared Agent Bus DB."""
     try:
         topics = db.topic_list(status=status)
     except DBBusyError:
@@ -78,6 +86,7 @@ def topic_list(status: Literal["open", "closed", "all"] = "open") -> Any:
 
 @mcp.tool()
 def topic_close(topic_id: str, reason: str | None = None) -> Any:
+    """Close a topic (idempotent)."""
     try:
         topic, already_closed = db.topic_close(topic_id=topic_id, reason=reason)
     except TopicNotFoundError:
@@ -108,6 +117,7 @@ def topic_close(topic_id: str, reason: str | None = None) -> Any:
 
 @mcp.tool()
 def teacher_drain(topic_id: str, limit: int = 20) -> Any:
+    """Return pending questions for a topic, oldest first."""
     if limit <= 0:
         return tool_error(code=ErrorCode.INVALID_ARGUMENT, message="limit must be > 0")
     try:
@@ -135,6 +145,10 @@ def teacher_drain(topic_id: str, limit: int = 20) -> Any:
 
 @mcp.tool()
 def teacher_publish(topic_id: str, responses: list[dict[str, Any]]) -> Any:
+    """Publish answers for one or more pending questions.
+
+    Applies soft truncation for repo_pointers (10) and suggested_followups (5) with warnings.
+    """
     max_batch = env_int("AGENT_BUS_MAX_PUBLISH_BATCH", default=50, min_value=1)
     max_answer_chars = env_int("AGENT_BUS_MAX_ANSWER_CHARS", default=65536, min_value=1)
     max_teacher_notes_chars = env_int(

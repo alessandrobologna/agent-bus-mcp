@@ -32,6 +32,7 @@ mcp = FastMCP(name="agent-bus-student")
 
 @mcp.tool()
 def ping() -> Any:
+    """Health check for the student MCP server."""
     return tool_ok(
         text="pong",
         structured={"ok": True, "role": ROLE, "spec_version": SPEC_VERSION},
@@ -40,6 +41,7 @@ def ping() -> Any:
 
 @mcp.tool()
 def topic_list(status: Literal["open", "closed", "all"] = "open") -> Any:
+    """List topics in the shared Agent Bus DB."""
     try:
         topics = db.topic_list(status=status)
     except DBBusyError:
@@ -67,6 +69,11 @@ def topic_list(status: Literal["open", "closed", "all"] = "open") -> Any:
 
 @mcp.tool()
 def topic_resolve(name: str, allow_closed: bool = False) -> Any:
+    """Resolve a topic by name.
+
+    Returns the newest open topic with this name. If allow_closed is true and no open topic exists,
+    returns the newest closed topic with this name.
+    """
     if not isinstance(name, str) or not name:
         return tool_error(
             code=ErrorCode.INVALID_ARGUMENT, message="name must be a non-empty string"
@@ -85,6 +92,13 @@ def topic_resolve(name: str, allow_closed: bool = False) -> Any:
 
 @mcp.tool()
 def ask(topic_id: str, question: str, wait_seconds: int = 0) -> Any:
+    """Queue a question on a topic and optionally wait for an answer.
+
+    Tool-level status values:
+    - queued: inserted; no wait performed
+    - answered: answered within wait window
+    - timeout: wait window expired; question remains pending
+    """
     try:
         max_question_chars = env_int("AGENT_BUS_MAX_QUESTION_CHARS", default=8000, min_value=1)
         poll_initial_ms = env_int("AGENT_BUS_POLL_INITIAL_MS", default=250, min_value=1)
@@ -166,6 +180,7 @@ def ask(topic_id: str, question: str, wait_seconds: int = 0) -> Any:
 
 @mcp.tool()
 def ask_poll(topic_id: str, question_id: str) -> Any:
+    """Poll the status of a question without waiting."""
     if not isinstance(topic_id, str) or not topic_id:
         return tool_error(
             code=ErrorCode.INVALID_ARGUMENT, message="topic_id must be a non-empty string"
@@ -222,6 +237,10 @@ def ask_poll(topic_id: str, question_id: str) -> Any:
 
 @mcp.tool()
 def ask_cancel(topic_id: str, question_id: str, reason: str | None = None) -> Any:
+    """Cancel a pending question (idempotent).
+
+    Returns success if already cancelled (no-op) and includes warning ALREADY_CANCELLED.
+    """
     if not isinstance(topic_id, str) or not topic_id:
         return tool_error(
             code=ErrorCode.INVALID_ARGUMENT, message="topic_id must be a non-empty string"
