@@ -3,18 +3,8 @@
     "agent-bus-student": {
       "command": "uv",
       "args": ["--project", "/Users/alessandro/git/agent-bus", "run", "agent-bus-student"],
-      "disabled": false,
-      "autoApprove": [],
-      "type": "stdio"
-    },
-    "agent-bus-teacher": {
-      "command": "uv",
-      "args": ["--project", "/Users/alessandro/git/agent-bus", "run", "agent-bus-teacher"],
-      "disabled": true,
-      "autoApprove": [],
       "type": "stdio"
     }
   },
   "inputs": []
 }
-
