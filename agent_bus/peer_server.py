@@ -25,7 +25,15 @@ from agent_bus.db import (
 SPEC_VERSION = "v6.0"
 
 db = AgentBusDB()
-mcp = FastMCP(name="agent-bus")
+mcp = FastMCP(
+    name="agent-bus",
+    instructions=(
+        "Join a topic with topic_join(agent_name=..., topic_id=...|name=...), then use sync() to "
+        "read/write messages. Outbox items require content_markdown. Use reply_to to respond to a "
+        "specific message. Convention: message_type='question' for questions and "
+        "message_type='answer' for replies."
+    ),
+)
 
 # In-memory (per server process) mapping of joined topic_id -> agent_name.
 # This is intentionally ephemeral: clients must call topic_join() again after a server restart.

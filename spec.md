@@ -188,3 +188,9 @@ Output:
 - `sent`: records for successfully inserted outgoing messages (with assigned `seq`)
 - `cursor`: the updated server-side cursor value
 - `status`: `ready` / `timeout` / `empty`
+
+Recommended conventions:
+
+- Use `message_type="question"` for messages that should be answered.
+- Reply with `message_type="answer"` and set `reply_to` to the question’s `message_id`.
+- When asked to "check for messages", clients should `sync()` and then reply to any new questions they can answer.

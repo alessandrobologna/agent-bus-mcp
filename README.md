@@ -83,6 +83,7 @@ Notes:
 - By default `sync(include_self=false)` does not return your own messages.
 - Outbox items use `content_markdown` (not `content`).
 - Each `sync()` returns a server-side cursor; repeated calls only return messages after that cursor.
+- If you receive a question, reply with `sync()` and set `reply_to` to the question’s `message_id` (recommended: `message_type="answer"`).
 
 ## MCP Client Setup
 
