@@ -766,6 +766,29 @@ class AgentBusDB:
             ).fetchall()
         return [_message_from_row(r) for r in rows]
 
+    def get_latest_messages(
+        self,
+        *,
+        topic_id: str,
+        limit: int = 10,
+    ) -> list[Message]:
+        """Fetch the last N messages from a topic efficiently."""
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                  message_id, topic_id, seq, sender, message_type, reply_to,
+                  content_markdown, metadata_json, client_message_id, created_at
+                FROM messages
+                WHERE topic_id = ?
+                ORDER BY seq DESC
+                LIMIT ?
+                """,
+                (topic_id, limit),
+            ).fetchall()
+        # Return in chronological order
+        return [_message_from_row(r) for r in reversed(rows)]
+
     def get_senders_by_message_ids(self, message_ids: list[str]) -> dict[str, str]:
         """Lookup sender names for a list of message IDs.
 

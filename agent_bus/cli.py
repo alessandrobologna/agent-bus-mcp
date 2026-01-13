@@ -256,9 +256,20 @@ def _format_message(msg: Any, *, show_time: bool = True) -> str:
 
 @topics_group.command("watch")
 @click.argument("topic_id")
-@click.option("--follow", "-f", is_flag=True, help="Wait for new messages (like tail -f).")
 @click.option(
-    "--last", "-n", type=int, default=10, show_default=True, help="Show last N messages initially."
+    "--follow",
+    "-f",
+    "--tail",
+    is_flag=True,
+    help="Wait for new messages (like tail -f). Alias: --tail.",
+)
+@click.option(
+    "--last",
+    "-n",
+    type=int,
+    default=10,
+    show_default=True,
+    help="Show last N messages initially.",
 )
 @click.option("--full", is_flag=True, help="Show full message content instead of preview.")
 @click.pass_context
@@ -293,13 +304,9 @@ def topics_watch(
     click.echo()
 
     # Get initial messages
-    # First, get all messages to find the starting point
-    all_msgs = db.get_messages(topic_id=topic_id, after_seq=0, limit=10000)
-
-    if last > 0 and all_msgs:
-        # Show the last N messages
-        recent = all_msgs[-last:] if len(all_msgs) > last else all_msgs
-        for msg in recent:
+    if last > 0:
+        initial_msgs = db.get_latest_messages(topic_id=topic_id, limit=last)
+        for msg in initial_msgs:
             if full:
                 click.echo(_format_message(msg))
                 # Print full content indented
@@ -308,9 +315,12 @@ def topics_watch(
             else:
                 click.echo(_format_message(msg))
 
-        last_seq = all_msgs[-1].seq if all_msgs else 0
+        last_seq = initial_msgs[-1].seq if initial_msgs else 0
     else:
-        last_seq = all_msgs[-1].seq if all_msgs else 0
+        # If last=0, we still need the latest seq to start following from
+        # Use a small limit just to get the last message
+        initial_msgs = db.get_latest_messages(topic_id=topic_id, limit=1)
+        last_seq = initial_msgs[-1].seq if initial_msgs else 0
 
     if not follow:
         return
