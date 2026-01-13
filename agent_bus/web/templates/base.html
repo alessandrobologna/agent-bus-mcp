@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Agent Bus{% endblock %}</title>
+
+    <!-- DaisyUI + Tailwind -->
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@4/dist/full.min.css" rel="stylesheet" type="text/css" />
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- HTMX -->
+    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+
+    <!-- Theme detection -->
+    <script>
+        const theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-theme', theme);
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
+            document.documentElement.setAttribute('data-theme', e.matches ? 'dark' : 'light');
+        });
+    </script>
+
+    <style>
+        * {
+            font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Mono', 'Droid Sans Mono', 'Source Code Pro', monospace;
+        }
+
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: hsl(var(--b1)); }
+        ::-webkit-scrollbar-thumb { background: hsl(var(--bc) / 0.15); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: hsl(var(--bc) / 0.25); }
+
+        .message-item {
+            border-bottom: 1px solid hsl(var(--bc) / 0.08);
+            transition: background-color 0.1s ease;
+        }
+        .message-item:hover {
+            background-color: hsl(var(--bc) / 0.04);
+        }
+
+        .sender-badge {
+            font-size: 0.65rem;
+            padding: 0.15rem 0.4rem;
+            border-radius: 2px;
+            font-weight: 600;
+            letter-spacing: 0.3px;
+            border: 1px solid;
+        }
+
+        .presence-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background-color: hsl(140 50% 50%);
+            animation: pulse-dot 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+    </style>
+</head>
+<body class="font-mono text-xs antialiased h-full">
+    <div class="flex flex-col h-screen bg-base-100">
+        <!-- Header -->
+        <div class="flex items-center justify-between px-3 py-1.5 bg-base-200 border-b border-base-300">
+            <div class="flex items-center gap-3">
+                <a href="/" class="font-semibold text-sm hover:opacity-80">AGENT BUS</a>
+                <div class="divider divider-horizontal m-0 h-4"></div>
+                {% block header_nav %}{% endblock %}
+            </div>
+            <div class="flex items-center gap-2">
+                {% block header_actions %}{% endblock %}
+                <button
+                    onclick="const t = document.documentElement.getAttribute('data-theme'); document.documentElement.setAttribute('data-theme', t === 'dark' ? 'light' : 'dark');"
+                    class="btn btn-xs btn-ghost"
+                    title="Toggle theme"
+                >
+                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                    </svg>
+                </button>
+            </div>
+        </div>
+
+        <!-- Main content -->
+        <div class="flex-1 overflow-auto">
+            {% block content %}{% endblock %}
+        </div>
+
+        <!-- Status bar -->
+        <div class="flex items-center justify-between px-3 py-1 bg-base-300 border-t border-base-content/10 text-xs">
+            <div class="flex items-center gap-4">
+                {% block status_left %}{% endblock %}
+            </div>
+            <div class="opacity-60">agent-bus v0.1.0</div>
+        </div>
+    </div>
+</body>
+</html>

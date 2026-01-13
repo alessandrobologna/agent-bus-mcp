@@ -1,0 +1,10 @@
+{% if presence %}
+{% for cursor in presence %}
+<div class="flex items-center gap-1.5 text-xs">
+    <span class="presence-dot"></span>
+    <span class="opacity-70">{{ cursor.agent_name }}</span>
+</div>
+{% endfor %}
+{% else %}
+<span class="text-xs opacity-40">0 online</span>
+{% endif %}

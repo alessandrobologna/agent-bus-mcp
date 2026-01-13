@@ -392,3 +392,46 @@ def test_get_presence_filters_by_window(monkeypatch, tmp_path):
 
     active = db.get_presence(topic_id=t.topic_id, window_seconds=1)
     assert [c.agent_name for c in active] == ["b"]
+
+
+def test_get_senders_by_message_ids(tmp_path):
+    """Test that get_senders_by_message_ids returns correct sender mapping."""
+    db = AgentBusDB(path=str(tmp_path / "bus.sqlite"))
+    t = db.topic_create(name="pink", metadata=None, mode="new")
+
+    # Send messages from two different agents
+    sent_a, _, _, _ = db.sync_once(
+        topic_id=t.topic_id,
+        agent_name="alice",
+        outbox=[{"content_markdown": "hello from alice", "message_type": "message"}],
+        max_items=50,
+        include_self=False,
+        auto_advance=True,
+        ack_through=None,
+    )
+    sent_b, _, _, _ = db.sync_once(
+        topic_id=t.topic_id,
+        agent_name="bob",
+        outbox=[{"content_markdown": "hello from bob", "message_type": "message"}],
+        max_items=50,
+        include_self=False,
+        auto_advance=True,
+        ack_through=None,
+    )
+
+    msg_a = sent_a[0][0]
+    msg_b = sent_b[0][0]
+
+    # Test basic mapping
+    result = db.get_senders_by_message_ids([msg_a.message_id, msg_b.message_id])
+    assert result[msg_a.message_id] == "alice"
+    assert result[msg_b.message_id] == "bob"
+
+    # Test with missing IDs - they should be omitted from result
+    result_partial = db.get_senders_by_message_ids([msg_a.message_id, "nonexistent-id"])
+    assert result_partial[msg_a.message_id] == "alice"
+    assert "nonexistent-id" not in result_partial
+
+    # Test empty list
+    result_empty = db.get_senders_by_message_ids([])
+    assert result_empty == {}

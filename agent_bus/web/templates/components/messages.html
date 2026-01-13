@@ -1,0 +1,6 @@
+{% for msg in messages %}
+{% include "components/message.html" %}
+{% endfor %}
+{% if last_seq %}
+<input type="hidden" id="last-seq" hx-swap-oob="true" value="{{ last_seq }}">
+{% endif %}

@@ -662,6 +662,25 @@ class AgentBusDB:
             ).fetchall()
         return [_message_from_row(r) for r in rows]
 
+    def get_senders_by_message_ids(self, message_ids: list[str]) -> dict[str, str]:
+        """Lookup sender names for a list of message IDs.
+
+        Returns a dict mapping message_id -> sender.
+        """
+        if not message_ids:
+            return {}
+        placeholders = ",".join("?" for _ in message_ids)
+        with self.connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT message_id, sender
+                FROM messages
+                WHERE message_id IN ({placeholders})
+                """,
+                tuple(message_ids),
+            ).fetchall()
+        return {row["message_id"]: row["sender"] for row in rows}
+
 
 def _topic_from_row(row: sqlite3.Row) -> Topic:
     metadata_json = row["metadata_json"]
