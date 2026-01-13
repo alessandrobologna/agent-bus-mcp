@@ -11,6 +11,16 @@
 {% endblock %}
 
 {% block header_actions %}
+<button
+    id="select-mode-btn"
+    onclick="toggleSelectMode()"
+    class="btn btn-xs btn-ghost"
+    title="Select messages"
+>
+    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+    </svg>
+</button>
 <a
     href="/topics/{{ topic.topic_id }}/export"
     class="btn btn-xs btn-ghost"
@@ -44,6 +54,26 @@
 {% endblock %}
 
 {% block content %}
+<!-- Selection action bar (hidden by default) -->
+<div id="selection-bar" class="hidden fixed bottom-4 left-1/2 -translate-x-1/2 bg-base-300 border border-base-content/20 rounded-lg shadow-lg px-4 py-2 flex items-center gap-4 z-50">
+    <span id="selection-count" class="text-sm opacity-80">0 selected</span>
+    <button
+        onclick="deleteSelected()"
+        class="btn btn-sm btn-error"
+    >
+        <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+        </svg>
+        Delete
+    </button>
+    <button
+        onclick="clearSelection()"
+        class="btn btn-sm btn-ghost"
+    >
+        Cancel
+    </button>
+</div>
+
 <div id="messages" class="divide-y divide-base-300">
     {% for msg in all_messages %}
     {% include "components/message.html" %}
@@ -61,6 +91,7 @@
 
 <!-- Track last sequence for polling -->
 <input type="hidden" id="last-seq" value="{{ last_seq }}">
+<input type="hidden" id="topic-id" value="{{ topic.topic_id }}">
 
 <!-- Auto-refresh for new messages -->
 <div
@@ -71,4 +102,89 @@
     hx-swap="beforeend"
     style="display: none;"
 ></div>
+
+<script>
+    let selectMode = false;
+    const selectedMessages = new Set();
+
+    function toggleSelectMode() {
+        selectMode = !selectMode;
+        document.body.classList.toggle('select-mode', selectMode);
+        document.getElementById('select-mode-btn').classList.toggle('btn-active', selectMode);
+
+        // Show/hide checkboxes
+        document.querySelectorAll('.message-checkbox').forEach(cb => {
+            cb.classList.toggle('hidden', !selectMode);
+        });
+
+        // Clear selection when exiting select mode
+        if (!selectMode) {
+            clearSelection();
+        }
+    }
+
+    function toggleMessageSelection(messageId, checkbox) {
+        if (checkbox.checked) {
+            selectedMessages.add(messageId);
+        } else {
+            selectedMessages.delete(messageId);
+        }
+        updateSelectionUI();
+    }
+
+    function updateSelectionUI() {
+        const count = selectedMessages.size;
+        const bar = document.getElementById('selection-bar');
+        const countEl = document.getElementById('selection-count');
+
+        if (count > 0) {
+            bar.classList.remove('hidden');
+            countEl.textContent = `${count} selected`;
+        } else {
+            bar.classList.add('hidden');
+        }
+    }
+
+    function clearSelection() {
+        selectedMessages.clear();
+        document.querySelectorAll('.message-checkbox input').forEach(cb => {
+            cb.checked = false;
+        });
+        updateSelectionUI();
+    }
+
+    function deleteSelected() {
+        if (selectedMessages.size === 0) return;
+
+        const count = selectedMessages.size;
+        if (!confirm(`Delete ${count} message${count > 1 ? 's' : ''} and their replies? This cannot be undone.`)) {
+            return;
+        }
+
+        const topicId = document.getElementById('topic-id').value;
+        const messageIds = Array.from(selectedMessages);
+
+        fetch(`/topics/${topicId}/messages`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(messageIds)
+        })
+        .then(response => response.json())
+        .then(data => {
+            // Remove deleted messages from DOM
+            const deletedIds = data.deleted_message_ids || messageIds;
+            deletedIds.forEach(id => {
+                const el = document.getElementById(`msg-${id}`);
+                if (el) el.remove();
+            });
+            clearSelection();
+            // Exit select mode
+            if (selectMode) toggleSelectMode();
+        })
+        .catch(err => {
+            console.error('Delete failed:', err);
+            alert('Failed to delete messages');
+        });
+    }
+</script>
 {% endblock %}

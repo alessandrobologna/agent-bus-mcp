@@ -435,3 +435,234 @@ def test_get_senders_by_message_ids(tmp_path):
     # Test empty list
     result_empty = db.get_senders_by_message_ids([])
     assert result_empty == {}
+
+
+def test_delete_topic_removes_all_data(tmp_path):
+    """Test that delete_topic removes topic and all related data."""
+    db = AgentBusDB(path=str(tmp_path / "bus.sqlite"))
+    t = db.topic_create(name="pink", metadata=None, mode="new")
+
+    # Add messages and sync to create cursor
+    db.sync_once(
+        topic_id=t.topic_id,
+        agent_name="alice",
+        outbox=[{"content_markdown": "hello", "message_type": "message"}],
+        max_items=50,
+        include_self=False,
+        auto_advance=True,
+        ack_through=None,
+    )
+
+    # Verify data exists
+    messages = db.get_messages(topic_id=t.topic_id, after_seq=0, limit=100)
+    assert len(messages) == 1
+
+    # Delete the topic
+    deleted = db.delete_topic(topic_id=t.topic_id)
+    assert deleted is True
+
+    # Verify all data is gone
+    with pytest.raises(TopicNotFoundError):
+        db.get_topic(topic_id=t.topic_id)
+
+    # Second delete should return False
+    deleted_again = db.delete_topic(topic_id=t.topic_id)
+    assert deleted_again is False
+
+
+def test_delete_topic_nonexistent_returns_false(tmp_path):
+    """Test that deleting a nonexistent topic returns False."""
+    db = AgentBusDB(path=str(tmp_path / "bus.sqlite"))
+    deleted = db.delete_topic(topic_id="nonexistent-id")
+    assert deleted is False
+
+
+def test_delete_message_cascades_to_replies(tmp_path):
+    """Test that delete_message cascades to all replies."""
+    db = AgentBusDB(path=str(tmp_path / "bus.sqlite"))
+    t = db.topic_create(name="pink", metadata=None, mode="new")
+
+    # Create a chain: msg1 -> msg2 (reply to msg1) -> msg3 (reply to msg2)
+    sent1, _, _, _ = db.sync_once(
+        topic_id=t.topic_id,
+        agent_name="alice",
+        outbox=[{"content_markdown": "msg1", "message_type": "message"}],
+        max_items=50,
+        include_self=False,
+        auto_advance=True,
+        ack_through=None,
+    )
+    msg1_id = sent1[0][0].message_id
+
+    sent2, _, _, _ = db.sync_once(
+        topic_id=t.topic_id,
+        agent_name="bob",
+        outbox=[
+            {
+                "content_markdown": "msg2 reply to msg1",
+                "message_type": "message",
+                "reply_to": msg1_id,
+            }
+        ],
+        max_items=50,
+        include_self=False,
+        auto_advance=True,
+        ack_through=None,
+    )
+    msg2_id = sent2[0][0].message_id
+
+    db.sync_once(
+        topic_id=t.topic_id,
+        agent_name="charlie",
+        outbox=[
+            {
+                "content_markdown": "msg3 reply to msg2",
+                "message_type": "message",
+                "reply_to": msg2_id,
+            }
+        ],
+        max_items=50,
+        include_self=False,
+        auto_advance=True,
+        ack_through=None,
+    )
+
+    # Verify we have 3 messages
+    messages = db.get_messages(topic_id=t.topic_id, after_seq=0, limit=100)
+    assert len(messages) == 3
+
+    # Delete msg1 - should cascade to msg2 and msg3
+    deleted_count = db.delete_message(message_id=msg1_id)
+    assert deleted_count == 3
+
+    # Verify all messages are gone
+    messages = db.get_messages(topic_id=t.topic_id, after_seq=0, limit=100)
+    assert len(messages) == 0
+
+
+def test_delete_message_no_replies(tmp_path):
+    """Test deleting a message with no replies."""
+    db = AgentBusDB(path=str(tmp_path / "bus.sqlite"))
+    t = db.topic_create(name="pink", metadata=None, mode="new")
+
+    sent, _, _, _ = db.sync_once(
+        topic_id=t.topic_id,
+        agent_name="alice",
+        outbox=[{"content_markdown": "standalone msg", "message_type": "message"}],
+        max_items=50,
+        include_self=False,
+        auto_advance=True,
+        ack_through=None,
+    )
+    msg_id = sent[0][0].message_id
+
+    deleted_count = db.delete_message(message_id=msg_id)
+    assert deleted_count == 1
+
+    messages = db.get_messages(topic_id=t.topic_id, after_seq=0, limit=100)
+    assert len(messages) == 0
+
+
+def test_delete_message_nonexistent_returns_zero(tmp_path):
+    """Test deleting a nonexistent message returns 0."""
+    db = AgentBusDB(path=str(tmp_path / "bus.sqlite"))
+    deleted_count = db.delete_message(message_id="nonexistent-id")
+    assert deleted_count == 0
+
+
+def test_delete_messages_batch(tmp_path):
+    """Test batch deletion of multiple messages with cascades."""
+    db = AgentBusDB(path=str(tmp_path / "bus.sqlite"))
+    t = db.topic_create(name="pink", metadata=None, mode="new")
+
+    # Create msg1 with a reply, and msg3 standalone
+    sent1, _, _, _ = db.sync_once(
+        topic_id=t.topic_id,
+        agent_name="alice",
+        outbox=[{"content_markdown": "msg1", "message_type": "message"}],
+        max_items=50,
+        include_self=False,
+        auto_advance=True,
+        ack_through=None,
+    )
+    msg1_id = sent1[0][0].message_id
+
+    sent2, _, _, _ = db.sync_once(
+        topic_id=t.topic_id,
+        agent_name="bob",
+        outbox=[
+            {
+                "content_markdown": "msg2 reply to msg1",
+                "message_type": "message",
+                "reply_to": msg1_id,
+            }
+        ],
+        max_items=50,
+        include_self=False,
+        auto_advance=True,
+        ack_through=None,
+    )
+    msg2_id = sent2[0][0].message_id
+
+    sent3, _, _, _ = db.sync_once(
+        topic_id=t.topic_id,
+        agent_name="charlie",
+        outbox=[{"content_markdown": "msg3 standalone", "message_type": "message"}],
+        max_items=50,
+        include_self=False,
+        auto_advance=True,
+        ack_through=None,
+    )
+    msg3_id = sent3[0][0].message_id
+
+    # Batch delete msg1 and msg3 - should cascade msg1 -> msg2
+    deleted_ids = db.delete_messages_batch(topic_id=t.topic_id, message_ids=[msg1_id, msg3_id])
+    assert set(deleted_ids) == {msg1_id, msg2_id, msg3_id}
+
+    messages = db.get_messages(topic_id=t.topic_id, after_seq=0, limit=100)
+    assert len(messages) == 0
+
+
+def test_delete_messages_batch_empty_list(tmp_path):
+    """Test batch deletion with empty list returns 0."""
+    db = AgentBusDB(path=str(tmp_path / "bus.sqlite"))
+    deleted_ids = db.delete_messages_batch(topic_id="does-not-matter", message_ids=[])
+    assert deleted_ids == []
+
+
+def test_delete_messages_batch_does_not_cross_topics(tmp_path):
+    """Test batch deletion cannot delete messages from another topic."""
+    db = AgentBusDB(path=str(tmp_path / "bus.sqlite"))
+    t1 = db.topic_create(name="t1", metadata=None, mode="new")
+    t2 = db.topic_create(name="t2", metadata=None, mode="new")
+
+    sent1, _, _, _ = db.sync_once(
+        topic_id=t1.topic_id,
+        agent_name="alice",
+        outbox=[{"content_markdown": "t1 msg", "message_type": "message"}],
+        max_items=50,
+        include_self=False,
+        auto_advance=True,
+        ack_through=None,
+    )
+    msg_t1_id = sent1[0][0].message_id
+
+    sent2, _, _, _ = db.sync_once(
+        topic_id=t2.topic_id,
+        agent_name="bob",
+        outbox=[{"content_markdown": "t2 msg", "message_type": "message"}],
+        max_items=50,
+        include_self=False,
+        auto_advance=True,
+        ack_through=None,
+    )
+    msg_t2_id = sent2[0][0].message_id
+
+    deleted_ids = db.delete_messages_batch(topic_id=t1.topic_id, message_ids=[msg_t2_id])
+    assert deleted_ids == []
+
+    messages_t1 = db.get_messages(topic_id=t1.topic_id, after_seq=0, limit=100)
+    assert [m.message_id for m in messages_t1] == [msg_t1_id]
+
+    messages_t2 = db.get_messages(topic_id=t2.topic_id, after_seq=0, limit=100)
+    assert [m.message_id for m in messages_t2] == [msg_t2_id]

@@ -233,8 +233,23 @@ async def topic_export(topic_id: str) -> Any:
 
 
 @app.delete("/topics/{topic_id}")
-async def delete_topic(topic_id: str) -> dict[str, Any]:
+async def delete_topic(request: Request, topic_id: str) -> Any:
     """Delete a topic and all its messages."""
+    db = get_db()
+    deleted = db.delete_topic(topic_id=topic_id)
+
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Topic not found") from None
+
+    if request.headers.get("hx-request") == "true":
+        return HTMLResponse("")
+
+    return {"status": "ok", "topic_id": topic_id, "deleted": True}
+
+
+@app.delete("/topics/{topic_id}/messages")
+async def delete_messages(topic_id: str, message_ids: list[str]) -> dict[str, Any]:
+    """Delete selected messages and their reply chains."""
     db = get_db()
 
     try:
@@ -242,11 +257,12 @@ async def delete_topic(topic_id: str) -> dict[str, Any]:
     except TopicNotFoundError:
         raise HTTPException(status_code=404, detail="Topic not found") from None
 
-    # TODO: Implement delete_topic in db.py
-    # For now, just close the topic
-    db.topic_close(topic_id=topic_id, reason="Deleted via web UI")
-
-    return {"status": "ok", "topic_id": topic_id}
+    deleted_message_ids = db.delete_messages_batch(topic_id=topic_id, message_ids=message_ids)
+    return {
+        "status": "ok",
+        "deleted_count": len(deleted_message_ids),
+        "deleted_message_ids": deleted_message_ids,
+    }
 
 
 def run_server(host: str = "127.0.0.1", port: int = 8080, db_path: str | None = None) -> None:

@@ -15,11 +15,8 @@
     {% if topics %}
     <div class="space-y-0">
         {% for topic in topics %}
-        <a
-            href="/topics/{{ topic.topic_id }}"
-            class="message-item flex items-center justify-between px-3 py-2 hover:bg-base-200"
-        >
-            <div class="flex items-center gap-3 min-w-0">
+        <div class="message-item flex items-center justify-between px-3 py-2 hover:bg-base-200 group">
+            <a href="/topics/{{ topic.topic_id }}" class="flex items-center gap-3 min-w-0 flex-1">
                 <svg class="w-4 h-4 opacity-50 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     {% if topic.status == 'open' %}
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
@@ -36,7 +33,7 @@
                     </div>
                     <div class="text-xs opacity-50 truncate">{{ topic.topic_id }}</div>
                 </div>
-            </div>
+            </a>
             <div class="flex items-center gap-4 text-xs flex-shrink-0">
                 <div class="flex items-center gap-1 opacity-60">
                     <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -45,8 +42,20 @@
                     <span>{{ topic.counts.messages }}</span>
                 </div>
                 <span class="opacity-40 w-16 text-right">{{ topic.age }}</span>
+                <button
+                    class="btn btn-xs btn-ghost opacity-0 group-hover:opacity-60 hover:opacity-100 hover:text-error"
+                    hx-delete="/topics/{{ topic.topic_id }}"
+                    hx-confirm="Delete topic '{{ topic.name }}'? This will delete all messages and cannot be undone."
+                    hx-target="closest .message-item"
+                    hx-swap="outerHTML"
+                    title="Delete topic"
+                >
+                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                </button>
             </div>
-        </a>
+        </div>
         {% endfor %}
     </div>
     {% else %}

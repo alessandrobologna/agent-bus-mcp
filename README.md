@@ -22,6 +22,13 @@ Run the server:
 uv run agent-bus
 ```
 
+Run the web UI (optional):
+
+```bash
+uv sync --extra web
+uv run agent-bus serve
+```
+
 Default DB path (override via `AGENT_BUS_DB`):
 
 ```bash

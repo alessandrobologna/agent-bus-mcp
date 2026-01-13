@@ -12,6 +12,9 @@
     <!-- HTMX -->
     <script src="https://unpkg.com/htmx.org@2.0.4"></script>
 
+    <!-- Marked.js for markdown rendering -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
     <!-- Theme detection -->
     <script>
         const theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
@@ -60,7 +63,108 @@
             0%, 100% { opacity: 1; }
             50% { opacity: 0.5; }
         }
+
+        /* Markdown rendered content styles */
+        .markdown-content h1 { font-size: 1.25rem; font-weight: 700; margin: 0.75rem 0 0.5rem; }
+        .markdown-content h2 { font-size: 1.1rem; font-weight: 600; margin: 0.6rem 0 0.4rem; }
+        .markdown-content h3 { font-size: 1rem; font-weight: 600; margin: 0.5rem 0 0.3rem; }
+        .markdown-content p { margin: 0.4rem 0; }
+        .markdown-content ul, .markdown-content ol { margin: 0.4rem 0; padding-left: 1.5rem; }
+        .markdown-content li { margin: 0.2rem 0; }
+        .markdown-content code {
+            background: hsl(var(--bc) / 0.1);
+            padding: 0.1rem 0.3rem;
+            border-radius: 3px;
+            font-size: 0.85em;
+        }
+        .markdown-content pre {
+            background: hsl(var(--bc) / 0.08);
+            padding: 0.75rem;
+            border-radius: 4px;
+            overflow-x: auto;
+            margin: 0.5rem 0;
+        }
+        .markdown-content pre code {
+            background: none;
+            padding: 0;
+        }
+        .markdown-content a {
+            color: hsl(var(--p));
+            text-decoration: underline;
+        }
+        .markdown-content blockquote {
+            border-left: 3px solid hsl(var(--bc) / 0.2);
+            padding-left: 0.75rem;
+            margin: 0.5rem 0;
+            opacity: 0.8;
+        }
+        .markdown-content strong { font-weight: 600; }
+        .markdown-content em { font-style: italic; }
+        .markdown-content hr { border: none; border-top: 1px solid hsl(var(--bc) / 0.15); margin: 0.75rem 0; }
+
+        /* Source view */
+        .message-source {
+            background: hsl(var(--bc) / 0.05);
+            padding: 0.5rem;
+            border-radius: 4px;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
     </style>
+
+    <script>
+        // Configure marked
+        marked.setOptions({
+            breaks: true,
+            gfm: true,
+        });
+
+        // Render markdown in all .markdown-content elements
+        function renderMarkdown(container) {
+            const elements = (container || document).querySelectorAll('.markdown-content[data-raw]');
+            elements.forEach(el => {
+                const raw = el.getAttribute('data-raw');
+                if (raw) {
+                    el.innerHTML = marked.parse(raw);
+                }
+            });
+        }
+
+        // Toggle between rendered and source view
+        function toggleSource(messageId) {
+            const rendered = document.querySelector(`#msg-${messageId} .message-rendered`);
+            const source = document.querySelector(`#msg-${messageId} .message-source`);
+            const btn = document.querySelector(`#msg-${messageId} .toggle-source-btn`);
+
+            if (source.classList.contains('hidden')) {
+                source.classList.remove('hidden');
+                rendered.classList.add('hidden');
+                btn.title = 'Show rendered';
+            } else {
+                source.classList.add('hidden');
+                rendered.classList.remove('hidden');
+                btn.title = 'Show source';
+            }
+        }
+
+        // Copy source to clipboard
+        function copySource(messageId) {
+            const source = document.querySelector(`#msg-${messageId} .message-source`);
+            const text = source.textContent;
+            navigator.clipboard.writeText(text).then(() => {
+                const btn = document.querySelector(`#msg-${messageId} .copy-source-btn`);
+                const originalTitle = btn.title;
+                btn.title = 'Copied!';
+                setTimeout(() => { btn.title = originalTitle; }, 1500);
+            });
+        }
+
+        // Initial render on page load
+        document.addEventListener('DOMContentLoaded', () => renderMarkdown());
+
+        // Re-render after HTMX swaps in new content
+        document.body.addEventListener('htmx:afterSwap', (e) => renderMarkdown(e.detail.target));
+    </script>
 </head>
 <body class="font-mono text-xs antialiased h-full">
     <div class="flex flex-col h-screen bg-base-100">

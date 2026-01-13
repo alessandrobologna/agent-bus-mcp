@@ -339,6 +339,110 @@ class AgentBusDB:
             )
             return updated, False
 
+    def delete_topic(self, *, topic_id: str) -> bool:
+        """Delete a topic and all related data (messages, cursors, sequences).
+
+        Returns True if the topic was deleted, False if it didn't exist.
+        """
+        with self.connect() as conn, conn:
+            # Check if topic exists
+            row = conn.execute(
+                "SELECT topic_id FROM topics WHERE topic_id = ?",
+                (topic_id,),
+            ).fetchone()
+            if row is None:
+                return False
+
+            # Delete in order: messages, cursors, topic_seq, topics
+            conn.execute("DELETE FROM messages WHERE topic_id = ?", (topic_id,))
+            conn.execute("DELETE FROM cursors WHERE topic_id = ?", (topic_id,))
+            conn.execute("DELETE FROM topic_seq WHERE topic_id = ?", (topic_id,))
+            conn.execute("DELETE FROM topics WHERE topic_id = ?", (topic_id,))
+            return True
+
+    def delete_message(self, *, message_id: str) -> int:
+        """Delete a message and all its replies (cascade).
+
+        Returns the count of deleted messages.
+        """
+        with self.connect() as conn, conn:
+            # Find the topic_id for this message
+            row = conn.execute(
+                "SELECT topic_id FROM messages WHERE message_id = ?",
+                (message_id,),
+            ).fetchone()
+            if row is None:
+                return 0
+
+            topic_id = row["topic_id"]
+
+            # Find all messages in the cascade chain using recursive CTE
+            # This finds the message and all messages that reply to it (transitively)
+            cascade_ids = conn.execute(
+                """
+                WITH RECURSIVE cascade(mid) AS (
+                    SELECT message_id FROM messages WHERE message_id = ?
+                    UNION ALL
+                    SELECT m.message_id FROM messages m
+                    JOIN cascade c ON m.reply_to = c.mid
+                    WHERE m.topic_id = ?
+                )
+                SELECT mid FROM cascade
+                """,
+                (message_id, topic_id),
+            ).fetchall()
+
+            ids_to_delete = [r["mid"] for r in cascade_ids]
+            if not ids_to_delete:
+                return 0
+
+            # Delete all messages in the cascade
+            placeholders = ",".join("?" for _ in ids_to_delete)
+            conn.execute(
+                f"DELETE FROM messages WHERE message_id IN ({placeholders})",
+                tuple(ids_to_delete),
+            )
+            return len(ids_to_delete)
+
+    def delete_messages_batch(self, *, topic_id: str, message_ids: list[str]) -> list[str]:
+        """Delete multiple messages and their reply chains (cascade) within one topic.
+
+        Returns the list of deleted message IDs (including replies).
+        """
+        if not message_ids:
+            return []
+
+        placeholders = ",".join("?" for _ in message_ids)
+        with self.connect() as conn, conn:
+            rows = conn.execute(
+                f"""
+                WITH RECURSIVE cascade(mid) AS (
+                    SELECT message_id
+                    FROM messages
+                    WHERE topic_id = ? AND message_id IN ({placeholders})
+                    UNION ALL
+                    SELECT m.message_id
+                    FROM messages m
+                    JOIN cascade c ON m.reply_to = c.mid
+                    WHERE m.topic_id = ?
+                )
+                SELECT mid FROM cascade
+                """,
+                (topic_id, *message_ids, topic_id),
+            ).fetchall()
+
+            ids_to_delete = [r["mid"] for r in rows]
+            if not ids_to_delete:
+                return []
+
+            delete_placeholders = ",".join("?" for _ in ids_to_delete)
+            conn.execute(
+                f"DELETE FROM messages WHERE message_id IN ({delete_placeholders})",
+                tuple(ids_to_delete),
+            )
+
+        return ids_to_delete
+
     def topic_resolve(self, *, name: str, allow_closed: bool) -> Topic:
         with self.connect() as conn:
             row = conn.execute(
