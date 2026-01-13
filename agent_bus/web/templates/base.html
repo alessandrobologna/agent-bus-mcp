@@ -121,11 +121,14 @@
 
         // Render markdown in all .markdown-content elements
         function renderMarkdown(container) {
-            const elements = (container || document).querySelectorAll('.markdown-content[data-raw]');
+            const elements = (container || document).querySelectorAll(
+                '.markdown-content[data-raw]:not([data-rendered])'
+            );
             elements.forEach(el => {
                 const raw = el.getAttribute('data-raw');
-                if (raw) {
+                if (raw !== null) {
                     el.innerHTML = marked.parse(raw);
+                    el.setAttribute('data-rendered', 'true');
                 }
             });
         }
@@ -163,7 +166,7 @@
         document.addEventListener('DOMContentLoaded', () => renderMarkdown());
 
         // Re-render after HTMX swaps in new content
-        document.body.addEventListener('htmx:afterSwap', (e) => renderMarkdown(e.detail.target));
+        document.addEventListener('htmx:afterSwap', (e) => renderMarkdown(e.detail.target));
     </script>
 </head>
 <body class="font-mono text-xs antialiased h-full">
