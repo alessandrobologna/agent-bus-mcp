@@ -1,32 +1,24 @@
 # Agent Bus MCP
 
-Agent Bus is a local message bus for multiple coding agents (peers).
-It runs as a single MCP server over stdio and stores messages in a shared SQLite database file.
+Local SQLite-backed MCP server for peer-to-peer agent communication.
+
+- One local server over stdio
+- Shared SQLite DB (multiple peers, same file)
+- Delta-based sync via server-side cursors (no “read everything” polling)
+- Optional web UI for browsing/exporting topics
 
 ## Requirements
 
 - Python 3.12+
-- `uv`
+- `uv` (recommended)
 
-## Install
-
-```bash
-uv sync --dev
-```
-
-## Run
-
-Run the server:
+## Quickstart (from this repo)
 
 ```bash
+git clone https://github.com/alessandrobologna/agent-bus-mcp.git
+cd agent-bus-mcp
+uv sync
 uv run agent-bus
-```
-
-Run the web UI (optional):
-
-```bash
-uv sync --extra web
-uv run agent-bus serve
 ```
 
 Default DB path (override via `AGENT_BUS_DB`):
@@ -35,17 +27,79 @@ Default DB path (override via `AGENT_BUS_DB`):
 export AGENT_BUS_DB="$HOME/.agent_bus/agent_bus.sqlite"
 ```
 
-## CLI
+## Install (GitHub / PyPI)
 
-Run administrative commands:
+This repo is installable directly from GitHub today. A future PyPI release would make `uvx agent-bus`
+and `pip install agent-bus` work without the Git URL.
+
+### Install from GitHub
 
 ```bash
-uv run agent-bus cli topics list --status all
-uv run agent-bus cli topics presence <topic_id>
-uv run agent-bus cli db wipe --yes
+pip install "agent-bus @ git+https://github.com/alessandrobologna/agent-bus-mcp.git"
+# or
+uv pip install "agent-bus @ git+https://github.com/alessandrobologna/agent-bus-mcp.git"
 ```
 
-## Tools
+Then run:
+
+```bash
+agent-bus
+```
+
+### Install from PyPI (future)
+
+```bash
+pip install agent-bus
+# or run without installing:
+uvx agent-bus
+```
+
+## MCP Client Setup
+
+Agent Bus runs as a local process. Configure your MCP client to start the server in one of these ways:
+
+### Option A: Run from a local checkout (recommended for development)
+
+Use `uv --project <path> run agent-bus` as the server command.
+
+```bash
+claude mcp add agent-bus -- uv --project /path/to/agent-bus-mcp run agent-bus
+codex mcp add agent-bus -- uv --project /path/to/agent-bus-mcp run agent-bus
+gemini mcp add agent-bus uv -- --project /path/to/agent-bus-mcp run agent-bus
+```
+
+### Option B: Run from GitHub (no local checkout)
+
+Use `uvx --from <git-url> agent-bus` as the server command.
+
+```bash
+claude mcp add agent-bus -- uvx --from git+https://github.com/alessandrobologna/agent-bus-mcp.git agent-bus
+codex mcp add agent-bus -- uvx --from git+https://github.com/alessandrobologna/agent-bus-mcp.git agent-bus
+gemini mcp add agent-bus uvx -- --from git+https://github.com/alessandrobologna/agent-bus-mcp.git agent-bus
+```
+
+### Option C: Run from PyPI (future)
+
+```bash
+claude mcp add agent-bus -- uvx agent-bus
+codex mcp add agent-bus -- uvx agent-bus
+gemini mcp add agent-bus uvx -- agent-bus
+```
+
+### OpenCode
+
+Add to `~/.opencode/opencode.json` in the `mcp` section:
+
+```json
+"agent-bus": {
+  "type": "local",
+  "command": ["uv", "--project", "/path/to/agent-bus-mcp", "run", "agent-bus"]
+}
+```
+
+## Usage (MCP tools)
+
+Tools:
 
 - `ping`
 - `topic_create`
@@ -56,23 +110,12 @@ uv run agent-bus cli db wipe --yes
 - `topic_presence`
 - `sync`
 
-## Example flow
-
-Create a topic:
+Typical flow:
 
 ```text
 topic_create(name="pink")
-```
-
-Join the topic with an agent name (per MCP session):
-
-```text
 topic_join(name="pink", agent_name="red-squirrel")
-```
 
-Send a message and read any new messages:
-
-```text
 sync(
   topic_id="<topic_id>",
   outbox=[{"content_markdown": "Hello from red-squirrel", "message_type": "message"}],
@@ -80,49 +123,39 @@ sync(
 )
 ```
 
-Another agent joins and long-polls for new messages:
-
-```text
-topic_join(name="pink", agent_name="crimson-cat")
-sync(topic_id="<topic_id>", wait_seconds=60)
-```
-
 Notes:
 
-- By default `sync(include_self=false)` does not return your own messages.
+- `topic_join()` is required before calling `sync()`.
 - Outbox items use `content_markdown` (not `content`).
+- By default `sync(include_self=false)` does not return your own messages.
 - Each `sync()` returns a server-side cursor; repeated calls only return messages after that cursor.
-- If you receive a question, reply with `sync()` and set `reply_to` to the question’s `message_id` (recommended: `message_type="answer"`).
+- Reply to a specific message by setting `reply_to` to its `message_id` (convention: `message_type="question"` / `message_type="answer"`).
 
-## MCP Client Setup
+## Web UI (optional)
 
-### Claude Code
-
-```bash
-claude mcp add agent-bus -- uv --project /path/to/agent-bus run agent-bus
-```
-
-### Codex
+From this repo:
 
 ```bash
-codex mcp add agent-bus -- uv --project /path/to/agent-bus run agent-bus
+uv sync --extra web
+uv run agent-bus serve
 ```
 
-### OpenCode
-
-Add to `~/.opencode/opencode.json` in the `mcp` section:
-
-```json
-"agent-bus": {
-  "type": "local",
-  "command": ["uv", "--project", "/path/to/agent-bus", "run", "agent-bus"]
-}
-```
-
-### Gemini CLI
+From GitHub install:
 
 ```bash
-gemini mcp add agent-bus uv -- --project /path/to/agent-bus run agent-bus
+pip install "agent-bus[web] @ git+https://github.com/alessandrobologna/agent-bus-mcp.git"
+agent-bus serve
+```
+
+## CLI
+
+Administrative commands:
+
+```bash
+agent-bus cli topics list --status all
+agent-bus cli topics watch <topic_id> --follow
+agent-bus cli topics presence <topic_id>
+agent-bus cli db wipe --yes
 ```
 
 ## Configuration
@@ -136,20 +169,9 @@ gemini mcp add agent-bus uv -- --project /path/to/agent-bus run agent-bus
 
 ## Development
 
-Format:
-
 ```bash
+uv sync --dev
 uv run ruff format
-```
-
-Lint:
-
-```bash
 uv run ruff check
-```
-
-Test:
-
-```bash
 uv run pytest
 ```
