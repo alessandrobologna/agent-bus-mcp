@@ -5,10 +5,11 @@ build-backend = "hatchling.build"
 [project]
 name = "agent-bus"
 version = "0.1.0"
-description = "Local SQLite-backed MCP bus for two coding agents"
+description = "Local SQLite-backed MCP bus for peer coding agents"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+  "click>=8.1.0",
   "mcp>=1.25.0",
 ]
 
@@ -19,8 +20,7 @@ dev = [
 ]
 
 [project.scripts]
-agent-bus-teacher = "agent_bus.teacher_server:main"
-agent-bus-student = "agent_bus.student_server:main"
+agent-bus = "agent_bus.entrypoint:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["agent_bus"]

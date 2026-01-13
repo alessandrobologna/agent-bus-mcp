@@ -7,9 +7,11 @@ __pycache__/
 dist/
 build/
 *.egg-info/
+.DS_Store
+.gemini/
+specs*.md
 
 # Local DB artifacts (if created under repo by tests/dev)
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm
-

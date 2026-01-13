@@ -1,13 +1,8 @@
 {
   "servers": {
-    "agent-bus-student": {
+    "agent-bus": {
       "command": "uv",
-      "args": ["--project", "/Users/alessandro/git/agent-bus", "run", "agent-bus-student"],
-      "type": "stdio"
-    },
-    "agent-bus-teacher": {
-      "command": "uv",
-      "args": ["--project", "/Users/alessandro/git/agent-bus", "run", "agent-bus-teacher"],
+      "args": ["--project", "${workspaceFolder}", "run", "agent-bus"],
       "type": "stdio"
     }
   },

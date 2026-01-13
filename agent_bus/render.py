@@ -1,19 +1,11 @@
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Iterable
+
+from agent_bus.models import Answer
 
 
-def strip_teacher_notes(payload: dict[str, Any] | None) -> dict[str, Any] | None:
-    if payload is None:
-        return None
-    out = dict(payload)
-    out.pop("teacher_notes", None)
-    return out
-
-
-def render_student_answer(
-    *, topic_id: str, answer_markdown: str, suggested_followups: list[str]
-) -> str:
+def render_answer(*, topic_id: str, answer_markdown: str, suggested_followups: list[str]) -> str:
     followups = suggested_followups[:5]
 
     lines: list[str] = []
@@ -32,3 +24,30 @@ def render_student_answer(
     lines.append("NO_FOLLOWUP_NEEDED")
     lines.append("and provide a 3-5 bullet summary of what you learned.")
     return "\n".join(lines).rstrip() + "\n"
+
+
+def render_answers(*, topic_id: str, answers: list[Answer]) -> str:
+    merged_followups: list[str] = []
+    seen: set[str] = set()
+
+    def _iter_followups(a: Answer) -> Iterable[str]:
+        raw = a.payload.get("suggested_followups") or []
+        if not isinstance(raw, list):
+            return []
+        return [f for f in raw if isinstance(f, str)]
+
+    parts: list[str] = []
+    for a in answers:
+        md = str(a.payload.get("answer_markdown", "")).rstrip()
+        parts.append(f"### Answer from {a.answered_by}\n\n{md}".rstrip())
+        for f in _iter_followups(a):
+            if f not in seen:
+                seen.add(f)
+                merged_followups.append(f)
+
+    combined_markdown = "\n\n".join(parts).rstrip()
+    return render_answer(
+        topic_id=topic_id,
+        answer_markdown=combined_markdown,
+        suggested_followups=merged_followups,
+    )

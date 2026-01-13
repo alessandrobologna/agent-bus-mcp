@@ -24,6 +24,13 @@ class Question:
     asked_at: float
     status: str
     cancel_reason: str | None
-    answered_at: float | None
-    answered_by: str | None
-    answer_payload: dict[str, Any] | None
+
+
+@dataclass(frozen=True, slots=True)
+class Answer:
+    answer_id: str
+    topic_id: str
+    question_id: str
+    answered_by: str
+    answered_at: float
+    payload: dict[str, Any]
