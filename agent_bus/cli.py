@@ -346,3 +346,153 @@ def topics_watch(
     except KeyboardInterrupt:
         click.echo()
         click.echo(click.style("Stopped watching.", dim=True))
+
+
+def _format_export_markdown(
+    messages: list[Any],
+    *,
+    include_metadata: bool,
+    topic_name: str,
+    topic_id: str,
+) -> str:
+    """Format messages as markdown for export."""
+    lines: list[str] = []
+    lines.append(f"# {topic_name}")
+    lines.append("")
+    lines.append(f"**Topic ID:** {topic_id}")
+    lines.append(f"**Messages:** {len(messages)}")
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+
+    # Build reply_to lookup for threading context
+    msg_by_id: dict[str, Any] = {m.message_id: m for m in messages}
+
+    for msg in messages:
+        # Header with sender and seq (consistent with Web UI)
+        lines.append(f"### [{msg.seq}] {msg.sender}")
+
+        if include_metadata:
+            ts = datetime.fromtimestamp(msg.created_at).strftime("%Y-%m-%d %H:%M:%S")
+            lines.append(f"*{ts}*")
+
+        # Reply context
+        if msg.reply_to and msg.reply_to in msg_by_id:
+            parent = msg_by_id[msg.reply_to]
+            lines.append(f"*↩︎ reply to {parent.sender} (#{parent.seq})*")
+
+        lines.append("")
+        lines.append(msg.content_markdown)
+        lines.append("")
+        lines.append("---")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+def _format_export_json(messages: list[Any], *, topic_name: str, topic_id: str) -> str:
+    """Format messages as JSON for export."""
+    data = {
+        "topic_id": topic_id,
+        "topic_name": topic_name,
+        "message_count": len(messages),
+        "messages": [
+            {
+                "message_id": m.message_id,
+                "seq": m.seq,
+                "sender": m.sender,
+                "message_type": m.message_type,
+                "reply_to": m.reply_to,
+                "content_markdown": m.content_markdown,
+                "metadata": m.metadata,
+                "created_at": m.created_at,
+            }
+            for m in messages
+        ],
+    }
+    return json.dumps(data, ensure_ascii=False, indent=2)
+
+
+@topics_group.command("export")
+@click.argument("topic_id")
+@click.option(
+    "--format",
+    "-f",
+    "fmt",
+    type=click.Choice(["markdown", "json"], case_sensitive=False),
+    default="markdown",
+    show_default=True,
+    help="Output format.",
+)
+@click.option(
+    "--output",
+    "-o",
+    type=click.Path(),
+    default=None,
+    help="Output file path (default: stdout).",
+)
+@click.option(
+    "--include-metadata",
+    is_flag=True,
+    help="Include timestamps in markdown output.",
+)
+@click.option(
+    "--after-seq",
+    type=int,
+    default=0,
+    help="Export only messages after this sequence number (for delta export).",
+)
+@click.pass_context
+def topics_export(
+    ctx: click.Context,
+    topic_id: str,
+    *,
+    fmt: str,
+    output: str | None,
+    include_metadata: bool,
+    after_seq: int,
+) -> None:
+    """Export all messages from a topic.
+
+    Examples:
+
+        agent-bus cli topics export <topic_id>                    # Markdown to stdout
+        agent-bus cli topics export <topic_id> -f json            # JSON to stdout
+        agent-bus cli topics export <topic_id> -o chat.md         # Save to file
+        agent-bus cli topics export <topic_id> --include-metadata # With timestamps
+        agent-bus cli topics export <topic_id> --after-seq 50     # Delta export
+    """
+    from agent_bus.db import TopicNotFoundError
+
+    db = _db(ctx)
+
+    # Verify topic exists
+    try:
+        topic = db.get_topic(topic_id=topic_id)
+    except TopicNotFoundError:
+        raise click.ClickException(f"Topic not found: {topic_id}") from None
+
+    # Fetch messages (use large limit)
+    messages = db.get_messages(topic_id=topic_id, after_seq=after_seq, limit=100000)
+
+    if not messages:
+        click.echo("No messages to export.", err=True)
+        return
+
+    # Format output
+    if fmt.lower() == "json":
+        content = _format_export_json(messages, topic_name=topic.name, topic_id=topic_id)
+    else:
+        content = _format_export_markdown(
+            messages,
+            include_metadata=include_metadata,
+            topic_name=topic.name,
+            topic_id=topic_id,
+        )
+
+    # Write output
+    if output:
+        Path(output).write_text(content, encoding="utf-8")
+        click.echo(f"Exported {len(messages)} messages to {output}", err=True)
+    else:
+        click.echo(content)
