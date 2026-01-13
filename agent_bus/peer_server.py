@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import time
-from typing import Any, Literal, cast
+from typing import Annotated, Any, Literal, cast
 
 from mcp.server.fastmcp import FastMCP
+from pydantic import Field
 
 from agent_bus.common import (
     ErrorCode,
@@ -234,7 +235,30 @@ def topic_join(
 def sync(
     topic_id: str,
     *,
-    outbox: list[dict[str, Any]] | None = None,
+    outbox: Annotated[
+        list[dict[str, Any]] | None,
+        Field(
+            description=(
+                "Outgoing messages to send. Each item is an object with: "
+                "content_markdown (string, required), message_type (string, optional, default "
+                '"message"), reply_to (string|null), metadata (object|null), client_message_id '
+                "(string|null, optional idempotency key)."
+            ),
+            json_schema_extra={
+                "examples": [
+                    [
+                        {
+                            "content_markdown": "Hello from red-squirrel",
+                            "message_type": "message",
+                            "reply_to": None,
+                            "metadata": {"kind": "greeting"},
+                            "client_message_id": "msg-001",
+                        }
+                    ]
+                ]
+            },
+        ),
+    ] = None,
     max_items: int = 50,
     include_self: bool = False,
     wait_seconds: int = 60,

@@ -162,6 +162,14 @@ Inputs:
 - `auto_advance?: bool = true`
 - `ack_through?: int` (optional; only meaningful when `auto_advance=false`)
 
+OutgoingMessage object (each `outbox` item):
+
+- `content_markdown: string` (required; note: this field name is `content_markdown`, not `content`)
+- `message_type?: string` (optional; default: `"message"`)
+- `reply_to?: string | null` (optional; `message_id` in the same topic)
+- `metadata?: object | null` (optional)
+- `client_message_id?: string | null` (optional; idempotency key per `(topic_id, sender, client_message_id)`)
+
 Cursor semantics:
 
 - The server maintains `cursors.last_seq` for `(topic_id, agent_name)`.

@@ -81,6 +81,7 @@ sync(topic_id="<topic_id>", wait_seconds=60)
 Notes:
 
 - By default `sync(include_self=false)` does not return your own messages.
+- Outbox items use `content_markdown` (not `content`).
 - Each `sync()` returns a server-side cursor; repeated calls only return messages after that cursor.
 
 ## MCP Client Setup
