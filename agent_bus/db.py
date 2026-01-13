@@ -587,7 +587,80 @@ class AgentBusDB:
                         updated_at=updated_at,
                     )
 
+            if cursor.updated_at != updated_at:
+                conn.execute(
+                    """
+                    UPDATE cursors
+                    SET updated_at = ?
+                    WHERE topic_id = ? AND agent_name = ?
+                    """,
+                    (updated_at, topic_id, agent_name),
+                )
+                cursor = Cursor(
+                    topic_id=cursor.topic_id,
+                    agent_name=cursor.agent_name,
+                    last_seq=cursor.last_seq,
+                    updated_at=updated_at,
+                )
+
             return sent, received, cursor, has_more
+
+    def get_presence(
+        self,
+        *,
+        topic_id: str,
+        window_seconds: int = 300,
+        limit: int = 200,
+    ) -> list[Cursor]:
+        """Return cursors active within the given time window (seconds)."""
+        if window_seconds <= 0:
+            raise ValueError("window_seconds must be > 0")
+        if limit <= 0:
+            raise ValueError("limit must be > 0")
+
+        cutoff = now() - window_seconds
+        with self.connect() as conn:
+            existing = conn.execute(
+                "SELECT 1 FROM topics WHERE topic_id = ?",
+                (topic_id,),
+            ).fetchone()
+            if existing is None:
+                raise TopicNotFoundError(topic_id)
+
+            rows = conn.execute(
+                """
+                SELECT topic_id, agent_name, last_seq, updated_at
+                FROM cursors
+                WHERE topic_id = ? AND updated_at >= ?
+                ORDER BY updated_at DESC
+                LIMIT ?
+                """,
+                (topic_id, cutoff, limit),
+            ).fetchall()
+        return [_cursor_from_row(r) for r in rows]
+
+    def get_messages(
+        self,
+        *,
+        topic_id: str,
+        after_seq: int = 0,
+        limit: int = 100,
+    ) -> list[Message]:
+        """Fetch messages from a topic after a given sequence number."""
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                  message_id, topic_id, seq, sender, message_type, reply_to,
+                  content_markdown, metadata_json, client_message_id, created_at
+                FROM messages
+                WHERE topic_id = ? AND seq > ?
+                ORDER BY seq ASC
+                LIMIT ?
+                """,
+                (topic_id, after_seq, limit),
+            ).fetchall()
+        return [_message_from_row(r) for r in rows]
 
 
 def _topic_from_row(row: sqlite3.Row) -> Topic:

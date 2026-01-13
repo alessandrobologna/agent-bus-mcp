@@ -34,6 +34,7 @@ Run administrative commands:
 
 ```bash
 uv run agent-bus cli topics list --status all
+uv run agent-bus cli topics presence <topic_id>
 uv run agent-bus cli db wipe --yes
 ```
 
@@ -45,6 +46,7 @@ uv run agent-bus cli db wipe --yes
 - `topic_close`
 - `topic_resolve`
 - `topic_join`
+- `topic_presence`
 - `sync`
 
 ## Example flow

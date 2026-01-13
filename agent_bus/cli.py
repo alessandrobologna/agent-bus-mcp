@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -141,3 +143,196 @@ def topics_list(ctx: click.Context, *, status: str, limit: int, as_json: bool) -
                 ]
             )
         )
+
+
+@topics_group.command("presence")
+@click.argument("topic_id")
+@click.option(
+    "--window",
+    "window_seconds",
+    type=int,
+    default=300,
+    show_default=True,
+    help="Consider peers active if seen within this many seconds.",
+)
+@click.option("--limit", type=int, default=200, show_default=True)
+@click.option("--json", "as_json", is_flag=True, help="Print JSON instead of text.")
+@click.pass_context
+def topics_presence(
+    ctx: click.Context,
+    topic_id: str,
+    *,
+    window_seconds: int,
+    limit: int,
+    as_json: bool,
+) -> None:
+    """Show peers recently active on a topic."""
+    from agent_bus.db import TopicNotFoundError
+
+    if window_seconds <= 0:
+        raise click.ClickException("window must be > 0")
+    if limit <= 0:
+        raise click.ClickException("limit must be > 0")
+
+    db = _db(ctx)
+    try:
+        topic = db.get_topic(topic_id=topic_id)
+        cursors = db.get_presence(topic_id=topic_id, window_seconds=window_seconds, limit=limit)
+    except TopicNotFoundError:
+        raise click.ClickException(f"Topic not found: {topic_id}") from None
+    except ValueError as e:
+        raise click.ClickException(str(e)) from e
+
+    now_ts = time.time()
+    peers = [
+        {
+            "agent_name": c.agent_name,
+            "last_seq": c.last_seq,
+            "updated_at": c.updated_at,
+            "age_seconds": max(0.0, now_ts - c.updated_at),
+        }
+        for c in cursors
+    ]
+
+    if as_json:
+        click.echo(
+            json.dumps(
+                {
+                    "topic_id": topic_id,
+                    "topic_name": topic.name,
+                    "status": topic.status,
+                    "window_seconds": window_seconds,
+                    "peers": peers,
+                },
+                ensure_ascii=True,
+                sort_keys=True,
+                indent=2,
+            )
+        )
+        return
+
+    click.echo(click.style(f"Topic: {topic.name} ({topic_id})", fg="green", bold=True))
+    click.echo(click.style(f"Status: {topic.status}", dim=True))
+    click.echo(f"Active peers in last {window_seconds}s: {len(peers)}")
+    if not peers:
+        return
+
+    for p in peers:
+        click.echo(f"- {p['agent_name']} last_seq={p['last_seq']} age={p['age_seconds']:.1f}s")
+
+
+# Colors for different senders (cycles through these)
+_SENDER_COLORS = ["cyan", "magenta", "yellow", "green", "blue", "red"]
+_sender_color_map: dict[str, str] = {}
+
+
+def _get_sender_color(sender: str) -> str:
+    """Get a consistent color for a sender."""
+    if sender not in _sender_color_map:
+        _sender_color_map[sender] = _SENDER_COLORS[len(_sender_color_map) % len(_SENDER_COLORS)]
+    return _sender_color_map[sender]
+
+
+def _format_message(msg: Any, *, show_time: bool = True) -> str:
+    """Format a message for display."""
+    color = _get_sender_color(msg.sender)
+    sender_styled = click.style(msg.sender, fg=color, bold=True)
+    seq_styled = click.style(f"[{msg.seq}]", fg="white", dim=True)
+
+    parts = [seq_styled, sender_styled]
+
+    if show_time:
+        ts = datetime.fromtimestamp(msg.created_at).strftime("%H:%M:%S")
+        time_styled = click.style(ts, fg="white", dim=True)
+        parts.append(time_styled)
+
+    # Get first line of content for preview, or full content if short
+    content = msg.content_markdown
+    lines = content.split("\n")
+    preview = lines[0][:80] + " ..." if len(lines) > 1 else content[:100]
+
+    return f"{' '.join(parts)}: {preview}"
+
+
+@topics_group.command("watch")
+@click.argument("topic_id")
+@click.option("--follow", "-f", is_flag=True, help="Wait for new messages (like tail -f).")
+@click.option(
+    "--last", "-n", type=int, default=10, show_default=True, help="Show last N messages initially."
+)
+@click.option("--full", is_flag=True, help="Show full message content instead of preview.")
+@click.pass_context
+def topics_watch(
+    ctx: click.Context,
+    topic_id: str,
+    *,
+    follow: bool,
+    last: int,
+    full: bool,
+) -> None:
+    """Watch messages on a topic in real-time.
+
+    Examples:
+
+        agent-bus cli topics watch <topic_id>          # Show recent messages
+        agent-bus cli topics watch <topic_id> -f       # Follow new messages
+        agent-bus cli topics watch <topic_id> -f -n 0  # Follow, skip history
+    """
+    from agent_bus.db import TopicNotFoundError
+
+    db = _db(ctx)
+
+    # Verify topic exists
+    try:
+        topic = db.get_topic(topic_id=topic_id)
+    except TopicNotFoundError:
+        raise click.ClickException(f"Topic not found: {topic_id}") from None
+
+    click.echo(click.style(f"Watching topic: {topic.name} ({topic_id})", fg="green", bold=True))
+    click.echo(click.style(f"Status: {topic.status}", dim=True))
+    click.echo()
+
+    # Get initial messages
+    # First, get all messages to find the starting point
+    all_msgs = db.get_messages(topic_id=topic_id, after_seq=0, limit=10000)
+
+    if last > 0 and all_msgs:
+        # Show the last N messages
+        recent = all_msgs[-last:] if len(all_msgs) > last else all_msgs
+        for msg in recent:
+            if full:
+                click.echo(_format_message(msg))
+                # Print full content indented
+                for line in msg.content_markdown.split("\n"):
+                    click.echo(click.style(f"    {line}", dim=True))
+            else:
+                click.echo(_format_message(msg))
+
+        last_seq = all_msgs[-1].seq if all_msgs else 0
+    else:
+        last_seq = all_msgs[-1].seq if all_msgs else 0
+
+    if not follow:
+        return
+
+    click.echo()
+    click.echo(click.style("--- Waiting for new messages (Ctrl+C to exit) ---", dim=True))
+    click.echo()
+
+    try:
+        while True:
+            new_msgs = db.get_messages(topic_id=topic_id, after_seq=last_seq, limit=100)
+
+            for msg in new_msgs:
+                if full:
+                    click.echo(_format_message(msg))
+                    for line in msg.content_markdown.split("\n"):
+                        click.echo(click.style(f"    {line}", dim=True))
+                else:
+                    click.echo(_format_message(msg))
+                last_seq = msg.seq
+
+            time.sleep(1.0)
+    except KeyboardInterrupt:
+        click.echo()
+        click.echo(click.style("Stopped watching.", dim=True))

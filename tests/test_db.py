@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+import agent_bus.db as db_mod
 from agent_bus.db import (
     AgentBusDB,
     TopicClosedError,
@@ -225,3 +226,169 @@ def test_sync_once_ack_through_rejects_future_seq(tmp_path):
             auto_advance=False,
             ack_through=999,
         )
+
+
+def test_get_messages_returns_messages_after_seq(tmp_path):
+    """Test that get_messages returns messages after a given sequence number."""
+    db = AgentBusDB(path=str(tmp_path / "bus.sqlite"))
+    t = db.topic_create(name="pink", metadata=None, mode="new")
+
+    # Send 5 messages
+    for i in range(5):
+        db.sync_once(
+            topic_id=t.topic_id,
+            agent_name="a",
+            outbox=[
+                {
+                    "content_markdown": f"message {i + 1}",
+                    "message_type": "message",
+                    "reply_to": None,
+                    "metadata": None,
+                    "client_message_id": None,
+                }
+            ],
+            max_items=50,
+            include_self=True,
+            auto_advance=True,
+            ack_through=None,
+        )
+
+    # Get all messages
+    all_msgs = db.get_messages(topic_id=t.topic_id, after_seq=0)
+    assert len(all_msgs) == 5
+    assert [m.content_markdown for m in all_msgs] == [
+        "message 1",
+        "message 2",
+        "message 3",
+        "message 4",
+        "message 5",
+    ]
+
+    # Get messages after seq 2
+    after_2 = db.get_messages(topic_id=t.topic_id, after_seq=2)
+    assert len(after_2) == 3
+    assert [m.content_markdown for m in after_2] == [
+        "message 3",
+        "message 4",
+        "message 5",
+    ]
+
+    # Get messages with limit
+    limited = db.get_messages(topic_id=t.topic_id, after_seq=0, limit=2)
+    assert len(limited) == 2
+    assert [m.content_markdown for m in limited] == ["message 1", "message 2"]
+
+
+def test_get_presence_returns_active_cursors(tmp_path):
+    """Test that get_presence returns active cursors within the window."""
+    db = AgentBusDB(path=str(tmp_path / "bus.sqlite"))
+    t = db.topic_create(name="pink", metadata=None, mode="new")
+
+    # Sync as agent 'a'
+    db.sync_once(
+        topic_id=t.topic_id,
+        agent_name="a",
+        outbox=[],
+        max_items=50,
+        include_self=False,
+        auto_advance=True,
+        ack_through=None,
+    )
+
+    # Presence should show agent 'a'
+    presence = db.get_presence(topic_id=t.topic_id, window_seconds=300)
+    assert len(presence) == 1
+    assert presence[0].agent_name == "a"
+
+    # Sync as agent 'b'
+    db.sync_once(
+        topic_id=t.topic_id,
+        agent_name="b",
+        outbox=[],
+        max_items=50,
+        include_self=False,
+        auto_advance=True,
+        ack_through=None,
+    )
+
+    # Presence should show both, newest first ('b' then 'a')
+    presence2 = db.get_presence(topic_id=t.topic_id, window_seconds=300)
+    assert len(presence2) == 2
+    assert presence2[0].agent_name == "b"
+    assert presence2[1].agent_name == "a"
+
+
+def test_get_presence_topic_not_found(tmp_path):
+    """Test that get_presence raises TopicNotFoundError for non-existent topics."""
+    db = AgentBusDB(path=str(tmp_path / "bus.sqlite"))
+    with pytest.raises(TopicNotFoundError):
+        db.get_presence(topic_id="ghost123")
+
+
+def test_get_messages_empty_topic(tmp_path):
+    """Test that get_messages returns empty list for topic with no messages."""
+    db = AgentBusDB(path=str(tmp_path / "bus.sqlite"))
+    t = db.topic_create(name="pink", metadata=None, mode="new")
+
+    msgs = db.get_messages(topic_id=t.topic_id, after_seq=0)
+    assert msgs == []
+
+
+def test_sync_once_touches_cursor_timestamp(monkeypatch, tmp_path):
+    times = iter([1000.0, 1001.0, 1002.0])
+    monkeypatch.setattr(db_mod, "now", lambda: next(times))
+
+    db = AgentBusDB(path=str(tmp_path / "bus.sqlite"))
+    t = db.topic_create(name="pink", metadata=None, mode="new")
+
+    _, _, cursor1, _ = db.sync_once(
+        topic_id=t.topic_id,
+        agent_name="a",
+        outbox=[],
+        max_items=50,
+        include_self=False,
+        auto_advance=True,
+        ack_through=None,
+    )
+    _, _, cursor2, _ = db.sync_once(
+        topic_id=t.topic_id,
+        agent_name="a",
+        outbox=[],
+        max_items=50,
+        include_self=False,
+        auto_advance=True,
+        ack_through=None,
+    )
+
+    assert cursor1.updated_at == 1001.0
+    assert cursor2.updated_at == 1002.0
+
+
+def test_get_presence_filters_by_window(monkeypatch, tmp_path):
+    times = iter([1000.0, 1001.0, 1002.0, 1003.0])
+    monkeypatch.setattr(db_mod, "now", lambda: next(times))
+
+    db = AgentBusDB(path=str(tmp_path / "bus.sqlite"))
+    t = db.topic_create(name="pink", metadata=None, mode="new")
+
+    db.sync_once(
+        topic_id=t.topic_id,
+        agent_name="a",
+        outbox=[],
+        max_items=50,
+        include_self=False,
+        auto_advance=True,
+        ack_through=None,
+    )
+    db.sync_once(
+        topic_id=t.topic_id,
+        agent_name="b",
+        outbox=[],
+        max_items=50,
+        include_self=False,
+        auto_advance=True,
+        ack_through=None,
+    )
+
+    active = db.get_presence(topic_id=t.topic_id, window_seconds=1)
+    assert [c.agent_name for c in active] == ["b"]

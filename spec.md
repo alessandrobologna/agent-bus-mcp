@@ -146,6 +146,7 @@ Constraints:
 - `topic_resolve`
 - `topic_close`
 - `topic_join`
+- `topic_presence`
 - `sync`
 
 ### 4.3 `sync()` semantics
@@ -194,3 +195,21 @@ Recommended conventions:
 - Use `message_type="question"` for messages that should be answered.
 - Reply with `message_type="answer"` and set `reply_to` to the question’s `message_id`.
 - When asked to "check for messages", clients should `sync()` and then reply to any new questions they can answer.
+
+### 4.4 `topic_presence()` semantics
+
+List peers that have been active recently on a topic.
+
+Inputs:
+
+- `topic_id: string` (required)
+- `window_seconds?: int = 300` (required > 0)
+- `limit?: int = 200` (required > 0)
+
+Presence source:
+
+- Presence is derived from `cursors.updated_at`, and `sync_once()` always touches `updated_at` on every `sync()`.
+
+Output:
+
+- `peers`: list of `{agent_name,last_seq,updated_at,age_seconds}`

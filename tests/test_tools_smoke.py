@@ -29,6 +29,7 @@ async def test_two_process_smoke(tmp_path):
         a_tool_names = {t.name for t in a_tools.tools}
         assert "topic_create" in a_tool_names
         assert "topic_join" in a_tool_names
+        assert "topic_presence" in a_tool_names
         assert "sync" in a_tool_names
 
         created = await agent_a.call_tool("topic_create", {"name": "pink"})
@@ -79,6 +80,15 @@ async def test_two_process_smoke(tmp_path):
             msg = drained.structuredContent["received"][0]
             assert msg["sender"] == "red-squirrel"
             assert msg["content_markdown"] == "hello"
+
+            presence = await agent_a.call_tool(
+                "topic_presence",
+                {"topic_id": topic_id, "window_seconds": 3600},
+            )
+            assert presence.isError is False
+            peer_names = {p["agent_name"] for p in presence.structuredContent["peers"]}
+            assert "red-squirrel" in peer_names
+            assert "crimson-cat" in peer_names
 
             reply = await agent_b.call_tool(
                 "sync",

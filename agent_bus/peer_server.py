@@ -239,6 +239,64 @@ def topic_join(
     )
 
 
+@mcp.tool(description="List peers recently active on a topic (based on sync cursor activity).")
+def topic_presence(topic_id: str, window_seconds: int = 300, limit: int = 200) -> Any:
+    """List peers recently active on a topic.
+
+    Presence is derived from the `cursors` table. A peer becomes "active" when it calls `sync()`,
+    because `sync_once()` always touches `cursors.updated_at` for that `(topic_id, agent_name)`.
+    """
+    if not isinstance(topic_id, str) or not topic_id:
+        return tool_error(
+            code=ErrorCode.INVALID_ARGUMENT, message="topic_id must be a non-empty string"
+        )
+    if not isinstance(window_seconds, int) or window_seconds <= 0:
+        return tool_error(code=ErrorCode.INVALID_ARGUMENT, message="window_seconds must be > 0")
+    if not isinstance(limit, int) or limit <= 0:
+        return tool_error(code=ErrorCode.INVALID_ARGUMENT, message="limit must be > 0")
+
+    try:
+        cursors = db.get_presence(topic_id=topic_id, window_seconds=window_seconds, limit=limit)
+    except SchemaMismatchError as e:
+        return _schema_mismatch_result(e)
+    except TopicNotFoundError:
+        return tool_error(code=ErrorCode.TOPIC_NOT_FOUND, message="Topic not found.")
+    except DBBusyError:
+        return tool_error(code=ErrorCode.DB_BUSY, message="Database is busy.")
+    except ValueError as e:
+        return tool_error(code=ErrorCode.INVALID_ARGUMENT, message=str(e))
+
+    now_ts = time.time()
+    peers = [
+        {
+            "agent_name": c.agent_name,
+            "last_seq": c.last_seq,
+            "updated_at": c.updated_at,
+            "age_seconds": max(0.0, now_ts - c.updated_at),
+        }
+        for c in cursors
+    ]
+
+    lines = [f"Presence: {len(peers)} active peer(s) in last {window_seconds}s"]
+    for p in peers[:20]:
+        age = p["age_seconds"]
+        lines.append(f"- {p['agent_name']} last_seq={p['last_seq']} age={age:.1f}s")
+    if len(peers) > 20:
+        lines.append(f"... ({len(peers) - 20} more)")
+
+    return tool_ok(
+        text="\n".join(lines),
+        structured={
+            "topic_id": topic_id,
+            "window_seconds": window_seconds,
+            "limit": limit,
+            "now": now_ts,
+            "peers": peers,
+            "count": len(peers),
+        },
+    )
+
+
 @mcp.tool(description="Sync messages on a topic (delta-based, read/write, server-side cursor).")
 def sync(
     topic_id: str,
