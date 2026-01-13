@@ -9,12 +9,11 @@ from pathlib import Path
 from typing import Any, Literal, cast
 
 from agent_bus.common import json_dumps, json_loads, now
-from agent_bus.models import Answer, Question, Topic
+from agent_bus.models import Cursor, Message, Topic
 
 TopicStatus = Literal["open", "closed"]
-QuestionStatus = Literal["pending", "answered", "cancelled"]
 
-SCHEMA_VERSION = "5"
+SCHEMA_VERSION = "6"
 
 
 class DBBusyError(RuntimeError):
@@ -33,24 +32,8 @@ class TopicClosedError(RuntimeError):
     pass
 
 
-class QuestionNotFoundError(RuntimeError):
-    pass
-
-
 class TopicMismatchError(RuntimeError):
     pass
-
-
-class SelfAnswerForbiddenError(RuntimeError):
-    def __init__(self, question_ids: list[str]) -> None:
-        self.question_ids = question_ids
-        super().__init__("Cannot answer own question(s)")
-
-
-class AlreadyAnsweredError(RuntimeError):
-    def __init__(self, question_ids: list[str]) -> None:
-        self.question_ids = question_ids
-        super().__init__("Already answered question(s)")
 
 
 def _default_db_path() -> str:
@@ -140,36 +123,48 @@ class AgentBusDB:
               metadata_json TEXT NULL
             );
 
-            CREATE TABLE IF NOT EXISTS questions (
-              question_id TEXT PRIMARY KEY,
-              topic_id TEXT NOT NULL,
-              asked_by TEXT NOT NULL,
-              question_text TEXT NOT NULL,
-              asked_at REAL NOT NULL,
-              status TEXT NOT NULL,
-              cancel_reason TEXT NULL
+            CREATE TABLE IF NOT EXISTS topic_seq (
+              topic_id TEXT PRIMARY KEY,
+              next_seq INTEGER NOT NULL,
+              updated_at REAL NOT NULL
             );
 
-            CREATE TABLE IF NOT EXISTS answers (
-              answer_id TEXT PRIMARY KEY,
+            CREATE TABLE IF NOT EXISTS messages (
+              message_id TEXT PRIMARY KEY,
               topic_id TEXT NOT NULL,
-              question_id TEXT NOT NULL,
-              answered_by TEXT NOT NULL,
-              answered_at REAL NOT NULL,
-              payload_json TEXT NOT NULL
+              seq INTEGER NOT NULL,
+              sender TEXT NOT NULL,
+              message_type TEXT NOT NULL,
+              reply_to TEXT NULL,
+              content_markdown TEXT NOT NULL,
+              metadata_json TEXT NULL,
+              client_message_id TEXT NULL,
+              created_at REAL NOT NULL
             );
 
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_answers_question_answered_by_unique
-              ON answers(question_id, answered_by);
+            CREATE TABLE IF NOT EXISTS cursors (
+              topic_id TEXT NOT NULL,
+              agent_name TEXT NOT NULL,
+              last_seq INTEGER NOT NULL,
+              updated_at REAL NOT NULL,
+              PRIMARY KEY(topic_id, agent_name)
+            );
 
             CREATE INDEX IF NOT EXISTS idx_topics_name_status_created_at
               ON topics(name, status, created_at);
 
-            CREATE INDEX IF NOT EXISTS idx_questions_topic_status_askedat
-              ON questions(topic_id, status, asked_at);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_topic_seq_unique
+              ON messages(topic_id, seq);
 
-            CREATE INDEX IF NOT EXISTS idx_answers_question_answered_at
-              ON answers(question_id, answered_at);
+            CREATE INDEX IF NOT EXISTS idx_messages_topic_seq
+              ON messages(topic_id, seq);
+
+            CREATE INDEX IF NOT EXISTS idx_messages_topic_reply_to
+              ON messages(topic_id, reply_to);
+
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_topic_sender_client_id_unique
+              ON messages(topic_id, sender, client_message_id)
+              WHERE client_message_id IS NOT NULL;
             """
         )
 
@@ -271,12 +266,10 @@ class AgentBusDB:
                   t.closed_at,
                   t.close_reason,
                   t.metadata_json,
-                  COUNT(q.question_id) AS total_count,
-                  COALESCE(SUM(CASE WHEN q.status = 'pending' THEN 1 ELSE 0 END), 0) AS pending_count,
-                  COALESCE(SUM(CASE WHEN q.status = 'answered' THEN 1 ELSE 0 END), 0) AS answered_count,
-                  COALESCE(SUM(CASE WHEN q.status = 'cancelled' THEN 1 ELSE 0 END), 0) AS cancelled_count
+                  COUNT(m.message_id) AS message_count,
+                  COALESCE(MAX(m.seq), 0) AS last_seq
                 FROM topics t
-                LEFT JOIN questions q ON q.topic_id = t.topic_id
+                LEFT JOIN messages m ON m.topic_id = t.topic_id
                 {where}
                 GROUP BY t.topic_id
                 ORDER BY t.created_at DESC
@@ -301,10 +294,8 @@ class AgentBusDB:
                     "close_reason": r["close_reason"],
                     "metadata": metadata,
                     "counts": {
-                        "total": cast(int, r["total_count"]),
-                        "pending": cast(int, r["pending_count"]),
-                        "answered": cast(int, r["answered_count"]),
-                        "cancelled": cast(int, r["cancelled_count"]),
+                        "messages": cast(int, r["message_count"]),
+                        "last_seq": cast(int, r["last_seq"]),
                     },
                 }
             )
@@ -380,275 +371,223 @@ class AgentBusDB:
                 raise TopicNotFoundError(name)
             return _topic_from_row(row)
 
-    def question_create(self, *, topic_id: str, asked_by: str, question_text: str) -> Question:
-        question_id = new_id()
-        asked_at = now()
+    def sync_once(
+        self,
+        *,
+        topic_id: str,
+        agent_name: str,
+        outbox: list[dict[str, Any]],
+        max_items: int,
+        include_self: bool,
+        auto_advance: bool,
+        ack_through: int | None,
+    ) -> tuple[list[tuple[Message, bool]], list[Message], Cursor, bool]:
+        """Sync once (no long-polling).
+
+        Returns:
+          - sent: list of (message, is_duplicate)
+          - received: messages since cursor (subject to include_self + limit)
+          - cursor: current server-side cursor after any advancement
+          - has_more: whether more messages exist beyond `received`
+        """
+        updated_at = now()
+        created_at = updated_at
+
         with self.connect() as conn, conn:
-            row = conn.execute(
-                """
-                SELECT status
-                FROM topics
-                WHERE topic_id = ?
-                """,
+            topic_row = conn.execute(
+                "SELECT status FROM topics WHERE topic_id = ?",
                 (topic_id,),
             ).fetchone()
-            if row is None:
+            if topic_row is None:
                 raise TopicNotFoundError(topic_id)
-            if row["status"] != "open":
+            if outbox and cast(str, topic_row["status"]) != "open":
                 raise TopicClosedError(topic_id)
 
             conn.execute(
                 """
-                INSERT INTO questions(
-                  question_id, topic_id, asked_by, question_text, asked_at,
-                  status, cancel_reason
-                )
-                VALUES (?, ?, ?, ?, ?, 'pending', NULL)
+                INSERT OR IGNORE INTO cursors(topic_id, agent_name, last_seq, updated_at)
+                VALUES (?, ?, 0, ?)
                 """,
-                (question_id, topic_id, asked_by, question_text, asked_at),
+                (topic_id, agent_name, updated_at),
             )
-
-            return Question(
-                question_id=question_id,
-                topic_id=topic_id,
-                asked_by=asked_by,
-                question_text=question_text,
-                asked_at=asked_at,
-                status="pending",
-                cancel_reason=None,
-            )
-
-    def question_list_answerable(
-        self, *, topic_id: str, limit: int, agent_name: str
-    ) -> list[Question]:
-        with self.connect() as conn:
-            exists = conn.execute(
-                "SELECT 1 FROM topics WHERE topic_id = ?",
-                (topic_id,),
+            cursor_row = conn.execute(
+                """
+                SELECT topic_id, agent_name, last_seq, updated_at
+                FROM cursors
+                WHERE topic_id = ? AND agent_name = ?
+                """,
+                (topic_id, agent_name),
             ).fetchone()
-            if exists is None:
-                raise TopicNotFoundError(topic_id)
-
-            rows = conn.execute(
-                """
-                SELECT
-                  q.question_id,
-                  q.topic_id,
-                  q.asked_by,
-                  q.question_text,
-                  q.asked_at,
-                  q.status,
-                  q.cancel_reason
-                FROM questions q
-                WHERE
-                  q.topic_id = ?
-                  AND q.status = 'pending'
-                  AND q.asked_by <> ?
-                  AND NOT EXISTS (
-                    SELECT 1 FROM answers a
-                    WHERE a.question_id = q.question_id AND a.answered_by = ?
-                  )
-                ORDER BY asked_at ASC
-                LIMIT ?
-                """,
-                (topic_id, agent_name, agent_name, limit),
-            ).fetchall()
-        return [_question_from_row(r) for r in rows]
-
-    def question_get(self, *, question_id: str) -> Question:
-        with self.connect() as conn:
-            row = conn.execute(
-                """
-                SELECT question_id, topic_id, asked_by, question_text, asked_at, status,
-                       cancel_reason
-                FROM questions
-                WHERE question_id = ?
-                """,
-                (question_id,),
-            ).fetchone()
-            if row is None:
-                raise QuestionNotFoundError(question_id)
-            return _question_from_row(row)
-
-    def question_cancel(
-        self, *, topic_id: str, question_id: str, reason: str | None
-    ) -> tuple[Question, bool]:
-        with self.connect() as conn, conn:
-            row = conn.execute(
-                """
-                SELECT question_id, topic_id, asked_by, question_text, asked_at, status,
-                       cancel_reason
-                FROM questions
-                WHERE question_id = ?
-                """,
-                (question_id,),
-            ).fetchone()
-            if row is None:
-                raise QuestionNotFoundError(question_id)
-            q = _question_from_row(row)
-            if q.topic_id != topic_id:
-                raise TopicMismatchError(question_id)
-            if q.status == "answered":
-                raise ValueError("Cannot cancel answered question")
-            if q.status == "cancelled":
-                return q, True
-
-            cancel_reason = reason if reason else None
-            conn.execute(
-                """
-                UPDATE questions
-                SET status = 'cancelled', cancel_reason = ?
-                WHERE question_id = ?
-                """,
-                (cancel_reason, question_id),
-            )
-            updated = Question(
-                question_id=q.question_id,
-                topic_id=q.topic_id,
-                asked_by=q.asked_by,
-                question_text=q.question_text,
-                asked_at=q.asked_at,
-                status="cancelled",
-                cancel_reason=cancel_reason,
-            )
-            return updated, False
-
-    def question_mark_answered(self, *, topic_id: str, question_id: str) -> tuple[Question, bool]:
-        with self.connect() as conn, conn:
-            row = conn.execute(
-                """
-                SELECT question_id, topic_id, asked_by, question_text, asked_at, status,
-                       cancel_reason
-                FROM questions
-                WHERE question_id = ?
-                """,
-                (question_id,),
-            ).fetchone()
-            if row is None:
-                raise QuestionNotFoundError(question_id)
-            q = _question_from_row(row)
-            if q.topic_id != topic_id:
-                raise TopicMismatchError(question_id)
-            if q.status == "cancelled":
-                raise ValueError("Cannot mark cancelled question as answered")
-            if q.status == "answered":
-                return q, True
+            assert cursor_row is not None  # inserted above
+            cursor = _cursor_from_row(cursor_row)
 
             conn.execute(
                 """
-                UPDATE questions
-                SET status = 'answered'
-                WHERE question_id = ? AND topic_id = ? AND status = 'pending'
+                INSERT OR IGNORE INTO topic_seq(topic_id, next_seq, updated_at)
+                VALUES (?, 1, ?)
                 """,
-                (question_id, topic_id),
+                (topic_id, updated_at),
             )
-            updated = Question(
-                question_id=q.question_id,
-                topic_id=q.topic_id,
-                asked_by=q.asked_by,
-                question_text=q.question_text,
-                asked_at=q.asked_at,
-                status="answered",
-                cancel_reason=q.cancel_reason,
-            )
-            return updated, False
-
-    def answer_insert_batch(
-        self,
-        *,
-        topic_id: str,
-        answered_by: str,
-        items: list[tuple[str, dict[str, Any]]],
-    ) -> tuple[int, int]:
-        answered_at = now()
-        if not items:
-            return 0, 0
-
-        question_ids = [qid for qid, _ in items]
-        placeholders = ",".join("?" for _ in question_ids)
-
-        with self.connect() as conn, conn:
-            exists = conn.execute(
-                "SELECT 1 FROM topics WHERE topic_id = ?",
+            next_seq_row = conn.execute(
+                "SELECT next_seq FROM topic_seq WHERE topic_id = ?",
                 (topic_id,),
             ).fetchone()
-            if exists is None:
-                raise TopicNotFoundError(topic_id)
+            assert next_seq_row is not None
+            next_seq = cast(int, next_seq_row["next_seq"])
 
-            rows = conn.execute(
-                f"""
-                SELECT question_id, asked_by, status
-                FROM questions
-                WHERE topic_id = ? AND question_id IN ({placeholders})
-                """,
-                (topic_id, *question_ids),
-            ).fetchall()
+            sent: list[tuple[Message, bool]] = []
+            for item in outbox:
+                client_message_id = item.get("client_message_id")
+                if client_message_id is not None:
+                    existing = conn.execute(
+                        """
+                        SELECT
+                          message_id, topic_id, seq, sender, message_type, reply_to,
+                          content_markdown, metadata_json, client_message_id, created_at
+                        FROM messages
+                        WHERE topic_id = ? AND sender = ? AND client_message_id = ?
+                        """,
+                        (topic_id, agent_name, client_message_id),
+                    ).fetchone()
+                    if existing is not None:
+                        sent.append((_message_from_row(existing), True))
+                        continue
 
-            pending_rows = [r for r in rows if cast(str, r["status"]) == "pending"]
-            pending_ids = [cast(str, r["question_id"]) for r in pending_rows]
+                message_id = new_id()
+                seq = next_seq
+                next_seq += 1
 
-            forbidden = [
-                cast(str, r["question_id"])
-                for r in pending_rows
-                if cast(str, r["asked_by"]) == answered_by
-            ]
-            if forbidden:
-                raise SelfAnswerForbiddenError(forbidden)
+                metadata = item.get("metadata")
+                metadata_json = json_dumps(metadata) if metadata is not None else None
 
-            if pending_ids:
-                pending_placeholders = ",".join("?" for _ in pending_ids)
-                already_rows = conn.execute(
-                    f"""
-                    SELECT question_id
-                    FROM answers
-                    WHERE answered_by = ? AND question_id IN ({pending_placeholders})
-                    """,
-                    (answered_by, *pending_ids),
-                ).fetchall()
-                already = [cast(str, r["question_id"]) for r in already_rows]
-                if already:
-                    raise AlreadyAnsweredError(already)
-
-            pending_by_id = {cast(str, r["question_id"]): r for r in pending_rows}
-
-            saved = 0
-            skipped = 0
-            for question_id, payload in items:
-                row = pending_by_id.get(question_id)
-                if row is None:
-                    skipped += 1
-                    continue
-
-                payload_json = json_dumps(payload)
-                answer_id = new_id()
                 try:
                     conn.execute(
                         """
-                        INSERT INTO answers(
-                          answer_id, topic_id, question_id, answered_by, answered_at, payload_json
+                        INSERT INTO messages(
+                          message_id, topic_id, seq, sender, message_type, reply_to,
+                          content_markdown, metadata_json, client_message_id, created_at
                         )
-                        VALUES (?, ?, ?, ?, ?, ?)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
-                        (answer_id, topic_id, question_id, answered_by, answered_at, payload_json),
+                        (
+                            message_id,
+                            topic_id,
+                            seq,
+                            agent_name,
+                            item["message_type"],
+                            item.get("reply_to"),
+                            item["content_markdown"],
+                            metadata_json,
+                            client_message_id,
+                            created_at,
+                        ),
                     )
-                except sqlite3.IntegrityError as e:
-                    raise AlreadyAnsweredError([question_id]) from e
+                except sqlite3.IntegrityError:
+                    if client_message_id is None:
+                        raise
+                    existing = conn.execute(
+                        """
+                        SELECT
+                          message_id, topic_id, seq, sender, message_type, reply_to,
+                          content_markdown, metadata_json, client_message_id, created_at
+                        FROM messages
+                        WHERE topic_id = ? AND sender = ? AND client_message_id = ?
+                        """,
+                        (topic_id, agent_name, client_message_id),
+                    ).fetchone()
+                    assert existing is not None
+                    sent.append((_message_from_row(existing), True))
+                    continue
 
-                saved += 1
-            return saved, skipped
+                msg = Message(
+                    message_id=message_id,
+                    topic_id=topic_id,
+                    seq=seq,
+                    sender=agent_name,
+                    message_type=item["message_type"],
+                    reply_to=item.get("reply_to"),
+                    content_markdown=item["content_markdown"],
+                    metadata=metadata,
+                    client_message_id=client_message_id,
+                    created_at=created_at,
+                )
+                sent.append((msg, False))
 
-    def answers_list(self, *, question_id: str) -> list[Answer]:
-        with self.connect() as conn:
-            rows = conn.execute(
+            conn.execute(
                 """
-                SELECT answer_id, topic_id, question_id, answered_by, answered_at, payload_json
-                FROM answers
-                WHERE question_id = ?
-                ORDER BY answered_at ASC, answer_id ASC
+                UPDATE topic_seq
+                SET next_seq = ?, updated_at = ?
+                WHERE topic_id = ?
                 """,
-                (question_id,),
+                (next_seq, updated_at, topic_id),
+            )
+
+            if not auto_advance and ack_through is not None:
+                if ack_through < 0:
+                    raise ValueError("ack_through must be >= 0")
+                max_seq = next_seq - 1
+                if ack_through > max_seq:
+                    raise ValueError("ack_through exceeds latest message seq")
+
+                if ack_through > cursor.last_seq:
+                    conn.execute(
+                        """
+                        UPDATE cursors
+                        SET last_seq = ?, updated_at = ?
+                        WHERE topic_id = ? AND agent_name = ?
+                        """,
+                        (ack_through, updated_at, topic_id, agent_name),
+                    )
+                    cursor = Cursor(
+                        topic_id=cursor.topic_id,
+                        agent_name=cursor.agent_name,
+                        last_seq=ack_through,
+                        updated_at=updated_at,
+                    )
+
+            params: list[Any] = [topic_id, cursor.last_seq]
+            where = "topic_id = ? AND seq > ?"
+            if not include_self:
+                where += " AND sender <> ?"
+                params.append(agent_name)
+            params.append(max_items + 1)
+
+            rows = conn.execute(
+                f"""
+                SELECT
+                  message_id, topic_id, seq, sender, message_type, reply_to,
+                  content_markdown, metadata_json, client_message_id, created_at
+                FROM messages
+                WHERE {where}
+                ORDER BY seq ASC
+                LIMIT ?
+                """,
+                tuple(params),
             ).fetchall()
-        return [_answer_from_row(r) for r in rows]
+
+            has_more = len(rows) > max_items
+            visible = rows[:max_items]
+            received = [_message_from_row(r) for r in visible]
+
+            if auto_advance and received:
+                new_last_seq = max(m.seq for m in received)
+                if new_last_seq > cursor.last_seq:
+                    conn.execute(
+                        """
+                        UPDATE cursors
+                        SET last_seq = ?, updated_at = ?
+                        WHERE topic_id = ? AND agent_name = ?
+                        """,
+                        (new_last_seq, updated_at, topic_id, agent_name),
+                    )
+                    cursor = Cursor(
+                        topic_id=cursor.topic_id,
+                        agent_name=cursor.agent_name,
+                        last_seq=new_last_seq,
+                        updated_at=updated_at,
+                    )
+
+            return sent, received, cursor, has_more
 
 
 def _topic_from_row(row: sqlite3.Row) -> Topic:
@@ -665,25 +604,27 @@ def _topic_from_row(row: sqlite3.Row) -> Topic:
     )
 
 
-def _question_from_row(row: sqlite3.Row) -> Question:
-    return Question(
-        question_id=row["question_id"],
+def _message_from_row(row: sqlite3.Row) -> Message:
+    metadata_json = row["metadata_json"]
+    metadata = None if metadata_json is None else cast(dict[str, Any], json_loads(metadata_json))
+    return Message(
+        message_id=row["message_id"],
         topic_id=row["topic_id"],
-        asked_by=row["asked_by"],
-        question_text=row["question_text"],
-        asked_at=row["asked_at"],
-        status=row["status"],
-        cancel_reason=row["cancel_reason"],
+        seq=cast(int, row["seq"]),
+        sender=row["sender"],
+        message_type=row["message_type"],
+        reply_to=row["reply_to"],
+        content_markdown=row["content_markdown"],
+        metadata=metadata,
+        client_message_id=row["client_message_id"],
+        created_at=row["created_at"],
     )
 
 
-def _answer_from_row(row: sqlite3.Row) -> Answer:
-    payload = cast(dict[str, Any], json_loads(cast(str, row["payload_json"])))
-    return Answer(
-        answer_id=row["answer_id"],
+def _cursor_from_row(row: sqlite3.Row) -> Cursor:
+    return Cursor(
         topic_id=row["topic_id"],
-        question_id=row["question_id"],
-        answered_by=row["answered_by"],
-        answered_at=row["answered_at"],
-        payload=payload,
+        agent_name=row["agent_name"],
+        last_seq=cast(int, row["last_seq"]),
+        updated_at=row["updated_at"],
     )

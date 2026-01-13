@@ -89,7 +89,7 @@ def topics_group() -> None:
 @click.option("--json", "as_json", is_flag=True, help="Print JSON instead of a table.")
 @click.pass_context
 def topics_list(ctx: click.Context, *, status: str, limit: int, as_json: bool) -> None:
-    """List topics with question counts."""
+    """List topics with message counts."""
     if limit <= 0:
         raise click.ClickException("limit must be > 0")
 
@@ -105,20 +105,18 @@ def topics_list(ctx: click.Context, *, status: str, limit: int, as_json: bool) -
     if not rows:
         return
 
-    headers = ["topic_id", "name", "status", "total", "pending", "answered", "cancelled"]
+    headers = ["topic_id", "name", "status", "messages", "last_seq"]
     cols = {h: len(h) for h in headers}
     for r in rows:
         cols["topic_id"] = max(cols["topic_id"], len(str(r["topic_id"])))
         cols["name"] = max(cols["name"], len(str(r["name"])))
         cols["status"] = max(cols["status"], len(str(r["status"])))
+        cols["messages"] = max(cols["messages"], len(str(r["counts"]["messages"])))
+        cols["last_seq"] = max(cols["last_seq"], len(str(r["counts"]["last_seq"])))
 
     def _cell(key: str, val: Any) -> str:
         s = str(val)
-        return (
-            s.rjust(cols[key])
-            if key in {"total", "pending", "answered", "cancelled"}
-            else s.ljust(cols[key])
-        )
+        return s.rjust(cols[key]) if key in {"messages", "last_seq"} else s.ljust(cols[key])
 
     click.echo(
         " ".join(
@@ -126,10 +124,8 @@ def topics_list(ctx: click.Context, *, status: str, limit: int, as_json: bool) -
                 _cell("topic_id", "topic_id"),
                 _cell("name", "name"),
                 _cell("status", "status"),
-                _cell("total", "total"),
-                _cell("pending", "pending"),
-                _cell("answered", "answered"),
-                _cell("cancelled", "cancelled"),
+                _cell("messages", "messages"),
+                _cell("last_seq", "last_seq"),
             ]
         )
     )
@@ -140,10 +136,8 @@ def topics_list(ctx: click.Context, *, status: str, limit: int, as_json: bool) -
                     _cell("topic_id", r["topic_id"]),
                     _cell("name", r["name"]),
                     _cell("status", r["status"]),
-                    _cell("total", r["counts"]["total"]),
-                    _cell("pending", r["counts"]["pending"]),
-                    _cell("answered", r["counts"]["answered"]),
-                    _cell("cancelled", r["counts"]["cancelled"]),
+                    _cell("messages", r["counts"]["messages"]),
+                    _cell("last_seq", r["counts"]["last_seq"]),
                 ]
             )
         )

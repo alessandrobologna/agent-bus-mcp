@@ -14,11 +14,11 @@ def _bin(name: str) -> str:
 
 
 @pytest.mark.anyio
-async def test_peer_ask_max_question_length_validation(tmp_path):
+async def test_sync_max_message_length_validation(tmp_path):
     env = {
         **os.environ,
         "AGENT_BUS_DB": str(tmp_path / "bus.sqlite"),
-        "AGENT_BUS_MAX_QUESTION_CHARS": "3",
+        "AGENT_BUS_MAX_MESSAGE_CHARS": "3",
     }
     peer_server = StdioServerParameters(command=_bin("agent-bus"), env=env)
 
@@ -32,8 +32,12 @@ async def test_peer_ask_max_question_length_validation(tmp_path):
         await peer.call_tool("topic_join", {"agent_name": "a", "topic_id": topic_id})
 
         res = await peer.call_tool(
-            "ask",
-            {"topic_id": topic_id, "question": "hello", "wait_seconds": 0},
+            "sync",
+            {
+                "topic_id": topic_id,
+                "outbox": [{"content_markdown": "hello", "message_type": "message"}],
+                "wait_seconds": 0,
+            },
         )
         assert res.isError is True
         assert res.structuredContent["error"]["code"] == "INVALID_ARGUMENT"

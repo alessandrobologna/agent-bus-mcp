@@ -16,21 +16,22 @@ class Topic:
 
 
 @dataclass(frozen=True, slots=True)
-class Question:
-    question_id: str
+class Message:
+    message_id: str
     topic_id: str
-    asked_by: str
-    question_text: str
-    asked_at: float
-    status: str
-    cancel_reason: str | None
+    seq: int
+    sender: str
+    message_type: str
+    reply_to: str | None
+    content_markdown: str
+    metadata: dict[str, Any] | None
+    client_message_id: str | None
+    created_at: float
 
 
 @dataclass(frozen=True, slots=True)
-class Answer:
-    answer_id: str
+class Cursor:
     topic_id: str
-    question_id: str
-    answered_by: str
-    answered_at: float
-    payload: dict[str, Any]
+    agent_name: str
+    last_seq: int
+    updated_at: float

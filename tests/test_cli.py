@@ -16,17 +16,47 @@ def test_cli_topics_list_json_includes_counts(tmp_path: Path) -> None:
     t1 = db.topic_create(name="pink", metadata=None, mode="new")
     t2 = db.topic_create(name="blue", metadata=None, mode="new")
 
-    q1 = db.question_create(topic_id=t1.topic_id, asked_by="a", question_text="q1")
-    q2 = db.question_create(topic_id=t1.topic_id, asked_by="a", question_text="q2")
-    db.question_create(topic_id=t2.topic_id, asked_by="a", question_text="q3")
-
-    db.answer_insert_batch(
+    db.sync_once(
         topic_id=t1.topic_id,
-        answered_by="b",
-        items=[(q1.question_id, {"answer_markdown": "a", "suggested_followups": ["x"]})],
+        agent_name="a",
+        outbox=[
+            {
+                "content_markdown": "m1",
+                "message_type": "message",
+                "reply_to": None,
+                "metadata": None,
+                "client_message_id": None,
+            },
+            {
+                "content_markdown": "m2",
+                "message_type": "message",
+                "reply_to": None,
+                "metadata": None,
+                "client_message_id": None,
+            },
+        ],
+        max_items=50,
+        include_self=False,
+        auto_advance=True,
+        ack_through=None,
     )
-    db.question_mark_answered(topic_id=t1.topic_id, question_id=q1.question_id)
-    db.question_cancel(topic_id=t1.topic_id, question_id=q2.question_id, reason="nvm")
+    db.sync_once(
+        topic_id=t2.topic_id,
+        agent_name="a",
+        outbox=[
+            {
+                "content_markdown": "m3",
+                "message_type": "message",
+                "reply_to": None,
+                "metadata": None,
+                "client_message_id": None,
+            }
+        ],
+        max_items=50,
+        include_self=False,
+        auto_advance=True,
+        ack_through=None,
+    )
 
     runner = CliRunner()
     res = runner.invoke(
@@ -39,24 +69,19 @@ def test_cli_topics_list_json_includes_counts(tmp_path: Path) -> None:
     topics = {t["name"]: t for t in payload["topics"]}
 
     assert topics["pink"]["counts"] == {
-        "total": 2,
-        "pending": 0,
-        "answered": 1,
-        "cancelled": 1,
+        "messages": 2,
+        "last_seq": 2,
     }
     assert topics["blue"]["counts"] == {
-        "total": 1,
-        "pending": 1,
-        "answered": 0,
-        "cancelled": 0,
+        "messages": 1,
+        "last_seq": 1,
     }
 
 
 def test_cli_db_wipe_deletes_db_file(tmp_path: Path) -> None:
     db_path = tmp_path / "bus.sqlite"
     db = AgentBusDB(path=str(db_path))
-    t = db.topic_create(name="pink", metadata=None, mode="new")
-    db.question_create(topic_id=t.topic_id, asked_by="a", question_text="q1")
+    db.topic_create(name="pink", metadata=None, mode="new")
 
     assert db_path.exists()
 

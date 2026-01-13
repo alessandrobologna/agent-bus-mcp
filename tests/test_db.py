@@ -1,10 +1,9 @@
 from __future__ import annotations
 
+import pytest
+
 from agent_bus.db import (
     AgentBusDB,
-    AlreadyAnsweredError,
-    QuestionNotFoundError,
-    SelfAnswerForbiddenError,
     TopicClosedError,
     TopicNotFoundError,
 )
@@ -57,141 +56,172 @@ def test_topic_close_idempotent(tmp_path):
     assert closed2.close_reason == "first"
 
 
-def test_question_create_topic_closed(tmp_path):
+def test_sync_once_write_rejects_closed_topic(tmp_path):
     db = AgentBusDB(path=str(tmp_path / "bus.sqlite"))
     t = db.topic_create(name="pink", metadata=None, mode="new")
     db.topic_close(topic_id=t.topic_id, reason=None)
 
-    try:
-        db.question_create(topic_id=t.topic_id, asked_by="a", question_text="hi")
-    except TopicClosedError:
-        pass
-    else:  # pragma: no cover
-        raise AssertionError("expected TopicClosedError")
-
-
-def test_question_list_answerable_excludes_cancelled_and_already_answered(tmp_path):
-    db = AgentBusDB(path=str(tmp_path / "bus.sqlite"))
-    t = db.topic_create(name="pink", metadata=None, mode="new")
-
-    q1 = db.question_create(topic_id=t.topic_id, asked_by="a", question_text="q1")
-    q2 = db.question_create(topic_id=t.topic_id, asked_by="a", question_text="q2")
-
-    db.question_cancel(topic_id=t.topic_id, question_id=q1.question_id, reason="nvm")
-
-    db.answer_insert_batch(
-        topic_id=t.topic_id,
-        answered_by="b",
-        items=[(q2.question_id, {"answer_markdown": "hi", "suggested_followups": ["x"]})],
-    )
-
-    pending_b = db.question_list_answerable(topic_id=t.topic_id, limit=20, agent_name="b")
-    assert [q.question_id for q in pending_b] == []
-
-    pending_c = db.question_list_answerable(topic_id=t.topic_id, limit=20, agent_name="c")
-    assert [q.question_id for q in pending_c] == [q2.question_id]
-
-
-def test_answer_insert_batch_inserts_answer(tmp_path):
-    db = AgentBusDB(path=str(tmp_path / "bus.sqlite"))
-    t = db.topic_create(name="pink", metadata=None, mode="new")
-    q = db.question_create(topic_id=t.topic_id, asked_by="a", question_text="q1")
-
-    saved, skipped = db.answer_insert_batch(
-        topic_id=t.topic_id,
-        answered_by="b",
-        items=[(q.question_id, {"answer_markdown": "hi", "suggested_followups": ["x"]})],
-    )
-    assert (saved, skipped) == (1, 0)
-
-    q2 = db.question_get(question_id=q.question_id)
-    assert q2.status == "pending"
-
-    answers = db.answers_list(question_id=q.question_id)
-    assert len(answers) == 1
-    assert answers[0].answered_by == "b"
-    assert answers[0].payload["answer_markdown"] == "hi"
-
-
-def test_answer_insert_batch_forbids_self_answer(tmp_path):
-    db = AgentBusDB(path=str(tmp_path / "bus.sqlite"))
-    t = db.topic_create(name="pink", metadata=None, mode="new")
-    q1 = db.question_create(topic_id=t.topic_id, asked_by="a", question_text="q1")
-    q2 = db.question_create(topic_id=t.topic_id, asked_by="a", question_text="q2")
-
-    try:
-        db.answer_insert_batch(
+    with pytest.raises(TopicClosedError):
+        db.sync_once(
             topic_id=t.topic_id,
-            answered_by="a",
-            items=[
-                (q1.question_id, {"answer_markdown": "nope", "suggested_followups": ["x"]}),
-                (q2.question_id, {"answer_markdown": "nope", "suggested_followups": ["x"]}),
+            agent_name="a",
+            outbox=[
+                {
+                    "content_markdown": "hi",
+                    "message_type": "message",
+                    "reply_to": None,
+                    "metadata": None,
+                    "client_message_id": None,
+                }
             ],
+            max_items=50,
+            include_self=False,
+            auto_advance=True,
+            ack_through=None,
         )
-    except SelfAnswerForbiddenError as e:
-        assert set(e.question_ids) == {q1.question_id, q2.question_id}
-    else:  # pragma: no cover
-        raise AssertionError("expected SelfAnswerForbiddenError")
+
+    sent, received, cursor, has_more = db.sync_once(
+        topic_id=t.topic_id,
+        agent_name="a",
+        outbox=[],
+        max_items=50,
+        include_self=False,
+        auto_advance=True,
+        ack_through=None,
+    )
+    assert sent == []
+    assert received == []
+    assert cursor.topic_id == t.topic_id
+    assert has_more is False
 
 
-def test_answer_insert_batch_forbids_duplicate_answers_by_same_agent(tmp_path):
+def test_sync_once_send_and_receive(tmp_path):
     db = AgentBusDB(path=str(tmp_path / "bus.sqlite"))
     t = db.topic_create(name="pink", metadata=None, mode="new")
-    q = db.question_create(topic_id=t.topic_id, asked_by="a", question_text="q1")
 
-    db.answer_insert_batch(
+    outbox = [
+        {
+            "content_markdown": "hello",
+            "message_type": "message",
+            "reply_to": None,
+            "metadata": {"k": "v"},
+            "client_message_id": None,
+        }
+    ]
+    sent, received_a, cursor_a, has_more_a = db.sync_once(
         topic_id=t.topic_id,
-        answered_by="b",
-        items=[(q.question_id, {"answer_markdown": "hi", "suggested_followups": ["x"]})],
+        agent_name="a",
+        outbox=outbox,
+        max_items=50,
+        include_self=False,
+        auto_advance=True,
+        ack_through=None,
+    )
+    assert len(sent) == 1
+    assert sent[0][1] is False
+    assert received_a == []
+    assert cursor_a.last_seq == 0
+    assert has_more_a is False
+
+    sent_b, received_b, cursor_b, has_more_b = db.sync_once(
+        topic_id=t.topic_id,
+        agent_name="b",
+        outbox=[],
+        max_items=50,
+        include_self=False,
+        auto_advance=True,
+        ack_through=None,
+    )
+    assert sent_b == []
+    assert has_more_b is False
+    assert [m.content_markdown for m in received_b] == ["hello"]
+    assert received_b[0].sender == "a"
+    assert cursor_b.last_seq == received_b[0].seq
+
+    _, received_b2, cursor_b2, has_more_b2 = db.sync_once(
+        topic_id=t.topic_id,
+        agent_name="b",
+        outbox=[],
+        max_items=50,
+        include_self=False,
+        auto_advance=True,
+        ack_through=None,
+    )
+    assert received_b2 == []
+    assert has_more_b2 is False
+    assert cursor_b2.last_seq == cursor_b.last_seq
+
+
+def test_sync_once_client_message_id_is_idempotent(tmp_path):
+    db = AgentBusDB(path=str(tmp_path / "bus.sqlite"))
+    t = db.topic_create(name="pink", metadata=None, mode="new")
+
+    outbox = [
+        {
+            "content_markdown": "hello",
+            "message_type": "message",
+            "reply_to": None,
+            "metadata": None,
+            "client_message_id": "msg-1",
+        }
+    ]
+
+    sent1, _, _, _ = db.sync_once(
+        topic_id=t.topic_id,
+        agent_name="a",
+        outbox=outbox,
+        max_items=50,
+        include_self=False,
+        auto_advance=True,
+        ack_through=None,
+    )
+    sent2, _, _, _ = db.sync_once(
+        topic_id=t.topic_id,
+        agent_name="a",
+        outbox=outbox,
+        max_items=50,
+        include_self=False,
+        auto_advance=True,
+        ack_through=None,
     )
 
-    try:
-        db.answer_insert_batch(
+    assert len(sent1) == 1
+    assert len(sent2) == 1
+    assert sent1[0][1] is False
+    assert sent2[0][1] is True
+    assert sent1[0][0].message_id == sent2[0][0].message_id
+    assert sent1[0][0].seq == sent2[0][0].seq
+
+
+def test_sync_once_ack_through_rejects_future_seq(tmp_path):
+    db = AgentBusDB(path=str(tmp_path / "bus.sqlite"))
+    t = db.topic_create(name="pink", metadata=None, mode="new")
+
+    db.sync_once(
+        topic_id=t.topic_id,
+        agent_name="a",
+        outbox=[
+            {
+                "content_markdown": "hello",
+                "message_type": "message",
+                "reply_to": None,
+                "metadata": None,
+                "client_message_id": None,
+            }
+        ],
+        max_items=50,
+        include_self=True,
+        auto_advance=True,
+        ack_through=None,
+    )
+
+    with pytest.raises(ValueError, match="exceeds latest message seq"):
+        db.sync_once(
             topic_id=t.topic_id,
-            answered_by="b",
-            items=[(q.question_id, {"answer_markdown": "again", "suggested_followups": ["y"]})],
+            agent_name="b",
+            outbox=[],
+            max_items=50,
+            include_self=False,
+            auto_advance=False,
+            ack_through=999,
         )
-    except AlreadyAnsweredError as e:
-        assert e.question_ids == [q.question_id]
-    else:  # pragma: no cover
-        raise AssertionError("expected AlreadyAnsweredError")
-
-
-def test_question_mark_answered_idempotent(tmp_path):
-    db = AgentBusDB(path=str(tmp_path / "bus.sqlite"))
-    t = db.topic_create(name="pink", metadata=None, mode="new")
-    q = db.question_create(topic_id=t.topic_id, asked_by="a", question_text="q1")
-
-    q1, already1 = db.question_mark_answered(topic_id=t.topic_id, question_id=q.question_id)
-    assert already1 is False
-    assert q1.status == "answered"
-
-    q2, already2 = db.question_mark_answered(topic_id=t.topic_id, question_id=q.question_id)
-    assert already2 is True
-    assert q2.status == "answered"
-
-
-def test_question_mark_answered_rejects_cancelled(tmp_path):
-    db = AgentBusDB(path=str(tmp_path / "bus.sqlite"))
-    t = db.topic_create(name="pink", metadata=None, mode="new")
-    q = db.question_create(topic_id=t.topic_id, asked_by="a", question_text="q1")
-
-    db.question_cancel(topic_id=t.topic_id, question_id=q.question_id, reason=None)
-    try:
-        db.question_mark_answered(topic_id=t.topic_id, question_id=q.question_id)
-    except ValueError:
-        pass
-    else:  # pragma: no cover
-        raise AssertionError("expected ValueError")
-
-
-def test_question_cancel_missing_raises(tmp_path):
-    db = AgentBusDB(path=str(tmp_path / "bus.sqlite"))
-    t = db.topic_create(name="pink", metadata=None, mode="new")
-
-    try:
-        db.question_cancel(topic_id=t.topic_id, question_id="missing", reason=None)
-    except QuestionNotFoundError:
-        pass
-    else:  # pragma: no cover
-        raise AssertionError("expected QuestionNotFoundError")
