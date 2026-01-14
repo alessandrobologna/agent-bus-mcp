@@ -37,7 +37,7 @@
                 <span class="text-xs opacity-40">#{{ msg.message.seq }}</span>
                 <span class="text-xs opacity-40">{{ msg.age }}</span>
                 {% if msg.message.message_type != 'message' %}
-                <span class="sender-badge bg-base-300 text-base-content/60 border-base-content/20">{{ msg.message.message_type|upper }}</span>
+                <span class="badge badge-sm badge-outline opacity-60">{{ msg.message.message_type|upper }}</span>
                 {% endif %}
                 {% if msg.message.reply_to %}
                 <span class="flex items-center gap-1 text-xs opacity-40">
