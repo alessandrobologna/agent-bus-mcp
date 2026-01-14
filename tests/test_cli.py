@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 from click.testing import CliRunner
 
 from agent_bus.cli import cli
@@ -311,3 +312,37 @@ def test_cli_topics_presence_json(tmp_path: Path) -> None:
     assert payload["topic_id"] == t.topic_id
     assert payload["window_seconds"] == 300
     assert payload["peers"][0]["agent_name"] == "alice"
+
+
+def test_cli_topics_rename(tmp_path: Path) -> None:
+    db_path = str(tmp_path / "bus.sqlite")
+    db = AgentBusDB(path=db_path)
+    t = db.topic_create(name="old", metadata=None, mode="new")
+
+    runner = CliRunner()
+    res = runner.invoke(
+        cli,
+        ["--db-path", db_path, "topics", "rename", t.topic_id, "new-name"],
+    )
+    assert res.exit_code == 0, res.output
+
+    updated = db.get_topic(topic_id=t.topic_id)
+    assert updated.name == "new-name"
+
+
+def test_cli_topics_delete(tmp_path: Path) -> None:
+    db_path = str(tmp_path / "bus.sqlite")
+    db = AgentBusDB(path=db_path)
+    t = db.topic_create(name="to-delete", metadata=None, mode="new")
+
+    runner = CliRunner()
+    res = runner.invoke(
+        cli,
+        ["--db-path", db_path, "topics", "delete", t.topic_id, "--yes"],
+    )
+    assert res.exit_code == 0, res.output
+
+    from agent_bus.db import TopicNotFoundError
+
+    with pytest.raises(TopicNotFoundError):
+        db.get_topic(topic_id=t.topic_id)

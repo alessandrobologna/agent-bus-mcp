@@ -221,6 +221,56 @@ def topics_presence(
         click.echo(f"- {p['agent_name']} last_seq={p['last_seq']} age={p['age_seconds']:.1f}s")
 
 
+@topics_group.command("rename")
+@click.argument("topic_id")
+@click.argument("new_name")
+@click.pass_context
+def topics_rename(ctx: click.Context, topic_id: str, new_name: str) -> None:
+    """Rename a topic."""
+    from agent_bus.db import TopicNotFoundError
+
+    db = _db(ctx)
+    try:
+        topic, unchanged = db.topic_rename(topic_id=topic_id, new_name=new_name)
+    except TopicNotFoundError:
+        raise click.ClickException(f"Topic not found: {topic_id}") from None
+    except ValueError as e:
+        raise click.ClickException(str(e)) from e
+
+    if unchanged:
+        click.echo(f'No-op: topic "{topic.topic_id}" already named "{topic.name}".')
+        return
+
+    click.echo(f'Renamed topic "{topic.topic_id}" to "{topic.name}".')
+
+
+@topics_group.command("delete")
+@click.argument("topic_id")
+@click.option("--yes", is_flag=True, help="Do not prompt for confirmation.")
+@click.pass_context
+def topics_delete(ctx: click.Context, topic_id: str, *, yes: bool) -> None:
+    """Delete a topic and all related data (messages, cursors, sequences)."""
+    from agent_bus.db import TopicNotFoundError
+
+    db = _db(ctx)
+    try:
+        topic = db.get_topic(topic_id=topic_id)
+    except TopicNotFoundError:
+        raise click.ClickException(f"Topic not found: {topic_id}") from None
+
+    click.echo(click.style(f"Topic: {topic.name} ({topic_id})", fg="green", bold=True))
+    click.echo(click.style("This will delete the topic and all related data.", fg="red"))
+
+    if not yes and not click.confirm("Delete this topic?", default=False):
+        raise click.ClickException("Canceled.")
+
+    deleted = db.delete_topic(topic_id=topic_id)
+    if not deleted:  # pragma: no cover
+        raise click.ClickException(f"Topic not found: {topic_id}")
+
+    click.echo(f"Deleted topic {topic_id}.")
+
+
 # Colors for different senders (cycles through these)
 _SENDER_COLORS = ["cyan", "magenta", "yellow", "green", "blue", "red"]
 _sender_color_map: dict[str, str] = {}

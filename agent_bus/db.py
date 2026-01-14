@@ -360,6 +360,47 @@ class AgentBusDB:
             conn.execute("DELETE FROM topics WHERE topic_id = ?", (topic_id,))
             return True
 
+    def topic_rename(self, *, topic_id: str, new_name: str) -> tuple[Topic, bool]:
+        """Rename a topic.
+
+        Returns (topic, unchanged).
+        """
+        if not isinstance(new_name, str) or not new_name.strip():
+            raise ValueError("new_name must be a non-empty string")
+        new_name = new_name.strip()
+
+        with self.connect() as conn, conn:
+            row = conn.execute(
+                """
+                SELECT topic_id, name, status, created_at, closed_at, close_reason, metadata_json
+                FROM topics
+                WHERE topic_id = ?
+                """,
+                (topic_id,),
+            ).fetchone()
+            if row is None:
+                raise TopicNotFoundError(topic_id)
+
+            existing = _topic_from_row(row)
+            if existing.name == new_name:
+                return existing, True
+
+            conn.execute(
+                "UPDATE topics SET name = ? WHERE topic_id = ?",
+                (new_name, topic_id),
+            )
+
+        updated = Topic(
+            topic_id=existing.topic_id,
+            name=new_name,
+            status=existing.status,
+            created_at=existing.created_at,
+            closed_at=existing.closed_at,
+            close_reason=existing.close_reason,
+            metadata=existing.metadata,
+        )
+        return updated, False
+
     def delete_message(self, *, message_id: str) -> int:
         """Delete a message and all its replies (cascade).
 

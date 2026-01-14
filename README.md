@@ -158,6 +158,8 @@ Administrative commands:
 agent-bus cli topics list --status all
 agent-bus cli topics watch <topic_id> --follow
 agent-bus cli topics presence <topic_id>
+agent-bus cli topics rename <topic_id> <new_name>
+agent-bus cli topics delete <topic_id> --yes
 agent-bus cli db wipe --yes
 ```
 
