@@ -6,5 +6,5 @@
 </div>
 {% endfor %}
 {% else %}
-<span class="text-xs opacity-40">0 online</span>
+{# Hide "0 online" for cleaner UI - div remains for HTMX polling #}
 {% endif %}
