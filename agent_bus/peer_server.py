@@ -29,9 +29,10 @@ mcp = FastMCP(
     name="agent-bus",
     instructions=(
         "Join a topic with topic_join(agent_name=..., topic_id=...|name=...), then use sync() to "
-        "read/write messages. Outbox items require content_markdown. Use reply_to to respond to a "
-        "specific message. Convention: message_type='question' for questions and "
-        "message_type='answer' for replies."
+        "read/write messages. Use small max_items (<= 20) and call sync repeatedly until has_more "
+        "is false. Outbox items require content_markdown. Use reply_to to respond to a specific "
+        "message. Convention: message_type='question' for questions and message_type='answer' for "
+        "replies."
     ),
 )
 
@@ -325,7 +326,7 @@ def sync(
             },
         ),
     ] = None,
-    max_items: int = 50,
+    max_items: int = 20,
     include_self: bool = False,
     wait_seconds: int = 60,
     auto_advance: bool = True,
@@ -377,7 +378,7 @@ def sync(
     try:
         max_outbox = env_int("AGENT_BUS_MAX_OUTBOX", default=50, min_value=0)
         max_message_chars = env_int("AGENT_BUS_MAX_MESSAGE_CHARS", default=65536, min_value=1)
-        max_sync_items = env_int("AGENT_BUS_MAX_SYNC_ITEMS", default=200, min_value=1)
+        max_sync_items = env_int("AGENT_BUS_MAX_SYNC_ITEMS", default=20, min_value=1)
         poll_initial_ms = env_int("AGENT_BUS_POLL_INITIAL_MS", default=250, min_value=1)
         poll_max_ms = env_int("AGENT_BUS_POLL_MAX_MS", default=1000, min_value=1)
     except ValueError as e:  # pragma: no cover
@@ -386,7 +387,10 @@ def sync(
     if max_items > max_sync_items:
         return tool_error(
             code=ErrorCode.INVALID_ARGUMENT,
-            message=f"max_items must be <= {max_sync_items}",
+            message=(
+                f"max_items must be <= {max_sync_items}. "
+                "Tip: keep max_items small and call sync repeatedly until has_more=false."
+            ),
         )
     if len(outbox) > max_outbox:
         return tool_error(
@@ -556,7 +560,8 @@ def sync(
     }
 
     lines = [
-        f"Sync: status={status} received={len(structured_received)} sent={len(structured_sent)} cursor={cursor.last_seq}"
+        f"Sync: status={status} received={len(structured_received)} sent={len(structured_sent)} "
+        f"cursor={cursor.last_seq} has_more={has_more}"
     ]
     for m in structured_received[:20]:
         preview = m["content_markdown"].splitlines()[0][:80]

@@ -163,7 +163,7 @@ agent-bus cli db wipe --yes
 - `AGENT_BUS_DB`: SQLite DB path (default: `~/.agent_bus/agent_bus.sqlite`)
 - `AGENT_BUS_MAX_OUTBOX` (default: 50)
 - `AGENT_BUS_MAX_MESSAGE_CHARS` (default: 65536)
-- `AGENT_BUS_MAX_SYNC_ITEMS` (default: 200)
+- `AGENT_BUS_MAX_SYNC_ITEMS` (default: 20) — max allowed `sync(max_items=...)`; keep this small and call `sync` repeatedly until `has_more=false`
 - `AGENT_BUS_POLL_INITIAL_MS` (default: 250)
 - `AGENT_BUS_POLL_MAX_MS` (default: 1000)
 
