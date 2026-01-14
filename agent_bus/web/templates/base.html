@@ -13,15 +13,37 @@
     <script src="https://unpkg.com/htmx.org@2.0.4"></script>
 
     <!-- Marked.js for markdown rendering -->
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked@15.0.12/marked.min.js"></script>
+
+    <!-- Highlight.js for syntax highlighting -->
+    <link id="hljs-theme-dark" rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css" disabled>
+    <link id="hljs-theme-light" rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github.min.css" disabled>
+    <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
+
+    <!-- DOMPurify for HTML sanitization -->
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
 
     <!-- Theme detection -->
     <script>
-        const theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-        document.documentElement.setAttribute('data-theme', theme);
-        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
-            document.documentElement.setAttribute('data-theme', e.matches ? 'dark' : 'light');
-        });
+        function setTheme(theme) {
+            document.documentElement.setAttribute('data-theme', theme);
+
+            const darkTheme = document.getElementById('hljs-theme-dark');
+            const lightTheme = document.getElementById('hljs-theme-light');
+            if (darkTheme && lightTheme) {
+                darkTheme.disabled = theme !== 'dark';
+                lightTheme.disabled = theme === 'dark';
+            }
+        }
+
+        function toggleTheme() {
+            const t = document.documentElement.getAttribute('data-theme');
+            setTheme(t === 'dark' ? 'light' : 'dark');
+        }
+
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)');
+        setTheme(prefersDark.matches ? 'dark' : 'light');
+        prefersDark.addEventListener('change', e => setTheme(e.matches ? 'dark' : 'light'));
     </script>
 
     <style>
@@ -119,6 +141,20 @@
             gfm: true,
         });
 
+        // Highlight fenced code blocks (best-effort).
+        function highlightCode(container) {
+            if (typeof hljs === 'undefined') return;
+
+            const blocks = (container || document).querySelectorAll(
+                '.markdown-content pre code:not([data-highlighted])'
+            );
+            blocks.forEach(block => {
+                try {
+                    hljs.highlightElement(block);
+                } catch (e) {}
+            });
+        }
+
         // Render markdown in all .markdown-content elements
         function renderMarkdown(container) {
             const elements = (container || document).querySelectorAll(
@@ -127,10 +163,13 @@
             elements.forEach(el => {
                 const raw = el.getAttribute('data-raw');
                 if (raw !== null) {
-                    el.innerHTML = marked.parse(raw);
+                    // Parse markdown and sanitize HTML to prevent XSS
+                    const html = marked.parse(raw);
+                    el.innerHTML = DOMPurify.sanitize(html);
                     el.setAttribute('data-rendered', 'true');
                 }
             });
+            highlightCode(container);
         }
 
         // Toggle between rendered and source view
@@ -181,7 +220,7 @@
             <div class="flex items-center gap-2">
                 {% block header_actions %}{% endblock %}
                 <button
-                    onclick="const t = document.documentElement.getAttribute('data-theme'); document.documentElement.setAttribute('data-theme', t === 'dark' ? 'light' : 'dark');"
+                    onclick="toggleTheme()"
                     class="btn btn-xs btn-ghost"
                     title="Toggle theme"
                 >
