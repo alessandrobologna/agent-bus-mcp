@@ -23,6 +23,126 @@
     <!-- DOMPurify for HTML sanitization -->
     <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
 
+    <!-- Mermaid.js for diagram rendering (lazy-loaded) -->
+    <script>
+        let mermaidLoaded = false;
+        let mermaidLoadPromise = null;
+
+        function loadMermaid() {
+            if (mermaidLoadPromise) return mermaidLoadPromise;
+            mermaidLoadPromise = new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = 'https://cdn.jsdelivr.net/npm/mermaid@10.9.3/dist/mermaid.min.js';
+                script.onload = () => {
+                    mermaidLoaded = true;
+                    initMermaid();
+                    resolve();
+                };
+                script.onerror = (e) => {
+                    mermaidLoadPromise = null;
+                    reject(e);
+                };
+                document.head.appendChild(script);
+            });
+            return mermaidLoadPromise;
+        }
+
+        function getMermaidTheme() {
+            const theme = document.documentElement.getAttribute('data-theme');
+            return theme === 'dark' ? 'dark' : 'default';
+        }
+
+        function initMermaid() {
+            if (typeof mermaid === 'undefined') return;
+            mermaid.initialize({
+                startOnLoad: false,
+                theme: getMermaidTheme(),
+                securityLevel: 'strict',
+                flowchart: { htmlLabels: false },
+                sequence: { useMaxWidth: true },
+            });
+        }
+
+        async function renderMermaidBlocks(container) {
+            try {
+                const blocks = (container || document).querySelectorAll(
+                    '.markdown-content pre code.language-mermaid:not([data-mermaid-processed])'
+                );
+                if (blocks.length === 0) return;
+
+                // Lazy-load mermaid if needed
+                if (!mermaidLoaded) {
+                    try {
+                        await loadMermaid();
+                    } catch (e) {
+                        console.warn('Mermaid load error:', e);
+                        return;
+                    }
+                }
+
+                blocks.forEach((block) => {
+                    const pre = block.parentElement;
+                    if (!pre) return;
+
+                    block.setAttribute('data-mermaid-processed', 'true');
+                    const source = block.textContent || '';
+
+                    // Create container with source stored for theme re-rendering
+                    const wrapper = document.createElement('div');
+                    wrapper.className = 'mermaid-wrapper';
+                    wrapper.setAttribute('data-mermaid-source', source);
+
+                    const diagramDiv = document.createElement('div');
+                    diagramDiv.className = 'mermaid';
+                    diagramDiv.textContent = source;
+                    wrapper.appendChild(diagramDiv);
+
+                    pre.replaceWith(wrapper);
+                });
+
+                // Render all mermaid diagrams
+                try {
+                    await mermaid.run();
+                } catch (e) {
+                    console.warn('Mermaid render error:', e);
+                }
+            } catch (e) {
+                console.warn('Mermaid processing error:', e);
+            }
+        }
+
+        async function reRenderAllMermaid() {
+            if (!mermaidLoaded) return;
+            try {
+                // Re-init with new theme
+                initMermaid();
+
+                // Find all mermaid wrappers and re-render
+                const wrappers = document.querySelectorAll(
+                    '.mermaid-wrapper[data-mermaid-source]'
+                );
+                if (wrappers.length === 0) return;
+
+                wrappers.forEach((wrapper) => {
+                    const source = wrapper.getAttribute('data-mermaid-source') || '';
+                    wrapper.innerHTML = '';
+                    const diagramDiv = document.createElement('div');
+                    diagramDiv.className = 'mermaid';
+                    diagramDiv.textContent = source;
+                    wrapper.appendChild(diagramDiv);
+                });
+
+                try {
+                    await mermaid.run();
+                } catch (e) {
+                    console.warn('Mermaid re-render error:', e);
+                }
+            } catch (e) {
+                console.warn('Mermaid re-render processing error:', e);
+            }
+        }
+    </script>
+
     <!-- Theme (system + user override) + hljs theme sync -->
     <script>
         const THEME_STORAGE_KEY = 'agent_bus_theme';
@@ -55,6 +175,9 @@
 
             const toggle = document.getElementById('theme-toggle');
             if (toggle) toggle.checked = theme === 'dark';
+
+            // Re-render mermaid diagrams with new theme
+            reRenderAllMermaid();
 
             if (persist) {
                 try {
@@ -172,6 +295,20 @@
             white-space: pre-wrap;
             word-break: break-word;
         }
+
+        /* Mermaid diagrams */
+        .mermaid-wrapper {
+            margin: 0.5rem 0;
+            padding: 1rem;
+            background: hsl(var(--bc) / 0.03);
+            border: 1px solid hsl(var(--bc) / 0.1);
+            border-radius: 6px;
+            overflow-x: auto;
+        }
+        .mermaid-wrapper svg {
+            max-width: 100%;
+            height: auto;
+        }
     </style>
 
     <script>
@@ -210,6 +347,7 @@
                 }
             });
             highlightCode(container);
+            renderMermaidBlocks(container);
         }
 
         // Toggle between rendered and source view
