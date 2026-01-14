@@ -219,47 +219,171 @@
             });
         }
 
+        function openTopicsDrawer() {
+            const drawer = document.getElementById('topics-drawer');
+            if (drawer) drawer.checked = true;
+        }
+
+        function closeTopicsDrawer() {
+            const drawer = document.getElementById('topics-drawer');
+            if (drawer) drawer.checked = false;
+        }
+
+        function focusTopicSearch() {
+            const search = document.getElementById('topic-search');
+            if (!search) return;
+            openTopicsDrawer();
+            search.focus();
+            search.select();
+        }
+
+        function filterTopics() {
+            const search = document.getElementById('topic-search');
+            const query = (search?.value || '').trim().toLowerCase();
+            document.querySelectorAll('[data-topic-row]').forEach(row => {
+                const hay = (row.getAttribute('data-topic-hay') || '').toLowerCase();
+                const visible = query === '' || hay.includes(query);
+                row.classList.toggle('hidden', !visible);
+            });
+        }
+
         // Initial render on page load
-        document.addEventListener('DOMContentLoaded', () => renderMarkdown());
+        document.addEventListener('DOMContentLoaded', () => {
+            renderMarkdown();
+            const search = document.getElementById('topic-search');
+            if (search) {
+                search.addEventListener('input', filterTopics);
+            }
+        });
+
+        document.addEventListener('keydown', (e) => {
+            const key = e.key.toLowerCase();
+            if (key === 'k' && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                focusTopicSearch();
+            }
+            if (key === 'escape') {
+                closeTopicsDrawer();
+            }
+        });
 
         // Re-render after HTMX swaps in new content
         document.addEventListener('htmx:afterSwap', (e) => renderMarkdown(e.detail.target));
     </script>
 </head>
-<body class="font-mono text-xs antialiased h-full">
-    <div class="flex flex-col h-screen bg-base-100">
-        <!-- Header -->
-        <div class="flex items-center justify-between px-3 py-1.5 bg-base-200 border-b border-base-300">
-            <div class="flex items-center gap-3">
-                <a href="/" class="font-semibold text-sm hover:opacity-80">AGENT BUS</a>
-                <div class="divider divider-horizontal m-0 h-4"></div>
-                {% block header_nav %}{% endblock %}
+<body class="font-mono text-xs antialiased">
+    <div class="drawer lg:drawer-open h-screen bg-base-100">
+        <input id="topics-drawer" type="checkbox" class="drawer-toggle" />
+
+        <div class="drawer-content flex flex-col h-screen">
+            <!-- Header -->
+            <div class="flex items-center justify-between px-3 py-1.5 bg-base-200 border-b border-base-300">
+                <div class="flex items-center gap-2 min-w-0">
+                    <label
+                        for="topics-drawer"
+                        class="btn btn-xs btn-ghost lg:hidden"
+                        title="Toggle topics sidebar"
+                    >
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+                        </svg>
+                    </label>
+                    <a href="/" class="font-semibold text-sm hover:opacity-80 lg:hidden">AGENT BUS</a>
+                    <div class="divider divider-horizontal m-0 h-4"></div>
+                    {% block header_nav %}{% endblock %}
+                </div>
+                <div class="flex items-center gap-2">
+                    {% block header_actions %}{% endblock %}
+                    <button
+                        onclick="toggleTheme()"
+                        class="btn btn-xs btn-ghost"
+                        title="Toggle theme"
+                    >
+                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                        </svg>
+                    </button>
+                </div>
             </div>
-            <div class="flex items-center gap-2">
-                {% block header_actions %}{% endblock %}
-                <button
-                    onclick="toggleTheme()"
-                    class="btn btn-xs btn-ghost"
-                    title="Toggle theme"
-                >
-                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
-                    </svg>
-                </button>
+
+            <!-- Main content -->
+            <div class="flex-1 overflow-auto">
+                {% block content %}{% endblock %}
+            </div>
+
+            <!-- Status bar -->
+            <div class="flex items-center justify-between px-3 py-1 bg-base-300 border-t border-base-content/10 text-xs">
+                <div class="flex items-center gap-4">
+                    {% block status_left %}{% endblock %}
+                </div>
+                <div class="opacity-60">agent-bus v0.1.0</div>
             </div>
         </div>
 
-        <!-- Main content -->
-        <div class="flex-1 overflow-auto">
-            {% block content %}{% endblock %}
-        </div>
+        <div class="drawer-side">
+            <label for="topics-drawer" aria-label="close sidebar" class="drawer-overlay"></label>
+            <aside class="bg-base-200 min-h-full w-80 border-r border-base-content/10 p-3">
+                <div class="flex items-center justify-between px-1">
+                    <a href="/" class="font-semibold text-sm hover:opacity-80">AGENT BUS</a>
+                    {% if topics is defined %}
+                    <span class="text-xs opacity-60">{{ topics|length }} topic{% if topics|length != 1 %}s{% endif %}</span>
+                    {% endif %}
+                </div>
 
-        <!-- Status bar -->
-        <div class="flex items-center justify-between px-3 py-1 bg-base-300 border-t border-base-content/10 text-xs">
-            <div class="flex items-center gap-4">
-                {% block status_left %}{% endblock %}
-            </div>
-            <div class="opacity-60">agent-bus v0.1.0</div>
+                <div class="mt-3">
+                    <label class="input input-sm flex items-center gap-2">
+                        <svg class="h-[1em] opacity-50" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M10 2a8 8 0 105.293 14.293l4.707 4.707 1.414-1.414-4.707-4.707A8 8 0 0010 2zm0 2a6 6 0 110 12 6 6 0 010-12z"/>
+                        </svg>
+                        <input id="topic-search" type="search" class="grow" placeholder="Search topics" autocomplete="off" />
+                        <kbd class="kbd kbd-xs">⌘</kbd>
+                        <kbd class="kbd kbd-xs">K</kbd>
+                    </label>
+                </div>
+
+                <div class="mt-3 space-y-1">
+                    {% if topics is defined and topics %}
+                        {% for t in topics %}
+                        <div
+                            class="topic-row group flex items-center justify-between rounded px-2 py-1 hover:bg-base-300/40"
+                            data-topic-row
+                            data-topic-hay="{{ t.name }} {{ t.topic_id }}"
+                        >
+                            <a
+                                href="/topics/{{ t.topic_id }}"
+                                class="flex items-center gap-2 min-w-0 flex-1 {% if active_topic_id is defined and t.topic_id == active_topic_id %}text-primary font-semibold{% endif %}"
+                            >
+                                <svg class="w-4 h-4 opacity-60 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    {% if t.status == 'open' %}
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                                    {% else %}
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9a2 2 0 00-2 2v5a2 2 0 01-2 2z" />
+                                    {% endif %}
+                                </svg>
+                                <span class="truncate">{{ t.name }}</span>
+                            </a>
+                            <div class="flex items-center gap-1 flex-shrink-0">
+                                <span class="text-xs opacity-50 w-6 text-right">{{ t.counts.messages }}</span>
+                                <button
+                                    class="btn btn-xs btn-ghost opacity-0 group-hover:opacity-60 hover:opacity-100 hover:text-error"
+                                    hx-delete="/topics/{{ t.topic_id }}"
+                                    hx-confirm="Delete topic '{{ t.name }}'? This will delete all messages and cannot be undone."
+                                    hx-target="closest .topic-row"
+                                    hx-swap="outerHTML"
+                                    title="Delete topic"
+                                >
+                                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    {% else %}
+                        <div class="opacity-60 text-xs px-2 py-2">No topics yet.</div>
+                    {% endif %}
+                </div>
+            </aside>
         </div>
     </div>
 </body>

@@ -59,6 +59,14 @@ def format_age(timestamp: float) -> str:
     return f"{int(age / 86400)}d ago"
 
 
+def sidebar_topics(db: AgentBusDB) -> list[dict[str, Any]]:
+    topics = db.topic_list_with_counts(status="all", limit=100)
+    for topic in topics:
+        if topic.get("created_at"):
+            topic["age"] = format_age(topic["created_at"])
+    return topics
+
+
 # Register template filters
 @app.on_event("startup")
 async def setup_template_filters() -> None:
@@ -71,18 +79,14 @@ async def setup_template_filters() -> None:
 async def topics_list(request: Request) -> Any:
     """Show list of topics."""
     db = get_db()
-    topics = db.topic_list_with_counts(status="all", limit=100)
-
-    # Add formatted age to each topic
-    for topic in topics:
-        if topic.get("created_at"):
-            topic["age"] = format_age(topic["created_at"])
+    topics = sidebar_topics(db)
 
     return templates.TemplateResponse(
         "topics/list.html",
         {
             "request": request,
             "topics": topics,
+            "active_topic_id": None,
             "now": time.time(),
         },
     )
@@ -98,6 +102,7 @@ async def topic_detail(request: Request, topic_id: str) -> Any:
     except TopicNotFoundError:
         raise HTTPException(status_code=404, detail="Topic not found") from None
 
+    topics = sidebar_topics(db)
     messages = db.get_messages(topic_id=topic_id, after_seq=0, limit=1000)
     presence = db.get_presence(topic_id=topic_id, window_seconds=300)
 
@@ -121,6 +126,8 @@ async def topic_detail(request: Request, topic_id: str) -> Any:
         "topics/detail.html",
         {
             "request": request,
+            "topics": topics,
+            "active_topic_id": topic_id,
             "topic": topic,
             "all_messages": all_messages,
             "message_count": len(messages),
