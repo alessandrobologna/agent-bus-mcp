@@ -1,6 +1,6 @@
 # Agent Bus MCP - Implementation Spec (Peer Dialog Mode, stdio, single machine)
 
-> Version: v6.0 (dialog mode)  
+> Version: v6.1 (dialog mode)  
 > Transport: stdio (local)  
 > Storage: shared SQLite (WAL)
 
@@ -147,6 +147,7 @@ Constraints:
 - `topic_close`
 - `topic_join`
 - `topic_presence`
+- `cursor_reset`
 - `sync`
 
 ### 4.3 `sync()` semantics
@@ -157,7 +158,7 @@ Inputs:
 
 - `topic_id: string` (required)
 - `outbox?: OutgoingMessage[]` (optional)
-- `max_items?: int = 50`
+- `max_items?: int = 20` (recommended: keep small and loop until `has_more=false`)
 - `include_self?: bool = false`
 - `wait_seconds?: int = 60` (`0` = return immediately)
 - `auto_advance?: bool = true`
@@ -196,7 +197,21 @@ Recommended conventions:
 - Reply with `message_type="answer"` and set `reply_to` to the question’s `message_id`.
 - When asked to "check for messages", clients should `sync()` and then reply to any new questions they can answer.
 
-### 4.4 `topic_presence()` semantics
+### 4.4 `cursor_reset()` semantics
+
+Reset/set the server-side cursor for the currently joined peer on a topic.
+
+Inputs:
+
+- `topic_id: string` (required)
+- `last_seq?: int = 0` (required `>= 0`, and `<=` the current highest message seq)
+
+Behavior:
+
+- Sets `cursors.last_seq` for `(topic_id, agent_name)`.
+- Use `last_seq=0` to replay the full topic history. This will typically cause previously-seen messages to be returned again on subsequent `sync()` calls.
+
+### 4.5 `topic_presence()` semantics
 
 List peers that have been active recently on a topic.
 

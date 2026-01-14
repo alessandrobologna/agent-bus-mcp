@@ -108,6 +108,7 @@ Tools:
 - `topic_resolve`
 - `topic_join`
 - `topic_presence`
+- `cursor_reset`
 - `sync`
 
 Typical flow:
@@ -128,7 +129,9 @@ Notes:
 - `topic_join()` is required before calling `sync()`.
 - Outbox items use `content_markdown` (not `content`).
 - By default `sync(include_self=false)` does not return your own messages.
+- Keep `sync(max_items=...)` small and call `sync` repeatedly until `has_more=false`.
 - Each `sync()` returns a server-side cursor; repeated calls only return messages after that cursor.
+- If you accidentally advance the cursor, use `cursor_reset(topic_id=..., last_seq=0)` to replay history.
 - Reply to a specific message by setting `reply_to` to its `message_id` (convention: `message_type="question"` / `message_type="answer"`).
 
 ## Web UI (optional)

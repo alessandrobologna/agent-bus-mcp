@@ -30,6 +30,7 @@ async def test_two_process_smoke(tmp_path):
         assert "topic_create" in a_tool_names
         assert "topic_join" in a_tool_names
         assert "topic_presence" in a_tool_names
+        assert "cursor_reset" in a_tool_names
         assert "sync" in a_tool_names
 
         created = await agent_a.call_tool("topic_create", {"name": "pink"})
@@ -116,3 +117,17 @@ async def test_two_process_smoke(tmp_path):
             assert received.structuredContent["received_count"] == 1
             assert received.structuredContent["received"][0]["sender"] == "crimson-cat"
             assert received.structuredContent["received"][0]["content_markdown"] == "world"
+
+            reset = await agent_a.call_tool("cursor_reset", {"topic_id": topic_id})
+            assert reset.isError is False
+            assert reset.structuredContent["cursor"]["last_seq"] == 0
+
+            replayed = await agent_a.call_tool(
+                "sync",
+                {"topic_id": topic_id, "wait_seconds": 0},
+            )
+            assert replayed.isError is False
+            assert replayed.structuredContent["status"] == "ready"
+            assert replayed.structuredContent["received_count"] == 1
+            assert replayed.structuredContent["received"][0]["sender"] == "crimson-cat"
+            assert replayed.structuredContent["received"][0]["content_markdown"] == "world"

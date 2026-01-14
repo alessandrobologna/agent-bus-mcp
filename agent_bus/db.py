@@ -709,6 +709,52 @@ class AgentBusDB:
 
             return sent, received, cursor, has_more
 
+    def cursor_set(self, *, topic_id: str, agent_name: str, last_seq: int) -> Cursor:
+        """Set the server-side cursor for a peer on a topic."""
+        if last_seq < 0:
+            raise ValueError("last_seq must be >= 0")
+
+        updated_at = now()
+        with self.connect() as conn, conn:
+            existing = conn.execute(
+                "SELECT 1 FROM topics WHERE topic_id = ?",
+                (topic_id,),
+            ).fetchone()
+            if existing is None:
+                raise TopicNotFoundError(topic_id)
+
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO cursors(topic_id, agent_name, last_seq, updated_at)
+                VALUES (?, ?, 0, ?)
+                """,
+                (topic_id, agent_name, updated_at),
+            )
+
+            seq_row = conn.execute(
+                "SELECT next_seq FROM topic_seq WHERE topic_id = ?",
+                (topic_id,),
+            ).fetchone()
+            max_seq = max(0, cast(int, seq_row["next_seq"]) - 1) if seq_row else 0
+            if last_seq > max_seq:
+                raise ValueError("last_seq exceeds latest message seq")
+
+            conn.execute(
+                """
+                UPDATE cursors
+                SET last_seq = ?, updated_at = ?
+                WHERE topic_id = ? AND agent_name = ?
+                """,
+                (last_seq, updated_at, topic_id, agent_name),
+            )
+
+        return Cursor(
+            topic_id=topic_id,
+            agent_name=agent_name,
+            last_seq=last_seq,
+            updated_at=updated_at,
+        )
+
     def get_presence(
         self,
         *,

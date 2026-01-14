@@ -22,7 +22,7 @@ from agent_bus.db import (
     TopicNotFoundError,
 )
 
-SPEC_VERSION = "v6.0"
+SPEC_VERSION = "v6.1"
 
 db = AgentBusDB()
 mcp = FastMCP(
@@ -30,9 +30,9 @@ mcp = FastMCP(
     instructions=(
         "Join a topic with topic_join(agent_name=..., topic_id=...|name=...), then use sync() to "
         "read/write messages. Use small max_items (<= 20) and call sync repeatedly until has_more "
-        "is false. Outbox items require content_markdown. Use reply_to to respond to a specific "
-        "message. Convention: message_type='question' for questions and message_type='answer' for "
-        "replies."
+        "is false. If you need to replay history, call cursor_reset(topic_id=..., last_seq=0). "
+        "Outbox items require content_markdown. Use reply_to to respond to a specific message. "
+        "Convention: message_type='question' for questions and message_type='answer' for replies."
     ),
 )
 
@@ -294,6 +294,48 @@ def topic_presence(topic_id: str, window_seconds: int = 300, limit: int = 200) -
             "now": now_ts,
             "peers": peers,
             "count": len(peers),
+        },
+    )
+
+
+@mcp.tool(description="Reset/set the server-side cursor for the joined peer on a topic.")
+def cursor_reset(topic_id: str, *, last_seq: int = 0) -> Any:
+    """Reset/set the server-side cursor for this peer on a topic.
+
+    Set last_seq=0 to replay the full history.
+    """
+    if not isinstance(topic_id, str) or not topic_id:
+        return tool_error(
+            code=ErrorCode.INVALID_ARGUMENT, message="topic_id must be a non-empty string"
+        )
+
+    agent_name = _agent_name_for_topic(topic_id)
+    if agent_name is None:
+        return tool_error(
+            code=ErrorCode.AGENT_NOT_JOINED,
+            message="Not joined to topic. Call topic_join() first.",
+        )
+
+    if not isinstance(last_seq, int) or last_seq < 0:
+        return tool_error(code=ErrorCode.INVALID_ARGUMENT, message="last_seq must be an int >= 0")
+
+    try:
+        cursor = db.cursor_set(topic_id=topic_id, agent_name=agent_name, last_seq=last_seq)
+    except SchemaMismatchError as e:
+        return _schema_mismatch_result(e)
+    except TopicNotFoundError:
+        return tool_error(code=ErrorCode.TOPIC_NOT_FOUND, message="Topic not found.")
+    except DBBusyError:
+        return tool_error(code=ErrorCode.DB_BUSY, message="Database is busy.")
+    except ValueError as e:
+        return tool_error(code=ErrorCode.INVALID_ARGUMENT, message=str(e))
+
+    return tool_ok(
+        text=f'Cursor set: topic_id="{topic_id}" agent_name="{agent_name}" last_seq={cursor.last_seq}',
+        structured={
+            "topic_id": topic_id,
+            "agent_name": agent_name,
+            "cursor": {"last_seq": cursor.last_seq, "updated_at": cursor.updated_at},
         },
     )
 
