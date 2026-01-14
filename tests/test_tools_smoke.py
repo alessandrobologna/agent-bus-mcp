@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sys
 from pathlib import Path
@@ -78,9 +79,43 @@ async def test_two_process_smoke(tmp_path):
             assert drained.isError is False
             assert drained.structuredContent["status"] == "ready"
             assert drained.structuredContent["received_count"] == 1
-            msg = drained.structuredContent["received"][0]
-            assert msg["sender"] == "red-squirrel"
-            assert msg["content_markdown"] == "hello"
+            msg_hello = drained.structuredContent["received"][0]
+            assert msg_hello["sender"] == "red-squirrel"
+            assert msg_hello["content_markdown"] == "hello"
+
+            # Compat: some clients accidentally pass outbox as a JSON-encoded string.
+            sent_json_string = await agent_a.call_tool(
+                "sync",
+                {
+                    "topic_id": topic_id,
+                    "outbox": json.dumps(
+                        [{"content_markdown": "hello-json", "message_type": "message"}]
+                    ),
+                    "wait_seconds": 0,
+                },
+            )
+            assert sent_json_string.isError is False
+            assert sent_json_string.structuredContent["sent"][0]["duplicate"] is False
+            assert (
+                sent_json_string.structuredContent["sent"][0]["message"]["content_markdown"]
+                == "hello-json"
+            )
+
+            drained_json_string = await agent_b.call_tool(
+                "sync",
+                {"topic_id": topic_id, "wait_seconds": 0},
+            )
+            assert drained_json_string.isError is False
+            assert drained_json_string.structuredContent["received_count"] == 1
+            msg_hello_json = drained_json_string.structuredContent["received"][0]
+            assert msg_hello_json["sender"] == "red-squirrel"
+            assert msg_hello_json["content_markdown"] == "hello-json"
+
+            invalid_json_outbox = await agent_a.call_tool(
+                "sync",
+                {"topic_id": topic_id, "outbox": "not json", "wait_seconds": 0},
+            )
+            assert invalid_json_outbox.isError is True
 
             presence = await agent_a.call_tool(
                 "topic_presence",
@@ -99,7 +134,7 @@ async def test_two_process_smoke(tmp_path):
                         {
                             "content_markdown": "world",
                             "message_type": "message",
-                            "reply_to": msg["message_id"],
+                            "reply_to": msg_hello["message_id"],
                         }
                     ],
                     "wait_seconds": 0,

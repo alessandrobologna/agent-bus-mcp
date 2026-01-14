@@ -11,6 +11,7 @@ from agent_bus.common import (
     ToolWarning,
     WarningCode,
     env_int,
+    json_loads,
     tool_error,
     tool_ok,
 )
@@ -32,7 +33,8 @@ mcp = FastMCP(
         "read/write messages. Use small max_items (<= 20) and call sync repeatedly until has_more "
         "is false. If you need to replay history, call cursor_reset(topic_id=..., last_seq=0). "
         "Outbox items require content_markdown. Use reply_to to respond to a specific message. "
-        "Convention: message_type='question' for questions and message_type='answer' for replies."
+        "Convention: message_type='question' for questions and message_type='answer' for replies. "
+        "Tip: use client_message_id to make retries idempotent."
     ),
 )
 
@@ -345,7 +347,7 @@ def sync(
     topic_id: str,
     *,
     outbox: Annotated[
-        list[dict[str, Any]] | None,
+        list[dict[str, Any]] | dict[str, Any] | str | None,
         Field(
             description=(
                 "Outgoing messages to send. Each item is an object with: "
@@ -392,6 +394,19 @@ def sync(
 
     if outbox is None:
         outbox = []
+    elif isinstance(outbox, str):
+        try:
+            outbox = json_loads(outbox.strip())
+        except Exception:
+            return tool_error(
+                code=ErrorCode.INVALID_ARGUMENT,
+                message=(
+                    "outbox must be a list of objects. You passed a string; pass an array "
+                    "directly (no quotes), or pass valid JSON."
+                ),
+            )
+    elif isinstance(outbox, dict):
+        outbox = [outbox]
     if not isinstance(outbox, list):
         return tool_error(code=ErrorCode.INVALID_ARGUMENT, message="outbox must be a list")
 
