@@ -360,10 +360,19 @@ class AgentBusDB:
             conn.execute("DELETE FROM topics WHERE topic_id = ?", (topic_id,))
             return True
 
-    def topic_rename(self, *, topic_id: str, new_name: str) -> tuple[Topic, bool]:
+    def topic_rename(
+        self,
+        *,
+        topic_id: str,
+        new_name: str,
+        rewrite_messages: bool = True,
+    ) -> tuple[Topic, bool, int]:
         """Rename a topic.
 
-        Returns (topic, unchanged).
+        Optionally rewrites message content by replacing occurrences of the old topic name with
+        the new one.
+
+        Returns (topic, unchanged, rewritten_messages).
         """
         if not isinstance(new_name, str) or not new_name.strip():
             raise ValueError("new_name must be a non-empty string")
@@ -383,12 +392,37 @@ class AgentBusDB:
 
             existing = _topic_from_row(row)
             if existing.name == new_name:
-                return existing, True
+                return existing, True, 0
 
             conn.execute(
                 "UPDATE topics SET name = ? WHERE topic_id = ?",
                 (new_name, topic_id),
             )
+
+            rewritten = 0
+            if rewrite_messages:
+                old_name = existing.name
+                if old_name:
+                    rewritten = cast(
+                        int,
+                        conn.execute(
+                            """
+                            SELECT COUNT(1) AS n
+                            FROM messages
+                            WHERE topic_id = ? AND instr(content_markdown, ?) > 0
+                            """,
+                            (topic_id, old_name),
+                        ).fetchone()["n"],
+                    )
+                    if rewritten:
+                        conn.execute(
+                            """
+                            UPDATE messages
+                            SET content_markdown = replace(content_markdown, ?, ?)
+                            WHERE topic_id = ? AND instr(content_markdown, ?) > 0
+                            """,
+                            (old_name, new_name, topic_id, old_name),
+                        )
 
         updated = Topic(
             topic_id=existing.topic_id,
@@ -399,7 +433,7 @@ class AgentBusDB:
             close_reason=existing.close_reason,
             metadata=existing.metadata,
         )
-        return updated, False
+        return updated, False, rewritten
 
     def delete_message(self, *, message_id: str) -> int:
         """Delete a message and all its replies (cascade).

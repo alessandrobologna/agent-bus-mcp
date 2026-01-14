@@ -224,14 +224,30 @@ def topics_presence(
 @topics_group.command("rename")
 @click.argument("topic_id")
 @click.argument("new_name")
+@click.option(
+    "--rewrite-messages/--no-rewrite-messages",
+    default=True,
+    show_default=True,
+    help="Also rewrite message content by replacing old topic name with the new one.",
+)
 @click.pass_context
-def topics_rename(ctx: click.Context, topic_id: str, new_name: str) -> None:
+def topics_rename(
+    ctx: click.Context,
+    topic_id: str,
+    new_name: str,
+    *,
+    rewrite_messages: bool,
+) -> None:
     """Rename a topic."""
     from agent_bus.db import TopicNotFoundError
 
     db = _db(ctx)
     try:
-        topic, unchanged = db.topic_rename(topic_id=topic_id, new_name=new_name)
+        topic, unchanged, rewritten = db.topic_rename(
+            topic_id=topic_id,
+            new_name=new_name,
+            rewrite_messages=rewrite_messages,
+        )
     except TopicNotFoundError:
         raise click.ClickException(f"Topic not found: {topic_id}") from None
     except ValueError as e:
@@ -241,7 +257,8 @@ def topics_rename(ctx: click.Context, topic_id: str, new_name: str) -> None:
         click.echo(f'No-op: topic "{topic.topic_id}" already named "{topic.name}".')
         return
 
-    click.echo(f'Renamed topic "{topic.topic_id}" to "{topic.name}".')
+    suffix = f" Rewrote {rewritten} message(s)." if rewrite_messages and rewritten else ""
+    click.echo(f'Renamed topic "{topic.topic_id}" to "{topic.name}".{suffix}')
 
 
 @topics_group.command("delete")

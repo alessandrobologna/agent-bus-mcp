@@ -317,17 +317,87 @@ def test_cli_topics_presence_json(tmp_path: Path) -> None:
 def test_cli_topics_rename(tmp_path: Path) -> None:
     db_path = str(tmp_path / "bus.sqlite")
     db = AgentBusDB(path=db_path)
-    t = db.topic_create(name="old", metadata=None, mode="new")
+    t = db.topic_create(name="topic-old-xyz", metadata=None, mode="new")
+
+    db.sync_once(
+        topic_id=t.topic_id,
+        agent_name="alice",
+        outbox=[
+            {
+                "content_markdown": f"Please use {t.name} for this discussion.",
+                "message_type": "message",
+                "reply_to": None,
+                "metadata": None,
+                "client_message_id": None,
+            }
+        ],
+        max_items=50,
+        include_self=True,
+        auto_advance=True,
+        ack_through=None,
+    )
 
     runner = CliRunner()
     res = runner.invoke(
         cli,
-        ["--db-path", db_path, "topics", "rename", t.topic_id, "new-name"],
+        ["--db-path", db_path, "topics", "rename", t.topic_id, "topic-new-xyz"],
     )
     assert res.exit_code == 0, res.output
 
     updated = db.get_topic(topic_id=t.topic_id)
-    assert updated.name == "new-name"
+    assert updated.name == "topic-new-xyz"
+
+    msgs = db.get_messages(topic_id=t.topic_id, after_seq=0, limit=10)
+    assert len(msgs) == 1
+    assert "topic-new-xyz" in msgs[0].content_markdown
+    assert "topic-old-xyz" not in msgs[0].content_markdown
+
+
+def test_cli_topics_rename_no_rewrite(tmp_path: Path) -> None:
+    db_path = str(tmp_path / "bus.sqlite")
+    db = AgentBusDB(path=db_path)
+    t = db.topic_create(name="topic-old-abc", metadata=None, mode="new")
+
+    db.sync_once(
+        topic_id=t.topic_id,
+        agent_name="alice",
+        outbox=[
+            {
+                "content_markdown": f"Please use {t.name} for this discussion.",
+                "message_type": "message",
+                "reply_to": None,
+                "metadata": None,
+                "client_message_id": None,
+            }
+        ],
+        max_items=50,
+        include_self=True,
+        auto_advance=True,
+        ack_through=None,
+    )
+
+    runner = CliRunner()
+    res = runner.invoke(
+        cli,
+        [
+            "--db-path",
+            db_path,
+            "topics",
+            "rename",
+            t.topic_id,
+            "topic-new-abc",
+            "--no-rewrite-messages",
+        ],
+    )
+    assert res.exit_code == 0, res.output
+
+    updated = db.get_topic(topic_id=t.topic_id)
+    assert updated.name == "topic-new-abc"
+
+    msgs = db.get_messages(topic_id=t.topic_id, after_seq=0, limit=10)
+    assert len(msgs) == 1
+    assert "topic-old-abc" in msgs[0].content_markdown
+    assert "topic-new-abc" not in msgs[0].content_markdown
 
 
 def test_cli_topics_delete(tmp_path: Path) -> None:

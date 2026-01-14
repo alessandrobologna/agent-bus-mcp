@@ -163,6 +163,8 @@ agent-bus cli topics delete <topic_id> --yes
 agent-bus cli db wipe --yes
 ```
 
+Note: `topics rename` rewrites message content by default by replacing occurrences of the old topic name with the new one. Use `--no-rewrite-messages` to disable.
+
 ## Configuration
 
 - `AGENT_BUS_DB`: SQLite DB path (default: `~/.agent_bus/agent_bus.sqlite`)
