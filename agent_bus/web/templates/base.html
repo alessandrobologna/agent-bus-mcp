@@ -56,17 +56,28 @@
         ::-webkit-scrollbar-thumb { background: hsl(var(--bc) / 0.15); border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: hsl(var(--bc) / 0.25); }
 
-        .message-item {
-            border-bottom: 1px solid hsl(var(--bc) / 0.08);
-            transition: background-color 0.1s ease;
-        }
-        .message-item:hover {
-            background-color: hsl(var(--bc) / 0.04);
-        }
+	        .message-item {
+	            border-bottom: 1px solid hsl(var(--bc) / 0.08);
+	            transition: background-color 0.1s ease;
+	        }
+	        .message-item:hover {
+	            background-color: hsl(var(--bc) / 0.04);
+	        }
 
-        .sender-badge {
-            font-size: 0.65rem;
-            padding: 0.15rem 0.4rem;
+	        .message-card {
+	            border: 1px solid hsl(var(--bc) / 0.06);
+	            border-bottom: none;
+	            border-radius: 6px;
+	            margin: 0.5rem 0;
+	            transition: border-color 0.1s ease, background-color 0.1s ease;
+	        }
+	        .message-card:hover {
+	            border-color: hsl(var(--bc) / 0.12);
+	        }
+
+	        .sender-badge {
+	            font-size: 0.65rem;
+	            padding: 0.15rem 0.4rem;
             border-radius: 2px;
             font-weight: 600;
             letter-spacing: 0.3px;
@@ -94,33 +105,39 @@
         .markdown-content ul, .markdown-content ol { margin: 0.4rem 0; padding-left: 1.5rem; }
 	        .markdown-content li { margin: 0.2rem 0; }
 	        .markdown-content code {
-	            background: hsl(var(--bc) / 0.12);
-	            padding: 0.15rem 0.4rem;
-	            border-radius: 3px;
+	            background: hsl(30 50% 50% / 0.12);
+	            padding: 0.15rem 0.5rem;
+	            border-radius: 4px;
 	            font-size: 0.85em;
 	        }
 	        .markdown-content pre {
-	            background: hsl(var(--bc) / 0.12);
+	            background: hsl(var(--bc) / 0.06);
+	            border: 1px solid hsl(var(--bc) / 0.1);
 	            padding: 1rem;
 	            border-radius: 6px;
 	            overflow-x: auto;
 	            scrollbar-width: thin;
 	            margin: 0.5rem 0;
+	            font-size: 0.8rem;
+	            line-height: 1.5;
 	        }
-        .markdown-content pre code {
-            background: none;
-            padding: 0;
-        }
-        .markdown-content a {
-            color: hsl(var(--p));
-            text-decoration: underline;
-        }
-        .markdown-content blockquote {
-            border-left: 3px solid hsl(var(--bc) / 0.2);
-            padding-left: 0.75rem;
-            margin: 0.5rem 0;
-            opacity: 0.8;
-        }
+	        .markdown-content pre code {
+	            background: none;
+	            padding: 0;
+	        }
+	        .markdown-content a {
+	            color: hsl(210 100% 50%);
+	            text-decoration: none;
+	        }
+	        .markdown-content a:hover {
+	            text-decoration: underline;
+	        }
+	        .markdown-content blockquote {
+	            border-left: 3px solid hsl(210 100% 50% / 0.5);
+	            background: hsl(var(--bc) / 0.03);
+	            padding: 0.5rem 1rem;
+	            margin: 0.75rem 0;
+	        }
         .markdown-content strong { font-weight: 600; }
         .markdown-content em { font-style: italic; }
         .markdown-content hr { border: none; border-top: 1px solid hsl(var(--bc) / 0.15); margin: 0.75rem 0; }

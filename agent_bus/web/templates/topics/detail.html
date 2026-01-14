@@ -74,11 +74,11 @@
     </button>
 </div>
 
-<div id="messages" class="divide-y divide-base-300">
-    {% for msg in all_messages %}
-    {% include "components/message.html" %}
-    {% endfor %}
-</div>
+	<div id="messages" class="p-4">
+	    {% for msg in all_messages %}
+	    {% include "components/message.html" %}
+	    {% endfor %}
+	</div>
 
 {% if all_messages|length == 0 %}
 <div class="flex flex-col items-center justify-center h-64 opacity-50">
