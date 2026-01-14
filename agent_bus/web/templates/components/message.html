@@ -40,12 +40,16 @@
                 <span class="badge badge-sm badge-outline opacity-60">{{ msg.message.message_type|upper }}</span>
                 {% endif %}
                 {% if msg.message.reply_to %}
-                <span class="flex items-center gap-1 text-xs opacity-40">
+                <a
+                    href="#msg-{{ msg.message.reply_to }}"
+                    class="flex items-center gap-1 text-xs opacity-40 hover:opacity-80"
+                    title="Jump to replied message"
+                >
                     <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
                     </svg>
                     <span>{{ msg.reply_to_sender }}</span>
-                </span>
+                </a>
                 {% endif %}
                 <!-- Source toggle and copy buttons -->
                 <div class="ml-auto flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
