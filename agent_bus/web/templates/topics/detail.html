@@ -74,31 +74,33 @@
     </button>
 </div>
 
-	<div id="messages" class="p-4">
-	    <!-- Load earlier button (shown when there are more messages) -->
-	    {% if has_earlier %}
-	    <div id="load-earlier-container" class="flex justify-center mb-4">
-	        <button
-	            id="load-earlier-btn"
-	            class="btn btn-sm btn-ghost opacity-60 hover:opacity-100"
-	            hx-get="/topics/{{ topic.topic_id }}/messages?before_seq={{ first_seq }}&limit=50"
-	            hx-target="#messages"
-	            hx-swap="afterbegin"
-	            hx-indicator="#load-earlier-spinner"
-	        >
-	            <svg id="load-earlier-spinner" class="htmx-indicator w-4 h-4 mr-2 animate-spin" fill="none" viewBox="0 0 24 24">
-	                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-	                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-	            </svg>
-	            Load earlier messages
-	        </button>
-	    </div>
-	    {% endif %}
+<div class="p-4">
+    <!-- Load earlier button (shown when there are more messages) -->
+    {% if has_earlier %}
+    <div id="load-earlier-container" class="flex justify-center mb-4">
+        <button
+            id="load-earlier-btn"
+            class="btn btn-sm btn-ghost opacity-60 hover:opacity-100"
+            hx-get="/topics/{{ topic.topic_id }}/messages?before_seq={{ first_seq }}&limit=50"
+            hx-target="#messages"
+            hx-swap="afterbegin"
+            hx-indicator="#load-earlier-spinner"
+        >
+            <svg id="load-earlier-spinner" class="htmx-indicator w-4 h-4 mr-2 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            Load earlier messages
+        </button>
+    </div>
+    {% endif %}
 
-	    {% for msg in all_messages %}
-	    {% include "components/message.html" %}
-	    {% endfor %}
-	</div>
+    <div id="messages">
+        {% for msg in all_messages %}
+        {% include "components/message.html" %}
+        {% endfor %}
+    </div>
+</div>
 
 {% if all_messages|length == 0 %}
 <div class="flex flex-col items-center justify-center h-64 opacity-50">

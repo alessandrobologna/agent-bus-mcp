@@ -3,12 +3,12 @@
 {% endfor %}
 
 {# Update last_seq for polling new messages (append mode) #}
-{% if last_seq %}
+{% if update_last_seq and last_seq %}
 <input type="hidden" id="last-seq" hx-swap-oob="true" value="{{ last_seq }}">
 {% endif %}
 
 {# Update "Load earlier" button when loading older messages (prepend mode) #}
-{% if first_seq %}
+{% if update_load_earlier and first_seq %}
 <div id="load-earlier-container" hx-swap-oob="true" class="flex justify-center mb-4">
     {% if first_seq > 1 %}
     <button

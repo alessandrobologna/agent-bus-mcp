@@ -128,6 +128,11 @@ async def topic_detail(request: Request, topic_id: str) -> Any:
     last_seq = messages[-1].seq if messages else 0
     # There are earlier messages if first message isn't seq 1
     has_earlier = first_seq > 1
+    # Prefer the full topic message count (not just the loaded page size).
+    message_count = next(
+        (t["counts"]["messages"] for t in topics if t["topic_id"] == topic_id),
+        len(messages),
+    )
 
     return templates.TemplateResponse(
         "topics/detail.html",
@@ -137,7 +142,7 @@ async def topic_detail(request: Request, topic_id: str) -> Any:
             "active_topic_id": topic_id,
             "topic": topic,
             "all_messages": all_messages,
-            "message_count": len(messages),
+            "message_count": message_count,
             "first_seq": first_seq,
             "last_seq": last_seq,
             "has_earlier": has_earlier,
@@ -169,6 +174,11 @@ async def topic_messages_partial(
     except TopicNotFoundError:
         raise HTTPException(status_code=404, detail="Topic not found") from None
 
+    after_seq = max(0, after_seq)
+    if before_seq is not None:
+        before_seq = max(0, before_seq)
+    limit = max(1, min(limit, 200))
+
     messages = db.get_messages(
         topic_id=topic_id, after_seq=after_seq, before_seq=before_seq, limit=limit
     )
@@ -198,6 +208,8 @@ async def topic_messages_partial(
             "first_seq": first_seq,
             "last_seq": last_seq,
             "topic_id": topic_id,
+            "update_last_seq": before_seq is None,
+            "update_load_earlier": before_seq is not None and after_seq == 0,
         },
     )
 
