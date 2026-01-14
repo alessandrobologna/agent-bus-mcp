@@ -1,6 +1,32 @@
 {% for msg in messages %}
 {% include "components/message.html" %}
 {% endfor %}
+
+{# Update last_seq for polling new messages (append mode) #}
 {% if last_seq %}
 <input type="hidden" id="last-seq" hx-swap-oob="true" value="{{ last_seq }}">
+{% endif %}
+
+{# Update "Load earlier" button when loading older messages (prepend mode) #}
+{% if first_seq %}
+<div id="load-earlier-container" hx-swap-oob="true" class="flex justify-center mb-4">
+    {% if first_seq > 1 %}
+    <button
+        id="load-earlier-btn"
+        class="btn btn-sm btn-ghost opacity-60 hover:opacity-100"
+        hx-get="/topics/{{ topic_id }}/messages?before_seq={{ first_seq }}&limit=50"
+        hx-target="#messages"
+        hx-swap="afterbegin"
+        hx-indicator="#load-earlier-spinner"
+    >
+        <svg id="load-earlier-spinner" class="htmx-indicator w-4 h-4 mr-2 animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+        Load earlier messages
+    </button>
+    {% else %}
+    <span class="text-xs opacity-40">Beginning of conversation</span>
+    {% endif %}
+</div>
 {% endif %}

@@ -92,6 +92,9 @@ async def topics_list(request: Request) -> Any:
     )
 
 
+DEFAULT_PAGE_SIZE = 50
+
+
 @app.get("/topics/{topic_id}", response_class=HTMLResponse)
 async def topic_detail(request: Request, topic_id: str) -> Any:
     """Show messages in a topic."""
@@ -103,7 +106,8 @@ async def topic_detail(request: Request, topic_id: str) -> Any:
         raise HTTPException(status_code=404, detail="Topic not found") from None
 
     topics = sidebar_topics(db)
-    messages = db.get_messages(topic_id=topic_id, after_seq=0, limit=1000)
+    # Load only the latest N messages initially for faster rendering
+    messages = db.get_latest_messages(topic_id=topic_id, limit=DEFAULT_PAGE_SIZE)
     presence = db.get_presence(topic_id=topic_id, window_seconds=300)
 
     # Build sender lookup for reply_to references
@@ -120,7 +124,10 @@ async def topic_detail(request: Request, topic_id: str) -> Any:
         for msg in messages
     ]
 
+    first_seq = messages[0].seq if messages else 0
     last_seq = messages[-1].seq if messages else 0
+    # There are earlier messages if first message isn't seq 1
+    has_earlier = first_seq > 1
 
     return templates.TemplateResponse(
         "topics/detail.html",
@@ -131,7 +138,9 @@ async def topic_detail(request: Request, topic_id: str) -> Any:
             "topic": topic,
             "all_messages": all_messages,
             "message_count": len(messages),
+            "first_seq": first_seq,
             "last_seq": last_seq,
+            "has_earlier": has_earlier,
             "presence": presence,
             "now": time.time(),
         },
@@ -139,8 +148,20 @@ async def topic_detail(request: Request, topic_id: str) -> Any:
 
 
 @app.get("/topics/{topic_id}/messages", response_class=HTMLResponse)
-async def topic_messages_partial(request: Request, topic_id: str, after_seq: int = 0) -> Any:
-    """HTMX partial: get new messages after a sequence number."""
+async def topic_messages_partial(
+    request: Request,
+    topic_id: str,
+    after_seq: int = 0,
+    before_seq: int | None = None,
+    limit: int = 50,
+) -> Any:
+    """HTMX partial: get messages with pagination support.
+
+    Args:
+        after_seq: Get messages after this sequence (for polling new messages).
+        before_seq: Get messages before this sequence (for "load earlier").
+        limit: Maximum number of messages to return (default 50).
+    """
     db = get_db()
 
     try:
@@ -148,7 +169,9 @@ async def topic_messages_partial(request: Request, topic_id: str, after_seq: int
     except TopicNotFoundError:
         raise HTTPException(status_code=404, detail="Topic not found") from None
 
-    messages = db.get_messages(topic_id=topic_id, after_seq=after_seq, limit=100)
+    messages = db.get_messages(
+        topic_id=topic_id, after_seq=after_seq, before_seq=before_seq, limit=limit
+    )
 
     # Build sender lookup only for reply_to IDs we need (not all messages)
     reply_to_ids = [msg.reply_to for msg in messages if msg.reply_to]
@@ -156,6 +179,7 @@ async def topic_messages_partial(request: Request, topic_id: str, after_seq: int
     if reply_to_ids:
         sender_by_msg_id = db.get_senders_by_message_ids(reply_to_ids)
 
+    first_seq = messages[0].seq if messages else None
     last_seq = messages[-1].seq if messages else None
 
     return templates.TemplateResponse(
@@ -171,7 +195,9 @@ async def topic_messages_partial(request: Request, topic_id: str, after_seq: int
                 }
                 for msg in messages
             ],
+            "first_seq": first_seq,
             "last_seq": last_seq,
+            "topic_id": topic_id,
         },
     )
 

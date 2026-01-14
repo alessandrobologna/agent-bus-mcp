@@ -869,22 +869,67 @@ class AgentBusDB:
         *,
         topic_id: str,
         after_seq: int = 0,
+        before_seq: int | None = None,
         limit: int = 100,
     ) -> list[Message]:
-        """Fetch messages from a topic after a given sequence number."""
+        """Fetch messages from a topic.
+
+        Args:
+            topic_id: The topic to fetch messages from.
+            after_seq: Only return messages with seq > after_seq (default 0).
+            before_seq: Only return messages with seq < before_seq.
+                When provided alone, returns the most recent `limit` messages
+                before this sequence (useful for pagination / "load earlier").
+            limit: Maximum number of messages to return.
+
+        Returns:
+            List of messages in ascending seq order.
+        """
         with self.connect() as conn:
-            rows = conn.execute(
-                """
-                SELECT
-                  message_id, topic_id, seq, sender, message_type, reply_to,
-                  content_markdown, metadata_json, client_message_id, created_at
-                FROM messages
-                WHERE topic_id = ? AND seq > ?
-                ORDER BY seq ASC
-                LIMIT ?
-                """,
-                (topic_id, after_seq, limit),
-            ).fetchall()
+            if before_seq is not None and after_seq == 0:
+                # "Load earlier" pagination: get N messages before a seq
+                # Fetch in DESC order to get the most recent ones, then reverse
+                rows = conn.execute(
+                    """
+                    SELECT
+                      message_id, topic_id, seq, sender, message_type, reply_to,
+                      content_markdown, metadata_json, client_message_id, created_at
+                    FROM messages
+                    WHERE topic_id = ? AND seq < ?
+                    ORDER BY seq DESC
+                    LIMIT ?
+                    """,
+                    (topic_id, before_seq, limit),
+                ).fetchall()
+                return [_message_from_row(r) for r in reversed(rows)]
+            elif before_seq is not None:
+                # Both bounds: messages in range (after_seq, before_seq)
+                rows = conn.execute(
+                    """
+                    SELECT
+                      message_id, topic_id, seq, sender, message_type, reply_to,
+                      content_markdown, metadata_json, client_message_id, created_at
+                    FROM messages
+                    WHERE topic_id = ? AND seq > ? AND seq < ?
+                    ORDER BY seq ASC
+                    LIMIT ?
+                    """,
+                    (topic_id, after_seq, before_seq, limit),
+                ).fetchall()
+            else:
+                # Original behavior: messages after seq
+                rows = conn.execute(
+                    """
+                    SELECT
+                      message_id, topic_id, seq, sender, message_type, reply_to,
+                      content_markdown, metadata_json, client_message_id, created_at
+                    FROM messages
+                    WHERE topic_id = ? AND seq > ?
+                    ORDER BY seq ASC
+                    LIMIT ?
+                    """,
+                    (topic_id, after_seq, limit),
+                ).fetchall()
         return [_message_from_row(r) for r in rows]
 
     def get_latest_messages(
