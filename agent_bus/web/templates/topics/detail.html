@@ -11,6 +11,27 @@
 {% endblock %}
 
 {% block header_actions %}
+<!-- Thread collapse/expand controls (hidden when no threads) -->
+<div id="thread-controls" class="hidden flex items-center gap-1">
+    <button
+        onclick="collapseAllThreads()"
+        class="btn btn-xs btn-ghost"
+        title="Collapse all threads"
+    >
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12H4" />
+        </svg>
+    </button>
+    <button
+        onclick="expandAllThreads()"
+        class="btn btn-xs btn-ghost"
+        title="Expand all threads"
+    >
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+        </svg>
+    </button>
+</div>
 <button
     id="select-mode-btn"
     onclick="toggleSelectMode()"
@@ -208,5 +229,172 @@
             alert('Failed to delete messages');
         });
     }
+
+    // ============================================
+    // Thread collapse/expand functionality
+    // ============================================
+
+    // Map of parentId -> [childIds] for reply tree
+    let threadTree = new Map();
+    // Set of collapsed thread root IDs
+    const collapsedThreads = new Set();
+
+    function setThreadExpanded(messageId, expanded) {
+        const parentEl = document.getElementById(`msg-${messageId}`);
+        if (!parentEl) return;
+        const toggle = parentEl.querySelector('.thread-toggle');
+        if (toggle) {
+            toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+        }
+    }
+
+    function buildThreadTree() {
+        threadTree = new Map();
+        const messages = document.querySelectorAll('#messages .message-item');
+
+        // Reset UI state before rebuilding
+        messages.forEach(msg => {
+            const toggle = msg.querySelector('.thread-toggle');
+            const badge = msg.querySelector('.reply-count');
+            if (toggle) {
+                toggle.classList.add('hidden');
+                toggle.setAttribute('aria-expanded', 'true');
+            }
+            if (badge) {
+                badge.textContent = '';
+                badge.classList.add('hidden');
+            }
+        });
+
+        messages.forEach(msg => {
+            const replyTo = msg.dataset.replyTo;
+            if (replyTo) {
+                if (!threadTree.has(replyTo)) {
+                    threadTree.set(replyTo, []);
+                }
+                threadTree.get(replyTo).push(msg.id.replace('msg-', ''));
+            }
+        });
+
+        // Update UI: show toggles for messages with replies
+        let hasThreads = false;
+        threadTree.forEach((children, parentId) => {
+            const parentEl = document.getElementById(`msg-${parentId}`);
+            if (parentEl && children.length > 0) {
+                hasThreads = true;
+                const toggle = parentEl.querySelector('.thread-toggle');
+                const badge = parentEl.querySelector('.reply-count');
+                if (toggle) toggle.classList.remove('hidden');
+                if (badge) {
+                    const count = countAllDescendants(parentId);
+                    badge.textContent = `(${count} repl${count === 1 ? 'y' : 'ies'})`;
+                    badge.classList.remove('hidden');
+                }
+                setThreadExpanded(parentId, !collapsedThreads.has(parentId));
+            }
+        });
+
+        // Show/hide thread controls in header
+        const controls = document.getElementById('thread-controls');
+        if (controls) {
+            controls.classList.toggle('hidden', !hasThreads);
+        }
+
+        applyCollapsedState();
+    }
+
+    function countAllDescendants(messageId) {
+        const children = threadTree.get(messageId) || [];
+        let count = children.length;
+        children.forEach(childId => {
+            count += countAllDescendants(childId);
+        });
+        return count;
+    }
+
+    function getDescendantIds(messageId) {
+        const result = [];
+        const children = threadTree.get(messageId) || [];
+        children.forEach(childId => {
+            result.push(childId);
+            result.push(...getDescendantIds(childId));
+        });
+        return result;
+    }
+
+    function toggleThread(messageId) {
+        if (collapsedThreads.has(messageId)) {
+            expandThread(messageId);
+        } else {
+            collapseThread(messageId);
+        }
+    }
+
+    function collapseThread(messageId) {
+        collapsedThreads.add(messageId);
+        const descendants = getDescendantIds(messageId);
+        descendants.forEach(id => {
+            const el = document.getElementById(`msg-${id}`);
+            if (el) el.classList.add('hidden');
+        });
+        setThreadExpanded(messageId, false);
+    }
+
+    function expandThread(messageId) {
+        collapsedThreads.delete(messageId);
+        const descendants = getDescendantIds(messageId);
+        descendants.forEach(id => {
+            const el = document.getElementById(`msg-${id}`);
+            if (el) el.classList.remove('hidden');
+        });
+        setThreadExpanded(messageId, true);
+        // Preserve nested collapsed threads.
+        applyCollapsedState();
+    }
+
+    function applyCollapsedState() {
+        Array.from(collapsedThreads).forEach(messageId => {
+            // Only apply if the message exists and has known children.
+            if (!document.getElementById(`msg-${messageId}`)) return;
+            const children = threadTree.get(messageId) || [];
+            if (children.length === 0) return;
+
+            const descendants = getDescendantIds(messageId);
+            descendants.forEach(id => {
+                const el = document.getElementById(`msg-${id}`);
+                if (el) el.classList.add('hidden');
+            });
+            setThreadExpanded(messageId, false);
+        });
+    }
+
+    function collapseAllThreads() {
+        threadTree.forEach((children, parentId) => {
+            if (children.length > 0 && document.getElementById(`msg-${parentId}`)) {
+                collapseThread(parentId);
+            }
+        });
+    }
+
+    function expandAllThreads() {
+        collapsedThreads.clear();
+        document.querySelectorAll('#messages .message-item.hidden').forEach(el => {
+            el.classList.remove('hidden');
+        });
+        buildThreadTree();
+    }
+
+    // Initial build
+    document.addEventListener('DOMContentLoaded', () => {
+        buildThreadTree();
+    });
+
+    // Rebuild tree when HTMX loads new messages
+    document.body.addEventListener('htmx:afterSwap', (e) => {
+        const target = e.detail?.target || e.target;
+        if (target.id === 'messages' || target.closest('#messages')) {
+            buildThreadTree();
+        }
+    });
 </script>
 {% endblock %}

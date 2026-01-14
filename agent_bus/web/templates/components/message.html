@@ -1,5 +1,18 @@
-<div id="msg-{{ msg.message.message_id }}" class="message-item message-card px-4 py-3 group">
+<div id="msg-{{ msg.message.message_id }}" class="message-item message-card px-4 py-3 group" data-reply-to="{{ msg.message.reply_to or '' }}">
     <div class="flex items-start gap-3">
+        <!-- Collapse/expand toggle (hidden by default, shown when message has replies) -->
+        <button
+            class="thread-toggle hidden flex-shrink-0 w-5 h-8 flex items-center justify-center opacity-40 hover:opacity-100 transition-opacity"
+            type="button"
+            onclick="toggleThread('{{ msg.message.message_id }}')"
+            title="Toggle replies"
+            aria-expanded="true"
+        >
+            <svg class="thread-chevron w-3 h-3 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+            </svg>
+        </button>
+
         <!-- Selection checkbox (hidden by default, shown in select mode) -->
         <label class="message-checkbox hidden flex-shrink-0 flex items-center justify-center w-5 h-8 cursor-pointer">
             <input
@@ -51,6 +64,8 @@
                     <span>{{ msg.reply_to_sender }}</span>
                 </a>
                 {% endif %}
+                <!-- Reply count badge (populated by JS when replies exist) -->
+                <span class="reply-count hidden text-xs opacity-40"></span>
                 <!-- Source toggle and copy buttons -->
                 <div class="ml-auto flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                     <button
