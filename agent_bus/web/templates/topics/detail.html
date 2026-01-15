@@ -405,19 +405,28 @@
     document.body.addEventListener('htmx:afterSwap', (e) => {
         const target = e.detail?.target || e.target;
         if (target.id === 'messages' || target.closest('#messages')) {
-            buildThreadTree();
-            // Re-render if in threaded view
-            if (threadedView) {
-                renderThreadedView();
-            }
-        }
-    });
+	            buildThreadTree();
+	            // Re-render if in threaded view. Avoid forced scroll restoration during polling swaps.
+	            if (threadedView) {
+	                renderThreadedView(false);
+	            }
+	        }
+	    });
 
     // ============================================
     // Threaded view functionality
     // ============================================
 
     let threadedView = false;
+    let previousThreadOrder = [];
+
+    function arraysEqual(a, b) {
+        if (a.length !== b.length) return false;
+        for (let i = 0; i < a.length; i++) {
+            if (a[i] !== b[i]) return false;
+        }
+        return true;
+    }
 
     function toggleViewMode() {
         threadedView = !threadedView;
@@ -425,7 +434,7 @@
         document.getElementById('view-mode-label').textContent = threadedView ? 'Threaded' : 'Flat';
 
         if (threadedView) {
-            renderThreadedView();
+            renderThreadedView(true);  // Force render on explicit toggle
         } else {
             renderFlatView();
         }
@@ -530,10 +539,26 @@
         return ordered;
     }
 
-    function renderThreadedView() {
+    function renderThreadedView(forceRender = false) {
+        const orderedIds = buildThreadedOrder();
+
+        // Skip re-render if order unchanged (unless forced)
+        // This prevents scroll jumps during polling when no reordering is needed
+        if (!forceRender && arraysEqual(orderedIds, previousThreadOrder)) {
+            // Just ensure new messages have correct depth attributes
+            orderedIds.forEach(msgId => {
+                const el = document.getElementById(`msg-${msgId}`);
+                if (el && !el.hasAttribute('data-depth')) {
+                    const depth = getMessageDepth(msgId);
+                    if (depth > 0) el.setAttribute('data-depth', depth);
+                }
+            });
+            previousThreadOrder = orderedIds;
+            return;
+        }
+
         const anchorId = getTopVisibleMessage();
         const messagesContainer = document.getElementById('messages');
-        const orderedIds = buildThreadedOrder();
 
         // Calculate depths FIRST while all elements are still in DOM
         // (appendChild removes elements from DOM, breaking parent lookups)
@@ -567,6 +592,9 @@
 
         // Re-apply collapse state
         applyCollapsedState();
+
+        // Remember order for next comparison
+        previousThreadOrder = orderedIds;
     }
 
     function renderFlatView() {
