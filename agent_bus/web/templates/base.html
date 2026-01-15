@@ -219,7 +219,7 @@
 	        }
 
 	        .message-item:target {
-	            outline: 2px solid oklch(var(--p) / 0.55);
+	            outline: 2px solid oklch(var(--bc) / 0.4);
 	            outline-offset: 2px;
 	            scroll-margin-top: 64px;
 	        }
@@ -231,7 +231,7 @@
 	        .message-card {
 	            background-color: oklch(var(--bc) / 0.03);
 	            border: 1px solid oklch(var(--bc) / 0.12);
-	            border-left: 4px solid oklch(var(--p) / 0.55);
+	            border-left: 4px solid oklch(var(--bc) / 0.25);
 	            border-radius: 4px;
 	            margin: 0.75rem 0;
 	            transition: border-color 0.15s ease, background-color 0.15s ease;
@@ -239,7 +239,7 @@
 	        .message-card:hover {
 	            background-color: oklch(var(--bc) / 0.05);
 	            border-color: oklch(var(--bc) / 0.2);
-	            border-left-color: oklch(var(--p) / 0.8);
+	            border-left-color: oklch(var(--bc) / 0.4);
 	        }
 
         /* Threaded view indentation */
@@ -581,7 +581,7 @@
                             <a
                                 href="/topics/{{ t.topic_id }}"
                                 onclick="closeTopicsDrawer()"
-                                class="flex items-center gap-2 min-w-0 flex-1 {% if active_topic_id is defined and t.topic_id == active_topic_id %}text-primary font-semibold{% endif %}"
+                                class="flex items-center gap-2 min-w-0 flex-1 {% if active_topic_id is defined and t.topic_id == active_topic_id %}font-semibold opacity-100{% else %}opacity-70{% endif %}"
                             >
                                 <svg class="w-4 h-4 opacity-60 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     {% if t.status == 'open' %}
