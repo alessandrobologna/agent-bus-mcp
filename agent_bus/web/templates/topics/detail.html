@@ -31,6 +31,17 @@
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
         </svg>
     </button>
+    <!-- View mode toggle: Flat vs Threaded -->
+    <button
+        id="view-mode-btn"
+        onclick="toggleViewMode()"
+        class="btn btn-xs btn-ghost"
+        title="Toggle threaded view"
+    >
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h10M4 18h6" />
+        </svg>
+    </button>
 </div>
 <button
     id="select-mode-btn"
@@ -394,7 +405,186 @@
         const target = e.detail?.target || e.target;
         if (target.id === 'messages' || target.closest('#messages')) {
             buildThreadTree();
+            // Re-render if in threaded view
+            if (threadedView) {
+                renderThreadedView();
+            }
         }
     });
+
+    // ============================================
+    // Threaded view functionality
+    // ============================================
+
+    let threadedView = false;
+
+    function toggleViewMode() {
+        threadedView = !threadedView;
+        document.getElementById('view-mode-btn').classList.toggle('btn-active', threadedView);
+
+        if (threadedView) {
+            renderThreadedView();
+        } else {
+            renderFlatView();
+        }
+    }
+
+    function getTopVisibleMessage() {
+        const container = document.getElementById('main-scroll');
+        if (!container) return null;
+        const messages = document.querySelectorAll('#messages .message-item:not(.hidden)');
+        const containerRect = container.getBoundingClientRect();
+
+        for (const msg of messages) {
+            const rect = msg.getBoundingClientRect();
+            if (rect.top >= containerRect.top && rect.top < containerRect.bottom) {
+                return msg.id;
+            }
+        }
+        return null;
+    }
+
+    function scrollToMessage(msgId) {
+        if (!msgId) return;
+        const el = document.getElementById(msgId);
+        if (el) {
+            el.scrollIntoView({ block: 'start', behavior: 'auto' });
+        }
+    }
+
+    function getMessageDepth(messageId, visited = new Set()) {
+        // Prevent infinite loops from circular references
+        if (visited.has(messageId)) return 0;
+        visited.add(messageId);
+
+        const el = document.getElementById(`msg-${messageId}`);
+        if (!el) return 0;
+
+        const replyTo = el.dataset.replyTo;
+        if (!replyTo) return 0;
+
+        // Check if parent exists in DOM
+        const parentEl = document.getElementById(`msg-${replyTo}`);
+        if (!parentEl) return 0; // Treat as root if parent not loaded
+
+        return Math.min(1 + getMessageDepth(replyTo, visited), 3); // Cap at 3
+    }
+
+    function getMessageSeq(messageId) {
+        const el = document.getElementById(`msg-${messageId}`);
+        if (!el) return 0;
+        const seq = Number.parseInt(el.dataset.seq ?? '', 10);
+        return Number.isFinite(seq) ? seq : 0;
+    }
+
+    function buildThreadedOrder() {
+        const messages = document.querySelectorAll('#messages .message-item');
+        const messageIds = [];
+        const childrenMap = new Map(); // parentId -> [childIds sorted by seq]
+        const roots = [];
+
+        // Build maps
+        messages.forEach(msg => {
+            const msgId = msg.id.replace('msg-', '');
+            messageIds.push(msgId);
+            const replyTo = msg.dataset.replyTo;
+
+            if (replyTo && document.getElementById(`msg-${replyTo}`)) {
+                // Has a parent that exists in DOM
+                if (!childrenMap.has(replyTo)) {
+                    childrenMap.set(replyTo, []);
+                }
+                childrenMap.get(replyTo).push(msgId);
+            } else {
+                // Root message (no reply_to or parent not loaded)
+                roots.push(msgId);
+            }
+        });
+
+        // Sort roots by seq
+        roots.sort((a, b) => getMessageSeq(a) - getMessageSeq(b));
+
+        // Sort children by seq
+        childrenMap.forEach((children) => {
+            children.sort((a, b) => getMessageSeq(a) - getMessageSeq(b));
+        });
+
+        // Build ordered list: DFS from roots
+        const ordered = [];
+        const visited = new Set();
+        function addWithChildren(msgId) {
+            if (visited.has(msgId)) return;
+            visited.add(msgId);
+            ordered.push(msgId);
+            const children = childrenMap.get(msgId) || [];
+            children.forEach(addWithChildren);
+        }
+        roots.forEach(addWithChildren);
+
+        // Ensure all messages are included (handles cycles / missing roots)
+        messageIds.sort((a, b) => getMessageSeq(a) - getMessageSeq(b));
+        messageIds.forEach(addWithChildren);
+
+        return ordered;
+    }
+
+    function renderThreadedView() {
+        const anchorId = getTopVisibleMessage();
+        const messagesContainer = document.getElementById('messages');
+        const orderedIds = buildThreadedOrder();
+
+        // Build fragment with ordered messages
+        const fragment = document.createDocumentFragment();
+        orderedIds.forEach(msgId => {
+            const el = document.getElementById(`msg-${msgId}`);
+            if (el) {
+                // Set depth attribute
+                const depth = getMessageDepth(msgId);
+                if (depth > 0) {
+                    el.setAttribute('data-depth', depth);
+                } else {
+                    el.removeAttribute('data-depth');
+                }
+                fragment.appendChild(el);
+            }
+        });
+
+        // Replace children
+        messagesContainer.innerHTML = '';
+        messagesContainer.appendChild(fragment);
+
+        // Restore scroll position
+        scrollToMessage(anchorId);
+
+        // Re-apply collapse state
+        applyCollapsedState();
+    }
+
+    function renderFlatView() {
+        const anchorId = getTopVisibleMessage();
+        const messagesContainer = document.getElementById('messages');
+        const messages = Array.from(document.querySelectorAll('#messages .message-item'));
+
+        // Sort by seq (chronological order)
+        messages.sort((a, b) => getMessageSeq(a.id.replace('msg-', '')) - getMessageSeq(b.id.replace('msg-', '')));
+
+        // Build fragment
+        const fragment = document.createDocumentFragment();
+        messages.forEach(el => {
+            // Remove depth attribute
+            el.removeAttribute('data-depth');
+            fragment.appendChild(el);
+        });
+
+        // Replace children
+        messagesContainer.innerHTML = '';
+        messagesContainer.appendChild(fragment);
+
+        // Restore scroll position
+        scrollToMessage(anchorId);
+
+        // Re-apply collapse state
+        applyCollapsedState();
+    }
 </script>
 {% endblock %}

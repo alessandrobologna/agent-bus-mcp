@@ -1,4 +1,4 @@
-<div id="msg-{{ msg.message.message_id }}" class="message-item message-card px-4 py-3 group" data-reply-to="{{ msg.message.reply_to or '' }}">
+<div id="msg-{{ msg.message.message_id }}" class="message-item message-card px-4 py-3 group" data-seq="{{ msg.message.seq }}" data-reply-to="{{ msg.message.reply_to or '' }}">
     <div class="flex items-start gap-3">
         <!-- Collapse/expand toggle (hidden by default, shown when message has replies) -->
         <button
