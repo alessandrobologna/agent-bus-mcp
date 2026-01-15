@@ -206,20 +206,20 @@
         }
 
         ::-webkit-scrollbar { width: 8px; height: 8px; }
-        ::-webkit-scrollbar-track { background: hsl(var(--b1)); }
-        ::-webkit-scrollbar-thumb { background: hsl(var(--bc) / 0.15); border-radius: 4px; }
-        ::-webkit-scrollbar-thumb:hover { background: hsl(var(--bc) / 0.25); }
+        ::-webkit-scrollbar-track { background: oklch(var(--b1)); }
+        ::-webkit-scrollbar-thumb { background: oklch(var(--bc) / 0.15); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: oklch(var(--bc) / 0.25); }
 
 	        .message-item {
-	            border-bottom: 1px solid hsl(var(--bc) / 0.08);
+	            border-bottom: 1px solid oklch(var(--bc) / 0.08);
 	            transition: background-color 0.1s ease;
 	        }
 	        .message-item:hover {
-	            background-color: hsl(var(--bc) / 0.04);
+	            background-color: oklch(var(--bc) / 0.04);
 	        }
 
 	        .message-item:target {
-	            outline: 2px solid hsl(var(--p) / 0.55);
+	            outline: 2px solid oklch(var(--p) / 0.55);
 	            outline-offset: 2px;
 	            scroll-margin-top: 64px;
 	        }
@@ -229,17 +229,17 @@
 	        }
 
 	        .message-card {
-	            background-color: hsl(var(--bc) / 0.03);
-	            border: 1px solid hsl(var(--bc) / 0.12);
-	            border-left: 4px solid hsl(var(--p) / 0.55);
+	            background-color: oklch(var(--bc) / 0.03);
+	            border: 1px solid oklch(var(--bc) / 0.12);
+	            border-left: 4px solid oklch(var(--p) / 0.55);
 	            border-radius: 4px;
 	            margin: 0.75rem 0;
 	            transition: border-color 0.15s ease, background-color 0.15s ease;
 	        }
 	        .message-card:hover {
-	            background-color: hsl(var(--bc) / 0.05);
-	            border-color: hsl(var(--bc) / 0.2);
-	            border-left-color: hsl(var(--p) / 0.8);
+	            background-color: oklch(var(--bc) / 0.05);
+	            border-color: oklch(var(--bc) / 0.2);
+	            border-left-color: oklch(var(--p) / 0.8);
 	        }
 
         /* Threaded view indentation */
@@ -274,8 +274,8 @@
 	            font-size: 0.85em;
 	        }
 	        .markdown-content pre {
-	            background: hsl(var(--bc) / 0.06);
-	            border: 1px solid hsl(var(--bc) / 0.1);
+	            background: oklch(var(--bc) / 0.06);
+	            border: 1px solid oklch(var(--bc) / 0.1);
 	            padding: 1rem;
 	            border-radius: 6px;
 	            overflow-x: auto;
@@ -297,17 +297,17 @@
 	        }
 	        .markdown-content blockquote {
 	            border-left: 3px solid hsl(210 100% 50% / 0.5);
-	            background: hsl(var(--bc) / 0.03);
+	            background: oklch(var(--bc) / 0.03);
 	            padding: 0.5rem 1rem;
 	            margin: 0.75rem 0;
 	        }
         .markdown-content strong { font-weight: 600; }
         .markdown-content em { font-style: italic; }
-        .markdown-content hr { border: none; border-top: 1px solid hsl(var(--bc) / 0.15); margin: 0.75rem 0; }
+        .markdown-content hr { border: none; border-top: 1px solid oklch(var(--bc) / 0.15); margin: 0.75rem 0; }
 
         /* Source view */
         .message-source {
-            background: hsl(var(--bc) / 0.05);
+            background: oklch(var(--bc) / 0.05);
             padding: 0.5rem;
             border-radius: 4px;
             white-space: pre-wrap;
@@ -318,8 +318,8 @@
         .mermaid-wrapper {
             margin: 0.5rem 0;
             padding: 1rem;
-            background: hsl(var(--bc) / 0.03);
-            border: 1px solid hsl(var(--bc) / 0.1);
+            background: oklch(var(--bc) / 0.03);
+            border: 1px solid oklch(var(--bc) / 0.1);
             border-radius: 6px;
             overflow-x: auto;
         }
