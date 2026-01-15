@@ -533,13 +533,20 @@
         const messagesContainer = document.getElementById('messages');
         const orderedIds = buildThreadedOrder();
 
+        // Calculate depths FIRST while all elements are still in DOM
+        // (appendChild removes elements from DOM, breaking parent lookups)
+        const depthMap = new Map();
+        orderedIds.forEach(msgId => {
+            depthMap.set(msgId, getMessageDepth(msgId));
+        });
+
         // Build fragment with ordered messages
         const fragment = document.createDocumentFragment();
         orderedIds.forEach(msgId => {
             const el = document.getElementById(`msg-${msgId}`);
             if (el) {
-                // Set depth attribute
-                const depth = getMessageDepth(msgId);
+                // Set depth attribute from pre-calculated map
+                const depth = depthMap.get(msgId);
                 if (depth > 0) {
                     el.setAttribute('data-depth', depth);
                 } else {
