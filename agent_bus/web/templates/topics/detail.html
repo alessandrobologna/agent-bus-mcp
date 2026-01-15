@@ -35,12 +35,13 @@
     <button
         id="view-mode-btn"
         onclick="toggleViewMode()"
-        class="btn btn-xs btn-ghost"
-        title="Toggle threaded view"
+        class="btn btn-xs btn-ghost gap-1"
+        title="Toggle between flat and threaded view"
     >
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h10M4 18h6" />
         </svg>
+        <span id="view-mode-label" class="text-xs">Flat</span>
     </button>
 </div>
 <button
@@ -421,6 +422,7 @@
     function toggleViewMode() {
         threadedView = !threadedView;
         document.getElementById('view-mode-btn').classList.toggle('btn-active', threadedView);
+        document.getElementById('view-mode-label').textContent = threadedView ? 'Threaded' : 'Flat';
 
         if (threadedView) {
             renderThreadedView();
