@@ -11,10 +11,6 @@
 
     <!-- HTMX -->
     <script src="https://unpkg.com/htmx.org@2.0.4"></script>
-    <script>
-        // Enable View Transitions API for smoother content changes
-        htmx.config.globalViewTransitions = true;
-    </script>
 
     <!-- Marked.js for markdown rendering -->
     <script src="https://cdn.jsdelivr.net/npm/marked@15.0.12/marked.min.js"></script>
@@ -438,36 +434,558 @@
             });
         }
 
-        function getMainScroll() {
-            return document.getElementById('main-scroll');
-        }
+	        function getMainScroll() {
+	            return document.getElementById('main-scroll');
+	        }
 
-        // Initial render on page load
-        document.addEventListener('DOMContentLoaded', () => {
-            renderMarkdown();
+	        function initGlobalControls() {
+	            // Topic search filter
+	            const search = document.getElementById('topic-search');
+	            if (search && !search.dataset.bound) {
+	                search.addEventListener('input', filterTopics);
+	                search.dataset.bound = 'true';
+	            }
 
-            // Topic search filter
-            const search = document.getElementById('topic-search');
-            if (search) {
-                search.addEventListener('input', filterTopics);
-            }
+	            const themeToggle = document.getElementById('theme-toggle');
+	            if (themeToggle && !themeToggle.dataset.bound) {
+	                themeToggle.checked = document.documentElement.getAttribute('data-theme') === 'dark';
+	                themeToggle.addEventListener('change', () => {
+	                    setTheme(themeToggle.checked ? 'dark' : 'light', true);
+	                });
+	                themeToggle.dataset.bound = 'true';
+	            }
+	        }
 
-            const themeToggle = document.getElementById('theme-toggle');
-            if (themeToggle) {
-                themeToggle.checked = document.documentElement.getAttribute('data-theme') === 'dark';
-                themeToggle.addEventListener('change', () => {
-                    setTheme(themeToggle.checked ? 'dark' : 'light', true);
-                });
-            }
+	        // ============================================
+	        // Topic detail page functionality
+	        // ============================================
 
-            // Scroll to bottom on topic detail pages.
-            if (document.getElementById('messages')) {
-                const mainScroll = getMainScroll();
-                if (mainScroll) {
-                    requestAnimationFrame(() => scrollToBottom(mainScroll));
-                }
-            }
-        });
+	        let currentTopicId = null;
+	        let selectMode = false;
+	        const selectedMessages = new Set();
+
+	        // Map of parentId -> [childIds] for reply tree
+	        let threadTree = new Map();
+	        // Set of collapsed thread root IDs
+	        const collapsedThreads = new Set();
+
+	        // Threaded view
+	        let threadedView = false;
+	        let previousThreadOrder = [];
+
+	        function isTopicDetailPage() {
+	            return Boolean(document.getElementById('messages')) && Boolean(document.getElementById('topic-id'));
+	        }
+
+	        function getTopicId() {
+	            return document.getElementById('topic-id')?.value || null;
+	        }
+
+	        function resetTopicDetailState() {
+	            currentTopicId = getTopicId();
+	            selectMode = false;
+	            selectedMessages.clear();
+	            threadTree = new Map();
+	            collapsedThreads.clear();
+	            threadedView = false;
+	            previousThreadOrder = [];
+
+	            document.body.classList.remove('select-mode');
+	            const selectionBar = document.getElementById('selection-bar');
+	            if (selectionBar) selectionBar.classList.add('hidden');
+
+	            document.querySelectorAll('.message-checkbox').forEach(cb => {
+	                cb.classList.add('hidden');
+	            });
+
+	            const viewBtn = document.getElementById('view-mode-btn');
+	            if (viewBtn) viewBtn.classList.remove('btn-active');
+	            const viewLabel = document.getElementById('view-mode-label');
+	            if (viewLabel) viewLabel.textContent = 'Flat';
+	        }
+
+	        function initTopicDetailPage() {
+	            if (!isTopicDetailPage()) {
+	                currentTopicId = null;
+	                return;
+	            }
+
+	            const topicId = getTopicId();
+	            if (topicId !== currentTopicId) {
+	                resetTopicDetailState();
+	            }
+
+	            buildThreadTree();
+	            if (threadedView) {
+	                renderThreadedView(false);
+	            }
+	        }
+
+	        function toggleSelectMode() {
+	            selectMode = !selectMode;
+	            document.body.classList.toggle('select-mode', selectMode);
+	            document.getElementById('select-mode-btn')?.classList.toggle('btn-active', selectMode);
+
+	            // Show/hide checkboxes
+	            document.querySelectorAll('.message-checkbox').forEach(cb => {
+	                cb.classList.toggle('hidden', !selectMode);
+	            });
+
+	            // Clear selection when exiting select mode
+	            if (!selectMode) {
+	                clearSelection();
+	            }
+	        }
+
+	        function toggleMessageSelection(messageId, checkbox) {
+	            if (checkbox.checked) {
+	                selectedMessages.add(messageId);
+	            } else {
+	                selectedMessages.delete(messageId);
+	            }
+	            updateSelectionUI();
+	        }
+
+	        function updateSelectionUI() {
+	            const count = selectedMessages.size;
+	            const bar = document.getElementById('selection-bar');
+	            const countEl = document.getElementById('selection-count');
+
+	            if (!bar || !countEl) return;
+
+	            if (count > 0) {
+	                bar.classList.remove('hidden');
+	                countEl.textContent = `${count} selected`;
+	            } else {
+	                bar.classList.add('hidden');
+	            }
+	        }
+
+	        function clearSelection() {
+	            selectedMessages.clear();
+	            document.querySelectorAll('.message-checkbox input').forEach(cb => {
+	                cb.checked = false;
+	            });
+	            updateSelectionUI();
+	        }
+
+	        function deleteSelected() {
+	            if (selectedMessages.size === 0) return;
+
+	            const count = selectedMessages.size;
+	            if (
+	                !confirm(
+	                    `Delete ${count} message${count > 1 ? 's' : ''} and their replies? This cannot be undone.`
+	                )
+	            ) {
+	                return;
+	            }
+
+	            const topicId = getTopicId();
+	            if (!topicId) return;
+	            const messageIds = Array.from(selectedMessages);
+
+	            fetch(`/topics/${topicId}/messages`, {
+	                method: 'DELETE',
+	                headers: { 'Content-Type': 'application/json' },
+	                body: JSON.stringify(messageIds),
+	            })
+	                .then(response => response.json())
+	                .then(data => {
+	                    // Remove deleted messages from DOM
+	                    const deletedIds = data.deleted_message_ids || messageIds;
+	                    deletedIds.forEach(id => {
+	                        const el = document.getElementById(`msg-${id}`);
+	                        if (el) el.remove();
+	                    });
+	                    clearSelection();
+	                    // Exit select mode
+	                    if (selectMode) toggleSelectMode();
+	                    initTopicDetailPage();
+	                })
+	                .catch(err => {
+	                    console.error('Delete failed:', err);
+	                    alert('Failed to delete messages');
+	                });
+	        }
+
+	        // ============================================
+	        // Thread collapse/expand functionality
+	        // ============================================
+
+	        function setThreadExpanded(messageId, expanded) {
+	            const parentEl = document.getElementById(`msg-${messageId}`);
+	            if (!parentEl) return;
+	            const toggle = parentEl.querySelector('.thread-toggle');
+	            if (toggle) {
+	                toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+	            }
+	        }
+
+	        function buildThreadTree() {
+	            threadTree = new Map();
+	            const messages = document.querySelectorAll('#messages .message-item');
+
+	            // Reset UI state before rebuilding
+	            messages.forEach(msg => {
+	                const toggle = msg.querySelector('.thread-toggle');
+	                const badge = msg.querySelector('.reply-count');
+	                if (toggle) {
+	                    toggle.classList.add('hidden');
+	                    toggle.setAttribute('aria-expanded', 'true');
+	                }
+	                if (badge) {
+	                    badge.textContent = '';
+	                    badge.classList.add('hidden');
+	                }
+	            });
+
+	            messages.forEach(msg => {
+	                const replyTo = msg.dataset.replyTo;
+	                if (replyTo) {
+	                    if (!threadTree.has(replyTo)) {
+	                        threadTree.set(replyTo, []);
+	                    }
+	                    threadTree.get(replyTo).push(msg.id.replace('msg-', ''));
+	                }
+	            });
+
+	            // Update UI: show toggles for messages with replies
+	            let hasThreads = false;
+	            threadTree.forEach((children, parentId) => {
+	                const parentEl = document.getElementById(`msg-${parentId}`);
+	                if (parentEl && children.length > 0) {
+	                    hasThreads = true;
+	                    const toggle = parentEl.querySelector('.thread-toggle');
+	                    const badge = parentEl.querySelector('.reply-count');
+	                    if (toggle) toggle.classList.remove('hidden');
+	                    if (badge) {
+	                        const count = countAllDescendants(parentId);
+	                        badge.textContent = `(${count} repl${count === 1 ? 'y' : 'ies'})`;
+	                        badge.classList.remove('hidden');
+	                    }
+	                    setThreadExpanded(parentId, !collapsedThreads.has(parentId));
+	                }
+	            });
+
+	            // Show/hide thread controls in header
+	            const controls = document.getElementById('thread-controls');
+	            if (controls) {
+	                controls.classList.toggle('hidden', !hasThreads);
+	            }
+
+	            applyCollapsedState();
+	        }
+
+	        function countAllDescendants(messageId) {
+	            const children = threadTree.get(messageId) || [];
+	            let count = children.length;
+	            children.forEach(childId => {
+	                count += countAllDescendants(childId);
+	            });
+	            return count;
+	        }
+
+	        function getDescendantIds(messageId) {
+	            const result = [];
+	            const children = threadTree.get(messageId) || [];
+	            children.forEach(childId => {
+	                result.push(childId);
+	                result.push(...getDescendantIds(childId));
+	            });
+	            return result;
+	        }
+
+	        function toggleThread(messageId) {
+	            if (collapsedThreads.has(messageId)) {
+	                expandThread(messageId);
+	            } else {
+	                collapseThread(messageId);
+	            }
+	        }
+
+	        function collapseThread(messageId) {
+	            collapsedThreads.add(messageId);
+	            const descendants = getDescendantIds(messageId);
+	            descendants.forEach(id => {
+	                const el = document.getElementById(`msg-${id}`);
+	                if (el) el.classList.add('hidden');
+	            });
+	            setThreadExpanded(messageId, false);
+	        }
+
+	        function expandThread(messageId) {
+	            collapsedThreads.delete(messageId);
+	            const descendants = getDescendantIds(messageId);
+	            descendants.forEach(id => {
+	                const el = document.getElementById(`msg-${id}`);
+	                if (el) el.classList.remove('hidden');
+	            });
+	            setThreadExpanded(messageId, true);
+	            // Preserve nested collapsed threads.
+	            applyCollapsedState();
+	        }
+
+	        function applyCollapsedState() {
+	            Array.from(collapsedThreads).forEach(messageId => {
+	                // Only apply if the message exists and has known children.
+	                if (!document.getElementById(`msg-${messageId}`)) return;
+	                const children = threadTree.get(messageId) || [];
+	                if (children.length === 0) return;
+
+	                const descendants = getDescendantIds(messageId);
+	                descendants.forEach(id => {
+	                    const el = document.getElementById(`msg-${id}`);
+	                    if (el) el.classList.add('hidden');
+	                });
+	                setThreadExpanded(messageId, false);
+	            });
+	        }
+
+	        function collapseAllThreads() {
+	            threadTree.forEach((children, parentId) => {
+	                if (children.length > 0 && document.getElementById(`msg-${parentId}`)) {
+	                    collapseThread(parentId);
+	                }
+	            });
+	        }
+
+	        function expandAllThreads() {
+	            collapsedThreads.clear();
+	            document.querySelectorAll('#messages .message-item.hidden').forEach(el => {
+	                el.classList.remove('hidden');
+	            });
+	            buildThreadTree();
+	        }
+
+	        // ============================================
+	        // Threaded view functionality
+	        // ============================================
+
+	        function arraysEqual(a, b) {
+	            if (a.length !== b.length) return false;
+	            for (let i = 0; i < a.length; i++) {
+	                if (a[i] !== b[i]) return false;
+	            }
+	            return true;
+	        }
+
+	        function toggleViewMode() {
+	            threadedView = !threadedView;
+	            document.getElementById('view-mode-btn')?.classList.toggle('btn-active', threadedView);
+	            const label = document.getElementById('view-mode-label');
+	            if (label) label.textContent = threadedView ? 'Threaded' : 'Flat';
+
+	            if (threadedView) {
+	                renderThreadedView(true); // Force render on explicit toggle
+	            } else {
+	                renderFlatView();
+	            }
+	        }
+
+	        function getTopVisibleMessage() {
+	            const container = document.getElementById('main-scroll');
+	            if (!container) return null;
+	            const messages = document.querySelectorAll('#messages .message-item:not(.hidden)');
+	            const containerRect = container.getBoundingClientRect();
+
+	            for (const msg of messages) {
+	                const rect = msg.getBoundingClientRect();
+	                if (rect.top >= containerRect.top && rect.top < containerRect.bottom) {
+	                    return msg.id;
+	                }
+	            }
+	            return null;
+	        }
+
+	        function scrollToMessage(msgId) {
+	            if (!msgId) return;
+	            const el = document.getElementById(msgId);
+	            if (el) {
+	                el.scrollIntoView({ block: 'start', behavior: 'auto' });
+	            }
+	        }
+
+	        function getMessageDepth(messageId, visited = new Set()) {
+	            // Prevent infinite loops from circular references
+	            if (visited.has(messageId)) return 0;
+	            visited.add(messageId);
+
+	            const el = document.getElementById(`msg-${messageId}`);
+	            if (!el) return 0;
+
+	            const replyTo = el.dataset.replyTo;
+	            if (!replyTo) return 0;
+
+	            // Check if parent exists in DOM
+	            const parentEl = document.getElementById(`msg-${replyTo}`);
+	            if (!parentEl) return 0; // Treat as root if parent not loaded
+
+	            return Math.min(1 + getMessageDepth(replyTo, visited), 3); // Cap at 3
+	        }
+
+	        function getMessageSeq(messageId) {
+	            const el = document.getElementById(`msg-${messageId}`);
+	            if (!el) return 0;
+	            const seq = Number.parseInt(el.dataset.seq ?? '', 10);
+	            return Number.isFinite(seq) ? seq : 0;
+	        }
+
+	        function buildThreadedOrder() {
+	            const messages = document.querySelectorAll('#messages .message-item');
+	            const messageIds = [];
+	            const childrenMap = new Map(); // parentId -> [childIds sorted by seq]
+	            const roots = [];
+
+	            // Build maps
+	            messages.forEach(msg => {
+	                const msgId = msg.id.replace('msg-', '');
+	                messageIds.push(msgId);
+	                const replyTo = msg.dataset.replyTo;
+
+	                if (replyTo && document.getElementById(`msg-${replyTo}`)) {
+	                    // Has a parent that exists in DOM
+	                    if (!childrenMap.has(replyTo)) {
+	                        childrenMap.set(replyTo, []);
+	                    }
+	                    childrenMap.get(replyTo).push(msgId);
+	                } else {
+	                    // Root message (no reply_to or parent not loaded)
+	                    roots.push(msgId);
+	                }
+	            });
+
+	            // Sort roots by seq
+	            roots.sort((a, b) => getMessageSeq(a) - getMessageSeq(b));
+
+	            // Sort children by seq
+	            childrenMap.forEach(children => {
+	                children.sort((a, b) => getMessageSeq(a) - getMessageSeq(b));
+	            });
+
+	            // Build ordered list: DFS from roots
+	            const ordered = [];
+	            const visited = new Set();
+	            function addWithChildren(msgId) {
+	                if (visited.has(msgId)) return;
+	                visited.add(msgId);
+	                ordered.push(msgId);
+	                const children = childrenMap.get(msgId) || [];
+	                children.forEach(addWithChildren);
+	            }
+	            roots.forEach(addWithChildren);
+
+	            // Ensure all messages are included (handles cycles / missing roots)
+	            messageIds.sort((a, b) => getMessageSeq(a) - getMessageSeq(b));
+	            messageIds.forEach(addWithChildren);
+
+	            return ordered;
+	        }
+
+	        function renderThreadedView(forceRender = false) {
+	            const orderedIds = buildThreadedOrder();
+
+	            // Skip re-render if order unchanged (unless forced)
+	            // This prevents scroll jumps during polling when no reordering is needed
+	            if (!forceRender && arraysEqual(orderedIds, previousThreadOrder)) {
+	                // Just ensure new messages have correct depth attributes
+	                orderedIds.forEach(msgId => {
+	                    const el = document.getElementById(`msg-${msgId}`);
+	                    if (el && !el.hasAttribute('data-depth')) {
+	                        const depth = getMessageDepth(msgId);
+	                        if (depth > 0) el.setAttribute('data-depth', depth);
+	                    }
+	                });
+	                previousThreadOrder = orderedIds;
+	                return;
+	            }
+
+	            const anchorId = getTopVisibleMessage();
+	            const messagesContainer = document.getElementById('messages');
+	            if (!messagesContainer) return;
+
+	            // Calculate depths FIRST while all elements are still in DOM
+	            // (appendChild removes elements from DOM, breaking parent lookups)
+	            const depthMap = new Map();
+	            orderedIds.forEach(msgId => {
+	                depthMap.set(msgId, getMessageDepth(msgId));
+	            });
+
+	            // Build fragment with ordered messages
+	            const fragment = document.createDocumentFragment();
+	            orderedIds.forEach(msgId => {
+	                const el = document.getElementById(`msg-${msgId}`);
+	                if (el) {
+	                    // Set depth attribute from pre-calculated map
+	                    const depth = depthMap.get(msgId);
+	                    if (depth > 0) {
+	                        el.setAttribute('data-depth', depth);
+	                    } else {
+	                        el.removeAttribute('data-depth');
+	                    }
+	                    fragment.appendChild(el);
+	                }
+	            });
+
+	            // Replace children
+	            messagesContainer.innerHTML = '';
+	            messagesContainer.appendChild(fragment);
+
+	            // Restore scroll position
+	            scrollToMessage(anchorId);
+
+	            // Re-apply collapse state
+	            applyCollapsedState();
+
+	            // Remember order for next comparison
+	            previousThreadOrder = orderedIds;
+	        }
+
+	        function renderFlatView() {
+	            const anchorId = getTopVisibleMessage();
+	            const messagesContainer = document.getElementById('messages');
+	            if (!messagesContainer) return;
+	            const messages = Array.from(document.querySelectorAll('#messages .message-item'));
+
+	            // Sort by seq (chronological order)
+	            messages.sort(
+	                (a, b) => getMessageSeq(a.id.replace('msg-', '')) - getMessageSeq(b.id.replace('msg-', ''))
+	            );
+
+	            // Build fragment
+	            const fragment = document.createDocumentFragment();
+	            messages.forEach(el => {
+	                // Remove depth attribute
+	                el.removeAttribute('data-depth');
+	                fragment.appendChild(el);
+	            });
+
+	            // Replace children
+	            messagesContainer.innerHTML = '';
+	            messagesContainer.appendChild(fragment);
+
+	            // Restore scroll position
+	            scrollToMessage(anchorId);
+
+	            // Re-apply collapse state
+	            applyCollapsedState();
+	        }
+
+	        // Initial render on page load
+	        document.addEventListener('DOMContentLoaded', () => {
+	            renderMarkdown();
+	            initGlobalControls();
+
+	            // Scroll to bottom on topic detail pages.
+	            if (document.getElementById('messages')) {
+	                const mainScroll = getMainScroll();
+	                if (mainScroll) {
+	                    requestAnimationFrame(() => scrollToBottom(mainScroll));
+	                }
+	            }
+
+	            initTopicDetailPage();
+	        });
 
         document.addEventListener('keydown', (e) => {
             const key = e.key.toLowerCase();
@@ -501,23 +1019,63 @@
             }
         });
 
-        // Re-render after HTMX swaps in new content
-        document.addEventListener('htmx:afterSwap', (e) => {
-            renderMarkdown(e.detail.target);
+	        // Re-render after HTMX swaps in new content
+	        document.addEventListener('htmx:afterSwap', (e) => {
+	            const target = e.detail?.target || e.target;
+	            renderMarkdown(target);
 
-            if (e.detail?.target?.id === 'messages' && shouldAutoScrollMessages) {
-                requestAnimationFrame(() => scrollToBottom(getMainScroll()));
-            }
-        });
-    </script>
+	            // If we swapped the whole app (boosted navigation), re-init page behavior.
+	            if (target?.id === 'app') {
+	                initGlobalControls();
+	                filterTopics(); // re-apply current query against the refreshed list
+	                initTopicDetailPage();
+
+	                // Scroll to bottom on topic detail pages.
+	                if (document.getElementById('messages')) {
+	                    requestAnimationFrame(() => scrollToBottom(getMainScroll()));
+	                }
+	            }
+
+	            // Thread UI + threaded view ordering when new messages are appended/prepended.
+	            if (target?.id === 'messages' || target?.closest?.('#messages')) {
+	                buildThreadTree();
+	                if (threadedView) {
+	                    renderThreadedView(false);
+	                }
+	            }
+
+	            if (target?.id === 'messages' && shouldAutoScrollMessages) {
+	                requestAnimationFrame(() => scrollToBottom(getMainScroll()));
+	            }
+	        });
+
+	        // Expose actions for inline onclick handlers.
+	        window.toggleSelectMode = toggleSelectMode;
+	        window.toggleMessageSelection = toggleMessageSelection;
+	        window.clearSelection = clearSelection;
+	        window.deleteSelected = deleteSelected;
+	        window.toggleThread = toggleThread;
+	        window.collapseAllThreads = collapseAllThreads;
+	        window.expandAllThreads = expandAllThreads;
+	        window.toggleViewMode = toggleViewMode;
+	    </script>
 </head>
 	<body class="text-xs antialiased">
-    <div class="drawer lg:drawer-open h-screen bg-base-100">
-        <input id="topics-drawer" type="checkbox" class="drawer-toggle" />
+	    <div
+	        id="app"
+	        class="drawer lg:drawer-open h-screen bg-base-100"
+	        hx-target="#app"
+	        hx-select="#app"
+	        hx-swap="outerHTML transition:true"
+	    >
+	        <input id="topics-drawer" type="checkbox" class="drawer-toggle" hx-preserve />
 
         <div class="drawer-content flex flex-col h-screen">
             <!-- Header -->
-            <div class="flex items-center justify-between px-3 py-1.5 bg-base-200 border-b border-base-300">
+	            <div
+	                class="flex items-center justify-between px-3 py-1.5 bg-base-200 border-b border-base-300"
+	                hx-boost="true"
+	            >
                 <div class="flex items-center gap-2 min-w-0">
                     <label
                         for="topics-drawer"
@@ -534,8 +1092,8 @@
                 </div>
                 <div class="flex items-center gap-2">
                     {% block header_actions %}{% endblock %}
-                    <label class="swap swap-rotate btn btn-xs btn-ghost" title="Toggle theme">
-                        <input id="theme-toggle" type="checkbox" />
+	                    <label class="swap swap-rotate btn btn-xs btn-ghost" title="Toggle theme">
+	                        <input id="theme-toggle" type="checkbox" hx-preserve />
                         <!-- sun icon -->
                         <svg class="swap-off w-4 h-4 fill-current" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
                             <path d="M5.64,17l-.71.71a1,1,0,0,0,0,1.41,1,1,0,0,0,1.41,0l.71-.71A1,1,0,0,0,5.64,17ZM5,12a1,1,0,0,0-1-1H3a1,1,0,0,0,0,2H4A1,1,0,0,0,5,12Zm7-7a1,1,0,0,0,1-1V3a1,1,0,0,0-2,0V4A1,1,0,0,0,12,5ZM5.64,7.05a1,1,0,0,0,.7.29,1,1,0,0,0,.71-.29,1,1,0,0,0,0-1.41l-.71-.71A1,1,0,0,0,4.93,6.34Zm12,.29a1,1,0,0,0,.7-.29l.71-.71a1,1,0,1,0-1.41-1.41L17,5.64a1,1,0,0,0,0,1.41A1,1,0,0,0,17.66,7.34ZM21,11H20a1,1,0,0,0,0,2h1a1,1,0,0,0,0-2Zm-9,8a1,1,0,0,0-1,1v1a1,1,0,0,0,2,0V20A1,1,0,0,0,12,19ZM18.36,17A1,1,0,0,0,17,18.36l.71.71a1,1,0,0,0,1.41,0,1,1,0,0,0,0-1.41ZM12,6.5A5.5,5.5,0,1,0,17.5,12,5.51,5.51,0,0,0,12,6.5Zm0,9A3.5,3.5,0,1,1,15.5,12,3.5,3.5,0,0,1,12,15.5Z"/>
@@ -562,7 +1120,7 @@
             </div>
         </div>
 
-        <div class="drawer-side">
+	        <div class="drawer-side" hx-boost="true">
             <label for="topics-drawer" aria-label="close sidebar" class="drawer-overlay"></label>
             <aside class="bg-base-200 min-h-full w-80 border-r border-base-content/10 p-3">
                 <div class="flex items-center justify-between px-1">
@@ -577,7 +1135,7 @@
                         <svg class="h-[1em] opacity-50" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
                             <path d="M10 2a8 8 0 105.293 14.293l4.707 4.707 1.414-1.414-4.707-4.707A8 8 0 0010 2zm0 2a6 6 0 110 12 6 6 0 010-12z"/>
                         </svg>
-                        <input id="topic-search" type="search" class="grow" placeholder="Search topics" autocomplete="off" />
+	                        <input id="topic-search" type="search" class="grow" placeholder="Search topics" autocomplete="off" hx-preserve />
                         <kbd class="kbd kbd-xs">⌘</kbd>
                         <kbd class="kbd kbd-xs">K</kbd>
                     </label>

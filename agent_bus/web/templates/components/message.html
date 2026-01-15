@@ -55,6 +55,7 @@
                 {% if msg.message.reply_to %}
                 <a
                     href="#msg-{{ msg.message.reply_to }}"
+                    data-hx-boost="false"
                     class="flex items-center gap-1 text-xs opacity-40 hover:opacity-80"
                     title="Jump to replied message"
                 >
