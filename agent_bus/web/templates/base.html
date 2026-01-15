@@ -972,20 +972,17 @@
 	        }
 
 	        // Initial render on page load
-	        document.addEventListener('DOMContentLoaded', () => {
-	            renderMarkdown();
-	            initGlobalControls();
+		        document.addEventListener('DOMContentLoaded', () => {
+		            renderMarkdown();
+		            initGlobalControls();
 
-	            // Scroll to bottom on topic detail pages.
-	            if (document.getElementById('messages')) {
-	                const mainScroll = getMainScroll();
-	                if (mainScroll) {
-	                    requestAnimationFrame(() => scrollToBottom(mainScroll));
-	                }
-	            }
+		            // Scroll to bottom on topic detail pages.
+		            if (document.getElementById('messages')) {
+		                scrollToBottom(getMainScroll());
+		            }
 
-	            initTopicDetailPage();
-	        });
+		            initTopicDetailPage();
+		        });
 
         document.addEventListener('keydown', (e) => {
             const key = e.key.toLowerCase();
@@ -1019,22 +1016,26 @@
             }
         });
 
-	        // Re-render after HTMX swaps in new content
-	        document.addEventListener('htmx:afterSwap', (e) => {
-	            const target = e.detail?.target || e.target;
-	            renderMarkdown(target);
+		        // Re-render after HTMX swaps in new content
+		        document.addEventListener('htmx:afterSwap', (e) => {
+		            const swappedTarget = e.detail?.target || e.target;
+		            // For `hx-swap="outerHTML"` on `#app`, htmx may give us the old (detached) node.
+		            // Always render against the current live `#app` so messages don't appear "collapsed"
+		            // (empty markdown bodies) until the next poll.
+		            const target = swappedTarget?.id === 'app' ? document.getElementById('app') : swappedTarget;
+		            renderMarkdown(target);
 
-	            // If we swapped the whole app (boosted navigation), re-init page behavior.
-	            if (target?.id === 'app') {
-	                initGlobalControls();
-	                filterTopics(); // re-apply current query against the refreshed list
-	                initTopicDetailPage();
+		            // If we swapped the whole app (boosted navigation), re-init page behavior.
+		            if (target?.id === 'app') {
+		                initGlobalControls();
+		                filterTopics(); // re-apply current query against the refreshed list
+		                initTopicDetailPage();
 
-	                // Scroll to bottom on topic detail pages.
-	                if (document.getElementById('messages')) {
-	                    requestAnimationFrame(() => scrollToBottom(getMainScroll()));
-	                }
-	            }
+		                // Scroll to bottom on topic detail pages.
+		                if (document.getElementById('messages')) {
+		                    scrollToBottom(getMainScroll());
+		                }
+		            }
 
 	            // Thread UI + threaded view ordering when new messages are appended/prepended.
 	            if (target?.id === 'messages' || target?.closest?.('#messages')) {
