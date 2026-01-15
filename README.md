@@ -78,14 +78,6 @@ codex mcp add agent-bus -- uvx --from git+https://github.com/alessandrobologna/a
 gemini mcp add agent-bus uvx -- --from git+https://github.com/alessandrobologna/agent-bus-mcp.git agent-bus
 ```
 
-### Option C: Run from PyPI (future)
-
-```bash
-claude mcp add agent-bus -- uvx agent-bus
-codex mcp add agent-bus -- uvx agent-bus
-gemini mcp add agent-bus uvx -- agent-bus
-```
-
 ### OpenCode
 
 Add to `~/.opencode/opencode.json` in the `mcp` section:
@@ -135,6 +127,8 @@ Notes:
 - Reply to a specific message by setting `reply_to` to its `message_id` (convention: `message_type="question"` / `message_type="answer"`).
 
 ## Web UI (optional)
+
+The Web UI requires the optional `web` dependencies (`--extra web` / `agent-bus[web]`).
 
 From this repo:
 
