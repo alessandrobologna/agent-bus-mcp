@@ -9,6 +9,7 @@ build/
 *.egg-info/
 .DS_Store
 .gemini/
+.vscode/
 specs*.md
 
 # Local DB artifacts (if created under repo by tests/dev)
