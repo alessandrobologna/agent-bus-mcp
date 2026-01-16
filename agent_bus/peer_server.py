@@ -129,6 +129,69 @@ def topic_list(status: Literal["open", "closed", "all"] = "open") -> Any:
     return tool_ok(text="\n".join(lines), structured={"topics": structured_topics})
 
 
+@mcp.tool(description="Search messages (FTS / semantic / hybrid).")
+def messages_search(
+    query: str,
+    *,
+    topic_id: str | None = None,
+    mode: Literal["hybrid", "fts", "semantic"] = "hybrid",
+    limit: int = 20,
+    model: str | None = None,
+) -> Any:
+    """Search messages across topics or within a topic.
+
+    This tool is read-only and does not require calling topic_join().
+    """
+    if not isinstance(query, str) or not query.strip():
+        return tool_error(
+            code=ErrorCode.INVALID_ARGUMENT, message="query must be a non-empty string"
+        )
+    if topic_id is not None and (not isinstance(topic_id, str) or not topic_id):
+        return tool_error(
+            code=ErrorCode.INVALID_ARGUMENT, message="topic_id must be a non-empty string"
+        )
+    if not isinstance(limit, int) or limit <= 0:
+        return tool_error(code=ErrorCode.INVALID_ARGUMENT, message="limit must be > 0")
+
+    try:
+        from agent_bus.search import DEFAULT_EMBEDDING_MODEL, search_messages
+
+        results, warnings_list = search_messages(
+            db,
+            query=query,
+            mode=mode,
+            topic_id=topic_id,
+            limit=limit,
+            model=model or DEFAULT_EMBEDDING_MODEL,
+        )
+    except SchemaMismatchError as e:
+        return _schema_mismatch_result(e)
+    except DBBusyError:
+        return tool_error(code=ErrorCode.DB_BUSY, message="Database is busy.")
+    except (ValueError, RuntimeError) as e:
+        return tool_error(code=ErrorCode.INVALID_ARGUMENT, message=str(e))
+
+    warnings: list[ToolWarning] = [ToolWarning(code=w) for w in warnings_list]
+    lines = [f"Search: mode={mode} results={len(results)}"]
+    for r in results[:20]:
+        snippet = str(r.get("snippet") or "").splitlines()[0][:80]
+        lines.append(f"- {r['topic_name']} [{r['seq']}] {r['sender']}: {snippet}")
+    if len(results) > 20:
+        lines.append(f"... ({len(results) - 20} more)")
+
+    return tool_ok(
+        text="\n".join(lines),
+        structured={
+            "query": query,
+            "mode": mode,
+            "topic_id": topic_id,
+            "results": results,
+            "count": len(results),
+        },
+        warnings=warnings or None,
+    )
+
+
 @mcp.tool(description="Close a topic (idempotent).")
 def topic_close(topic_id: str, reason: str | None = None) -> Any:
     """Close a topic (idempotent)."""

@@ -8,6 +8,9 @@
     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
 </svg>
 <span class="text-xs">{{ topic.name }}</span>
+{% if context_mode %}
+<span class="badge badge-xs badge-outline opacity-60">CONTEXT</span>
+{% endif %}
 {% endblock %}
 
 {% block header_actions %}
@@ -52,6 +55,15 @@
 >
     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16m-7 6h7" />
+    </svg>
+</button>
+<button
+    onclick="document.getElementById('message-search-modal')?.showModal(); setTimeout(() => document.getElementById('message-search-input')?.focus(), 0);"
+    class="btn btn-xs btn-ghost"
+    title="Search messages"
+>
+    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 18a8 8 0 100-16 8 8 0 000 16zm7-1l4 4" />
     </svg>
 </button>
 <a
@@ -148,8 +160,10 @@
 <!-- Track last sequence for polling -->
 <input type="hidden" id="last-seq" value="{{ last_seq }}">
 <input type="hidden" id="topic-id" value="{{ topic.topic_id }}">
+<input type="hidden" id="context-mode" value="{% if context_mode %}1{% else %}0{% endif %}">
 
 <!-- Auto-refresh for new messages -->
+{% if not context_mode %}
 <div
     hx-get="/topics/{{ topic.topic_id }}/messages"
     hx-vals="js:{after_seq: parseInt(document.getElementById('last-seq').value, 10)}"
@@ -158,4 +172,51 @@
     hx-swap="beforeend"
     style="display: none;"
 ></div>
+{% endif %}
+
+<!-- Message search modal -->
+<dialog id="message-search-modal" class="modal">
+    <div class="modal-box w-11/12 max-w-2xl">
+        <form method="dialog">
+            <button class="btn btn-xs btn-ghost absolute right-2 top-2">✕</button>
+        </form>
+        <div class="text-sm font-semibold">Search this topic</div>
+        <form id="message-search-form" class="mt-3 flex gap-2">
+            <input
+                id="message-search-input"
+                name="q"
+                type="search"
+                class="input input-sm w-full"
+                placeholder="Search messages"
+                autocomplete="off"
+                hx-get="/topics/{{ topic.topic_id }}/search"
+                hx-trigger="keyup changed delay:300ms, search"
+                hx-target="#message-search-results"
+                hx-swap="innerHTML"
+                hx-include="#message-search-form"
+            />
+            <select
+                id="message-search-mode"
+                name="mode"
+                class="select select-sm"
+                hx-get="/topics/{{ topic.topic_id }}/search"
+                hx-trigger="change"
+                hx-target="#message-search-results"
+                hx-swap="innerHTML"
+                hx-include="#message-search-form"
+            >
+                <option value="hybrid" selected>Hybrid</option>
+                <option value="fts">Exact</option>
+                <option value="semantic">Semantic</option>
+            </select>
+        </form>
+        <div id="message-search-results" class="mt-4 max-h-96 overflow-auto"></div>
+        {% if context_mode %}
+        <div class="mt-4 text-xs opacity-60">
+            Viewing a window around a search result. <a href="/topics/{{ topic.topic_id }}" class="link">Back to latest</a>.
+        </div>
+        {% endif %}
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>
 {% endblock %}

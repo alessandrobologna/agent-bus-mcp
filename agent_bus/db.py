@@ -57,6 +57,7 @@ class AgentBusDB:
         if raw_path != ":memory:":
             raw_path = str(Path(raw_path).expanduser())
         self.path = raw_path
+        self._fts_available: bool | None = None
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
@@ -167,6 +168,402 @@ class AgentBusDB:
               WHERE client_message_id IS NOT NULL;
             """
         )
+
+        self._ensure_search_schema(conn)
+        self._ensure_embeddings_schema(conn)
+
+    def _ensure_search_schema(self, conn: sqlite3.Connection) -> None:
+        """Create optional search schema (FTS5) if available.
+
+        This is a backwards-compatible extension: existing DBs are upgraded in-place.
+        """
+        try:
+            conn.execute(
+                """
+                CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+                  content_markdown,
+                  message_id UNINDEXED,
+                  topic_id UNINDEXED,
+                  tokenize='unicode61'
+                );
+                """
+            )
+        except sqlite3.OperationalError as e:
+            # Some SQLite builds ship without FTS5. Search is optional; don't break the DB.
+            msg = str(e).lower()
+            if "fts5" in msg or "no such module" in msg:
+                self._fts_available = False
+                return
+            raise
+
+        self._fts_available = True
+
+        conn.executescript(
+            """
+            DROP TRIGGER IF EXISTS messages_fts_ai;
+            DROP TRIGGER IF EXISTS messages_fts_ad;
+            DROP TRIGGER IF EXISTS messages_fts_au;
+
+            CREATE TRIGGER IF NOT EXISTS messages_fts_ai AFTER INSERT ON messages BEGIN
+              INSERT INTO messages_fts(rowid, content_markdown, message_id, topic_id)
+              VALUES (new.rowid, new.content_markdown, new.message_id, new.topic_id);
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS messages_fts_ad AFTER DELETE ON messages BEGIN
+              DELETE FROM messages_fts WHERE rowid = old.rowid;
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS messages_fts_au AFTER UPDATE ON messages BEGIN
+              DELETE FROM messages_fts WHERE rowid = old.rowid;
+              INSERT INTO messages_fts(rowid, content_markdown, message_id, topic_id)
+              VALUES (new.rowid, new.content_markdown, new.message_id, new.topic_id);
+            END;
+            """
+        )
+
+        # One-time backfill for existing messages (prior to FTS being added).
+        existing = conn.execute(
+            "SELECT 1 FROM meta WHERE key = 'fts_backfill_v1' AND value = '1'",
+        ).fetchone()
+        if existing is None:
+            conn.execute(
+                """
+                INSERT INTO messages_fts(rowid, content_markdown, message_id, topic_id)
+                SELECT rowid, content_markdown, message_id, topic_id
+                FROM messages
+                """,
+            )
+            conn.execute("INSERT OR REPLACE INTO meta(key, value) VALUES ('fts_backfill_v1', '1')")
+
+    def _ensure_embeddings_schema(self, conn: sqlite3.Connection) -> None:
+        """Create optional embeddings schema for semantic/hybrid search.
+
+        Embeddings are populated asynchronously by a separate indexer process.
+        """
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS message_embedding_state (
+              message_id TEXT NOT NULL,
+              model TEXT NOT NULL,
+              content_hash TEXT NOT NULL,
+              chunk_size INTEGER NOT NULL,
+              chunk_overlap INTEGER NOT NULL,
+              updated_at REAL NOT NULL,
+              PRIMARY KEY(message_id, model)
+            );
+
+            CREATE TABLE IF NOT EXISTS chunk_embeddings (
+              message_id TEXT NOT NULL,
+              model TEXT NOT NULL,
+              topic_id TEXT NOT NULL,
+              chunk_index INTEGER NOT NULL,
+              start_char INTEGER NOT NULL,
+              end_char INTEGER NOT NULL,
+              dims INTEGER NOT NULL,
+              vector BLOB NOT NULL,
+              text_hash TEXT NOT NULL,
+              updated_at REAL NOT NULL,
+              PRIMARY KEY(message_id, model, chunk_index)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_chunk_embeddings_topic_model
+              ON chunk_embeddings(topic_id, model);
+
+            CREATE INDEX IF NOT EXISTS idx_chunk_embeddings_model
+              ON chunk_embeddings(model);
+
+            CREATE TRIGGER IF NOT EXISTS messages_embeddings_ad AFTER DELETE ON messages BEGIN
+              DELETE FROM chunk_embeddings WHERE message_id = old.message_id;
+              DELETE FROM message_embedding_state WHERE message_id = old.message_id;
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS messages_embeddings_au AFTER UPDATE OF content_markdown ON messages BEGIN
+              DELETE FROM chunk_embeddings WHERE message_id = old.message_id;
+              DELETE FROM message_embedding_state WHERE message_id = old.message_id;
+            END;
+            """
+        )
+
+    @property
+    def fts_available(self) -> bool:
+        # Initialized during _ensure_search_schema(). If we've never connected yet, assume False.
+        return bool(self._fts_available)
+
+    def search_messages_fts(
+        self,
+        *,
+        query: str,
+        topic_id: str | None = None,
+        sender: str | None = None,
+        message_type: str | None = None,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        """Search messages with SQLite FTS5.
+
+        Returns a list of dicts suitable for tool/CLI/web serialization.
+        """
+        if not isinstance(query, str) or not query.strip():
+            raise ValueError("query must be a non-empty string")
+        if limit <= 0:
+            raise ValueError("limit must be > 0")
+
+        with self.connect() as conn:
+            # If FTS isn't available on this SQLite build, surface a clear error.
+            try:
+                conn.execute("SELECT 1 FROM messages_fts LIMIT 1")
+            except sqlite3.OperationalError as e:
+                raise RuntimeError(
+                    "FTS5 is not available on this SQLite build (cannot search)."
+                ) from e
+
+            where = ["messages_fts MATCH ?"]
+            params: list[Any] = [query]
+
+            if topic_id is not None:
+                where.append("m.topic_id = ?")
+                params.append(topic_id)
+            if sender is not None:
+                where.append("m.sender = ?")
+                params.append(sender)
+            if message_type is not None:
+                where.append("m.message_type = ?")
+                params.append(message_type)
+
+            params.append(limit)
+
+            rows = conn.execute(
+                f"""
+                SELECT
+                  m.topic_id,
+                  t.name AS topic_name,
+                  m.message_id,
+                  m.seq,
+                  m.sender,
+                  m.message_type,
+                  m.created_at,
+                  snippet(messages_fts, 0, '[', ']', '…', 10) AS snippet,
+                  bm25(messages_fts) AS rank
+                FROM messages_fts
+                JOIN messages m ON m.rowid = messages_fts.rowid
+                JOIN topics t ON t.topic_id = m.topic_id
+                WHERE {" AND ".join(where)}
+                ORDER BY rank ASC
+                LIMIT ?
+                """,
+                tuple(params),
+            ).fetchall()
+
+        return [
+            {
+                "topic_id": r["topic_id"],
+                "topic_name": r["topic_name"],
+                "message_id": r["message_id"],
+                "seq": cast(int, r["seq"]),
+                "sender": r["sender"],
+                "message_type": r["message_type"],
+                "created_at": cast(float, r["created_at"]),
+                "snippet": r["snippet"],
+                "rank": cast(float, r["rank"]),
+            }
+            for r in rows
+        ]
+
+    def get_message_by_id(self, *, message_id: str) -> Message:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT
+                  message_id, topic_id, seq, sender, message_type, reply_to,
+                  content_markdown, metadata_json, client_message_id, created_at
+                FROM messages
+                WHERE message_id = ?
+                """,
+                (message_id,),
+            ).fetchone()
+            if row is None:
+                raise ValueError(f"message not found: {message_id}")
+            return _message_from_row(row)
+
+    def upsert_embeddings(
+        self,
+        *,
+        message_id: str,
+        model: str,
+        topic_id: str,
+        content_hash: str,
+        chunk_size: int,
+        chunk_overlap: int,
+        dims: int,
+        chunks: list[dict[str, Any]],
+    ) -> None:
+        """Replace embeddings for a message+model.
+
+        `chunks` items must include: chunk_index, start_char, end_char, vector (bytes), text_hash.
+        """
+        updated_at = now()
+        with self.connect() as conn, conn:
+            conn.execute(
+                "DELETE FROM chunk_embeddings WHERE message_id = ? AND model = ?",
+                (message_id, model),
+            )
+            for c in chunks:
+                conn.execute(
+                    """
+                    INSERT INTO chunk_embeddings(
+                      message_id, model, topic_id, chunk_index, start_char, end_char,
+                      dims, vector, text_hash, updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        message_id,
+                        model,
+                        topic_id,
+                        cast(int, c["chunk_index"]),
+                        cast(int, c["start_char"]),
+                        cast(int, c["end_char"]),
+                        dims,
+                        cast(bytes, c["vector"]),
+                        cast(str, c["text_hash"]),
+                        updated_at,
+                    ),
+                )
+            conn.execute(
+                """
+                INSERT INTO message_embedding_state(
+                  message_id, model, content_hash, chunk_size, chunk_overlap, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(message_id, model) DO UPDATE SET
+                  content_hash = excluded.content_hash,
+                  chunk_size = excluded.chunk_size,
+                  chunk_overlap = excluded.chunk_overlap,
+                  updated_at = excluded.updated_at
+                """,
+                (message_id, model, content_hash, chunk_size, chunk_overlap, updated_at),
+            )
+
+    def get_embedding_state(
+        self,
+        *,
+        message_id: str,
+        model: str,
+    ) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT message_id, model, content_hash, chunk_size, chunk_overlap, updated_at
+                FROM message_embedding_state
+                WHERE message_id = ? AND model = ?
+                """,
+                (message_id, model),
+            ).fetchone()
+            if row is None:
+                return None
+            return {
+                "message_id": row["message_id"],
+                "model": row["model"],
+                "content_hash": row["content_hash"],
+                "chunk_size": cast(int, row["chunk_size"]),
+                "chunk_overlap": cast(int, row["chunk_overlap"]),
+                "updated_at": cast(float, row["updated_at"]),
+            }
+
+    def list_messages_for_embedding(
+        self,
+        *,
+        topic_id: str | None = None,
+        limit: int = 1000,
+    ) -> list[dict[str, Any]]:
+        if limit <= 0:
+            raise ValueError("limit must be > 0")
+        where = ""
+        params: list[Any] = []
+        if topic_id is not None:
+            where = "WHERE topic_id = ?"
+            params.append(topic_id)
+        params.append(limit)
+        with self.connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT message_id, topic_id, content_markdown, created_at
+                FROM messages
+                {where}
+                ORDER BY created_at ASC
+                LIMIT ?
+                """,
+                tuple(params),
+            ).fetchall()
+        return [
+            {
+                "message_id": r["message_id"],
+                "topic_id": r["topic_id"],
+                "content_markdown": r["content_markdown"],
+                "created_at": cast(float, r["created_at"]),
+            }
+            for r in rows
+        ]
+
+    def list_chunk_embedding_candidates(
+        self,
+        *,
+        model: str,
+        topic_id: str | None = None,
+        message_ids: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        where: list[str] = ["e.model = ?"]
+        params: list[Any] = [model]
+        if topic_id is not None:
+            where.append("e.topic_id = ?")
+            params.append(topic_id)
+        if message_ids is not None:
+            if not message_ids:
+                return []
+            placeholders = ",".join("?" for _ in message_ids)
+            where.append(f"e.message_id IN ({placeholders})")
+            params.extend(message_ids)
+
+        with self.connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT
+                  e.message_id,
+                  e.topic_id,
+                  t.name AS topic_name,
+                  m.seq,
+                  m.sender,
+                  m.message_type,
+                  m.created_at,
+                  e.chunk_index,
+                  e.start_char,
+                  e.end_char,
+                  e.dims,
+                  e.vector
+                FROM chunk_embeddings e
+                JOIN messages m ON m.message_id = e.message_id
+                JOIN topics t ON t.topic_id = e.topic_id
+                WHERE {" AND ".join(where)}
+                """,
+                tuple(params),
+            ).fetchall()
+
+        return [
+            {
+                "message_id": r["message_id"],
+                "topic_id": r["topic_id"],
+                "topic_name": r["topic_name"],
+                "seq": cast(int, r["seq"]),
+                "sender": r["sender"],
+                "message_type": r["message_type"],
+                "created_at": cast(float, r["created_at"]),
+                "chunk_index": cast(int, r["chunk_index"]),
+                "start_char": cast(int, r["start_char"]),
+                "end_char": cast(int, r["end_char"]),
+                "dims": cast(int, r["dims"]),
+                "vector": r["vector"],
+            }
+            for r in rows
+        ]
 
     def get_topic(self, *, topic_id: str) -> Topic:
         with self.connect() as conn:

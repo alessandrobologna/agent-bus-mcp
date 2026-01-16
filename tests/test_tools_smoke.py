@@ -32,6 +32,7 @@ async def test_two_process_smoke(tmp_path):
         assert "topic_join" in a_tool_names
         assert "topic_presence" in a_tool_names
         assert "cursor_reset" in a_tool_names
+        assert "messages_search" in a_tool_names
         assert "sync" in a_tool_names
 
         created = await agent_a.call_tool("topic_create", {"name": "pink"})
@@ -110,6 +111,20 @@ async def test_two_process_smoke(tmp_path):
             msg_hello_json = drained_json_string.structuredContent["received"][0]
             assert msg_hello_json["sender"] == "red-squirrel"
             assert msg_hello_json["content_markdown"] == "hello-json"
+
+            # Search (FTS/hybrid) is optional depending on SQLite build; tool should exist either way.
+            searched = await agent_a.call_tool(
+                "messages_search",
+                {"query": "hello", "topic_id": topic_id, "mode": "fts", "limit": 5},
+            )
+            if searched.isError:
+                assert "FTS5" in searched.structuredContent["error"]["message"]
+            else:
+                assert searched.structuredContent["count"] >= 1
+                assert any(
+                    r["message_id"] == sent_msg["message_id"]
+                    for r in searched.structuredContent["results"]
+                )
 
             invalid_json_outbox = await agent_a.call_tool(
                 "sync",

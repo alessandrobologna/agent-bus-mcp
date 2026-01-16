@@ -971,18 +971,18 @@
 	            applyCollapsedState();
 	        }
 
-	        // Initial render on page load
-		        document.addEventListener('DOMContentLoaded', () => {
-		            renderMarkdown();
-		            initGlobalControls();
+		        // Initial render on page load
+			        document.addEventListener('DOMContentLoaded', () => {
+			            renderMarkdown();
+			            initGlobalControls();
 
-		            // Scroll to bottom on topic detail pages.
-		            if (document.getElementById('messages')) {
-		                scrollToBottom(getMainScroll());
-		            }
+			            // Scroll to bottom on topic detail pages.
+			            if (document.getElementById('messages') && !isContextMode()) {
+			                scrollToBottom(getMainScroll());
+			            }
 
-		            initTopicDetailPage();
-		        });
+			            initTopicDetailPage();
+			        });
 
         document.addEventListener('keydown', (e) => {
             const key = e.key.toLowerCase();
@@ -996,15 +996,20 @@
         });
 
         // Check if user is near the bottom of the scroll container
-        function isNearBottom(container, threshold = 100) {
-            if (!container) return false;
-            return container.scrollHeight - container.scrollTop - container.clientHeight < threshold;
-        }
+	        function isNearBottom(container, threshold = 100) {
+	            if (!container) return false;
+	            return container.scrollHeight - container.scrollTop - container.clientHeight < threshold;
+	        }
 
-        // Auto-scroll to bottom of messages container
-        function scrollToBottom(container) {
-            if (container) {
-                container.scrollTop = container.scrollHeight;
+	        function isContextMode() {
+	            const el = document.getElementById('context-mode');
+	            return el && el.value === '1';
+	        }
+
+	        // Auto-scroll to bottom of messages container
+	        function scrollToBottom(container) {
+	            if (container) {
+	                container.scrollTop = container.scrollHeight;
             }
         }
 
@@ -1026,16 +1031,16 @@
 		            renderMarkdown(target);
 
 		            // If we swapped the whole app (boosted navigation), re-init page behavior.
-		            if (target?.id === 'app') {
-		                initGlobalControls();
-		                filterTopics(); // re-apply current query against the refreshed list
-		                initTopicDetailPage();
+			            if (target?.id === 'app') {
+			                initGlobalControls();
+			                filterTopics(); // re-apply current query against the refreshed list
+			                initTopicDetailPage();
 
-		                // Scroll to bottom on topic detail pages.
-		                if (document.getElementById('messages')) {
-		                    scrollToBottom(getMainScroll());
-		                }
-		            }
+			                // Scroll to bottom on topic detail pages.
+			                if (document.getElementById('messages') && !isContextMode()) {
+			                    scrollToBottom(getMainScroll());
+			                }
+			            }
 
 	            // Thread UI + threaded view ordering when new messages are appended/prepended.
 	            if (target?.id === 'messages' || target?.closest?.('#messages')) {
@@ -1045,10 +1050,10 @@
 	                }
 	            }
 
-	            if (target?.id === 'messages' && shouldAutoScrollMessages) {
-	                requestAnimationFrame(() => scrollToBottom(getMainScroll()));
-	            }
-	        });
+		            if (target?.id === 'messages' && shouldAutoScrollMessages && !isContextMode()) {
+		                requestAnimationFrame(() => scrollToBottom(getMainScroll()));
+		            }
+		        });
 
 	        // Expose actions for inline onclick handlers.
 	        window.toggleSelectMode = toggleSelectMode;

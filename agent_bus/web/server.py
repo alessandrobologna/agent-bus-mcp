@@ -96,7 +96,7 @@ DEFAULT_PAGE_SIZE = 50
 
 
 @app.get("/topics/{topic_id}", response_class=HTMLResponse)
-async def topic_detail(request: Request, topic_id: str) -> Any:
+async def topic_detail(request: Request, topic_id: str, focus: str | None = None) -> Any:
     """Show messages in a topic."""
     db = get_db()
 
@@ -106,8 +106,32 @@ async def topic_detail(request: Request, topic_id: str) -> Any:
         raise HTTPException(status_code=404, detail="Topic not found") from None
 
     topics = sidebar_topics(db)
-    # Load only the latest N messages initially for faster rendering
-    messages = db.get_latest_messages(topic_id=topic_id, limit=DEFAULT_PAGE_SIZE)
+    context_mode = False
+    focus_message_id: str | None = None
+
+    if focus:
+        # Load a window around a specific message (for deep links from search results).
+        try:
+            msg = db.get_message_by_id(message_id=focus)
+        except ValueError:
+            raise HTTPException(status_code=404, detail="Message not found") from None
+        if msg.topic_id != topic_id:
+            raise HTTPException(status_code=404, detail="Message not found") from None
+
+        window = 25
+        after_seq = max(0, msg.seq - window - 1)
+        before_seq = msg.seq + window + 1
+        messages = db.get_messages(
+            topic_id=topic_id,
+            after_seq=after_seq,
+            before_seq=before_seq,
+            limit=(window * 2) + 1,
+        )
+        context_mode = True
+        focus_message_id = focus
+    else:
+        # Load only the latest N messages initially for faster rendering.
+        messages = db.get_latest_messages(topic_id=topic_id, limit=DEFAULT_PAGE_SIZE)
     presence = db.get_presence(topic_id=topic_id, window_seconds=300)
 
     # Build sender lookup for reply_to references
@@ -147,6 +171,8 @@ async def topic_detail(request: Request, topic_id: str) -> Any:
             "last_seq": last_seq,
             "has_earlier": has_earlier,
             "presence": presence,
+            "context_mode": context_mode,
+            "focus_message_id": focus_message_id,
             "now": time.time(),
         },
     )
@@ -274,6 +300,64 @@ async def topic_export(topic_id: str) -> Any:
         content="\n".join(lines),
         media_type="text/markdown",
         headers={"Content-Disposition": f'attachment; filename="{topic.name}.md"'},
+    )
+
+
+@app.get("/topics/{topic_id}/search", response_class=HTMLResponse)
+async def topic_search(
+    request: Request,
+    topic_id: str,
+    q: str | None = None,
+    mode: str = "hybrid",
+    limit: int = 20,
+) -> Any:
+    """HTMX partial: search within a topic."""
+    db = get_db()
+
+    try:
+        db.get_topic(topic_id=topic_id)
+    except TopicNotFoundError:
+        raise HTTPException(status_code=404, detail="Topic not found") from None
+
+    query = (q or "").strip()
+    if not query:
+        return templates.TemplateResponse(
+            "components/search_results.html",
+            {"request": request, "topic_id": topic_id, "query": "", "results": [], "warnings": []},
+        )
+
+    try:
+        from agent_bus.search import DEFAULT_EMBEDDING_MODEL, search_messages
+
+        results, warnings = search_messages(
+            db,
+            query=query,
+            mode=mode.lower(),
+            topic_id=topic_id,
+            limit=max(1, min(limit, 50)),
+            model=DEFAULT_EMBEDDING_MODEL,
+        )
+    except Exception as e:
+        return templates.TemplateResponse(
+            "components/search_results.html",
+            {
+                "request": request,
+                "topic_id": topic_id,
+                "query": query,
+                "results": [],
+                "warnings": [str(e)],
+            },
+        )
+
+    return templates.TemplateResponse(
+        "components/search_results.html",
+        {
+            "request": request,
+            "topic_id": topic_id,
+            "query": query,
+            "results": results,
+            "warnings": warnings,
+        },
     )
 
 

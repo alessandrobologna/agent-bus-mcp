@@ -98,7 +98,7 @@ Tracks the next per-topic sequence value.
 | topic_id | TEXT | |
 | seq | INTEGER | per-topic monotonic sequence |
 | sender | TEXT | `agent_name` |
-| message_type | TEXT | e.g. `message`, `question`, `event`, `resolved` |
+| message_type | TEXT | free-form string (recommended: `message`, `question`, `answer`) |
 | reply_to | TEXT NULL | message_id (same topic) |
 | content_markdown | TEXT | message body |
 | metadata_json | TEXT NULL | optional JSON |
@@ -148,6 +148,7 @@ Constraints:
 - `topic_join`
 - `topic_presence`
 - `cursor_reset`
+- `messages_search`
 - `sync`
 
 ### 4.3 `sync()` semantics

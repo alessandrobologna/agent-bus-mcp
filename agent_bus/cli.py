@@ -563,3 +563,216 @@ def topics_export(
         click.echo(f"Exported {len(messages)} messages to {output}", err=True)
     else:
         click.echo(content)
+
+
+@cli.command("search")
+@click.argument("query")
+@click.option(
+    "--mode",
+    type=click.Choice(["hybrid", "fts", "semantic"], case_sensitive=False),
+    default="hybrid",
+    show_default=True,
+)
+@click.option("--topic-id", default=None, help="Restrict search to a topic_id.")
+@click.option("--limit", type=int, default=20, show_default=True)
+@click.option("--json", "as_json", is_flag=True, help="Print JSON instead of text.")
+@click.option("--model", default=None, help="Embedding model name (semantic/hybrid).")
+@click.pass_context
+def search_cmd(
+    ctx: click.Context,
+    query: str,
+    *,
+    mode: str,
+    topic_id: str | None,
+    limit: int,
+    as_json: bool,
+    model: str | None,
+) -> None:
+    """Search messages (FTS / semantic / hybrid).
+
+    Examples:
+
+        agent-bus cli search "sqlite wal"
+        agent-bus cli search "cursor reset" --topic-id <topic_id>
+        agent-bus cli search "how do I replay history" --mode semantic
+    """
+    from agent_bus.search import DEFAULT_EMBEDDING_MODEL, search_messages
+
+    if limit <= 0:
+        raise click.ClickException("limit must be > 0")
+
+    db = _db(ctx)
+    try:
+        results, warnings = search_messages(
+            db,
+            query=query,
+            mode=mode.lower(),  # type: ignore[arg-type]
+            topic_id=topic_id,
+            limit=limit,
+            model=model or DEFAULT_EMBEDDING_MODEL,
+        )
+    except (ValueError, RuntimeError) as e:
+        raise click.ClickException(str(e)) from e
+
+    if as_json:
+        click.echo(
+            json.dumps(
+                {
+                    "query": query,
+                    "mode": mode.lower(),
+                    "topic_id": topic_id,
+                    "results": results,
+                    "warnings": warnings,
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+                indent=2,
+            )
+        )
+        return
+
+    click.echo(f"DB path: {db.path}")
+    click.echo(f"Search ({mode.lower()}): {len(results)} result(s)")
+    for r in results:
+        score = ""
+        if "semantic_score" in r and r["semantic_score"] is not None:
+            score = f" score={r['semantic_score']:.3f}"
+        click.echo(
+            f"- {r['topic_name']} ({r['topic_id']}) #{r['seq']} {r['sender']}{score}: {r['snippet']}"
+        )
+    if warnings:
+        click.echo("")
+        click.echo("Warnings:")
+        for w in warnings:
+            click.echo(f"- {w}")
+
+
+@cli.group("embeddings")
+def embeddings_group() -> None:
+    """Embeddings operations (semantic/hybrid search)."""
+
+
+@embeddings_group.command("index")
+@click.option("--model", default=None, help="SentenceTransformers model name.")
+@click.option("--topic-id", default=None, help="Restrict indexing to a topic_id.")
+@click.option("--chunk-size", type=int, default=None, help="Chunk size in characters.")
+@click.option("--chunk-overlap", type=int, default=None, help="Chunk overlap in characters.")
+@click.option("--limit", type=int, default=1000, show_default=True)
+@click.option(
+    "--dry-run", is_flag=True, help="Compute which messages need indexing, but do not write."
+)
+@click.pass_context
+def embeddings_index(
+    ctx: click.Context,
+    *,
+    model: str | None,
+    topic_id: str | None,
+    chunk_size: int | None,
+    chunk_overlap: int | None,
+    limit: int,
+    dry_run: bool,
+) -> None:
+    """Index message embeddings for semantic/hybrid search."""
+    from agent_bus.search import (
+        DEFAULT_CHUNK_OVERLAP,
+        DEFAULT_CHUNK_SIZE,
+        DEFAULT_EMBEDDING_MODEL,
+        chunk_text,
+        sha256_hex,
+    )
+
+    if limit <= 0:
+        raise click.ClickException("limit must be > 0")
+
+    db = _db(ctx)
+
+    # Optional dependency: keep the core server lightweight.
+    try:
+        import numpy as np
+        from sentence_transformers import SentenceTransformer
+    except ImportError:
+        raise click.ClickException(
+            "Semantic dependencies not installed. Install with: uv sync --extra semantic"
+        ) from None
+
+    model_name = model or DEFAULT_EMBEDDING_MODEL
+    csize = chunk_size if chunk_size is not None else DEFAULT_CHUNK_SIZE
+    coverlap = chunk_overlap if chunk_overlap is not None else DEFAULT_CHUNK_OVERLAP
+
+    click.echo(f"DB path: {db.path}")
+    click.echo(f"Model: {model_name}")
+    click.echo(f"Chunking: size={csize} overlap={coverlap}")
+    if topic_id:
+        click.echo(f"Topic: {topic_id}")
+    click.echo("")
+
+    st = SentenceTransformer(model_name)
+
+    rows = db.list_messages_for_embedding(topic_id=topic_id, limit=limit)
+    to_index: list[dict[str, Any]] = []
+    skipped = 0
+    for r in rows:
+        mid = r["message_id"]
+        content = r["content_markdown"]
+        content_hash = sha256_hex(content)
+        state = db.get_embedding_state(message_id=mid, model=model_name)
+        if (
+            state is not None
+            and state["content_hash"] == content_hash
+            and int(state["chunk_size"]) == csize
+            and int(state["chunk_overlap"]) == coverlap
+        ):
+            skipped += 1
+            continue
+        to_index.append({**r, "content_hash": content_hash})
+
+    click.echo(f"Messages scanned: {len(rows)}")
+    click.echo(f"Up-to-date: {skipped}")
+    click.echo(f"Needs indexing: {len(to_index)}")
+    if dry_run:
+        return
+
+    indexed = 0
+    for item in to_index:
+        mid = item["message_id"]
+        tid = item["topic_id"]
+        content = item["content_markdown"]
+        content_hash = item["content_hash"]
+
+        chunks = chunk_text(content, chunk_size=csize, chunk_overlap=coverlap)
+        if not chunks:
+            continue
+
+        texts = [c.text for c in chunks]
+        embs = st.encode(texts, normalize_embeddings=True)
+        arr = np.asarray(embs, dtype=np.float32)
+        dims = int(arr.shape[1])
+
+        payload: list[dict[str, Any]] = []
+        for c, vec in zip(chunks, arr, strict=True):
+            payload.append(
+                {
+                    "chunk_index": c.chunk_index,
+                    "start_char": c.start_char,
+                    "end_char": c.end_char,
+                    "text_hash": sha256_hex(c.text),
+                    "vector": vec.tobytes(),
+                }
+            )
+
+        db.upsert_embeddings(
+            message_id=mid,
+            model=model_name,
+            topic_id=tid,
+            content_hash=content_hash,
+            chunk_size=csize,
+            chunk_overlap=coverlap,
+            dims=dims,
+            chunks=payload,
+        )
+        indexed += 1
+
+        if indexed % 10 == 0:
+            click.echo(f"Indexed {indexed}/{len(to_index)}…", err=True)
+
+    click.echo(f"Indexed {indexed} message(s).", err=True)

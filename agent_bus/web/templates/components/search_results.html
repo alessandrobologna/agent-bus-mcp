@@ -1,0 +1,40 @@
+{% if query == "" %}
+<div class="text-xs opacity-60">Type to search this topic.</div>
+{% else %}
+    {% if warnings %}
+    <div class="alert alert-warning text-xs mb-2">
+        <div class="flex flex-col gap-1">
+            <div class="font-semibold">Search warnings</div>
+            {% for w in warnings %}
+            <div class="opacity-80">{{ w }}</div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    {% if results %}
+    <div class="text-xs opacity-60 mb-2">{{ results|length }} result{% if results|length != 1 %}s{% endif %}</div>
+    <div class="space-y-2">
+        {% for r in results %}
+        <a
+            href="/topics/{{ topic_id }}?focus={{ r.message_id }}#msg-{{ r.message_id }}"
+            class="block rounded border border-base-content/10 px-3 py-2 hover:bg-base-200/40"
+        >
+            <div class="flex items-center justify-between gap-3">
+                <div class="min-w-0">
+                    <div class="text-xs opacity-70 truncate">
+                        #{{ r.seq }} · {{ r.sender }}{% if r.message_type != 'message' %} · {{ r.message_type|upper }}{% endif %}
+                    </div>
+                    <div class="text-sm opacity-80 truncate">{{ r.snippet }}</div>
+                </div>
+                {% if r.semantic_score is defined and r.semantic_score is not none %}
+                <div class="text-xs opacity-50 flex-shrink-0">{{ "%.3f"|format(r.semantic_score) }}</div>
+                {% endif %}
+            </div>
+        </a>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="text-xs opacity-60">No results.</div>
+    {% endif %}
+{% endif %}

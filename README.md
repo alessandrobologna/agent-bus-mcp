@@ -7,12 +7,67 @@ Local SQLite-backed MCP server for peer-to-peer agent communication.
 - Delta-based sync via server-side cursors (no “read everything” polling)
 - Optional web UI for browsing/exporting topics
 
+## Architecture
+
+```mermaid
+%%{init: {"look": "handDrawn", "fontFamily": "virgil, excalifont, segoe print, bradley hand, chalkboard se, marker felt, comic sans ms, cursive", "flowchart": {"diagramPadding": 130}, "htmlLabels": true}}%%
+flowchart TB
+  subgraph Clients
+    A1[Agent MCP client]
+    A2[Agent MCP client]
+    CLI[CLI]
+    WEB[Web UI]
+    IDX[Embeddings indexer]
+  end
+
+  BUS[agent-bus MCP server over stdio]
+  DB[(SQLite DB)]
+
+  A1 <--> BUS
+  A2 <--> BUS
+  BUS <--> DB
+  CLI --> DB
+  WEB --> DB
+  IDX --> DB
+```
+
 ## Requirements
 
 - Python 3.12+
 - `uv` (recommended)
 
-## Quickstart (from this repo)
+## Install and run
+
+Install from GitHub or from a local checkout. A PyPI release may be added later.
+
+### Option A: Run from GitHub with `uvx` (recommended)
+
+Run the MCP server over stdio (recommended, includes semantic dependencies for hybrid reranking):
+
+```bash
+uvx --from "agent-bus[semantic] @ git+https://github.com/alessandrobologna/agent-bus-mcp.git" agent-bus
+```
+
+Minimal install (no embeddings):
+
+```bash
+uvx --from git+https://github.com/alessandrobologna/agent-bus-mcp.git agent-bus
+```
+
+Run CLI commands with the same `--from` value:
+
+```bash
+uvx --from "agent-bus[semantic] @ git+https://github.com/alessandrobologna/agent-bus-mcp.git" agent-bus cli topics list --status all
+```
+
+Optional extras:
+
+```bash
+uvx --from "agent-bus[web] @ git+https://github.com/alessandrobologna/agent-bus-mcp.git" agent-bus serve
+uvx --from "agent-bus[web,semantic] @ git+https://github.com/alessandrobologna/agent-bus-mcp.git" agent-bus serve
+```
+
+### Option B: Clone and run locally (recommended for development)
 
 ```bash
 git clone https://github.com/alessandrobologna/agent-bus-mcp.git
@@ -27,17 +82,20 @@ Default DB path (override via `AGENT_BUS_DB`):
 export AGENT_BUS_DB="$HOME/.agent_bus/agent_bus.sqlite"
 ```
 
-## Install (GitHub / PyPI)
-
-This repo is installable directly from GitHub today. A future PyPI release would make `uvx agent-bus`
-and `pip install agent-bus` work without the Git URL.
-
-### Install from GitHub
+### Option C: Install from GitHub into an environment
 
 ```bash
 pip install "agent-bus @ git+https://github.com/alessandrobologna/agent-bus-mcp.git"
 # or
 uv pip install "agent-bus @ git+https://github.com/alessandrobologna/agent-bus-mcp.git"
+```
+
+For semantic/hybrid search reranking:
+
+```bash
+pip install "agent-bus[semantic] @ git+https://github.com/alessandrobologna/agent-bus-mcp.git"
+# or
+uv pip install "agent-bus[semantic] @ git+https://github.com/alessandrobologna/agent-bus-mcp.git"
 ```
 
 Then run:
@@ -46,19 +104,21 @@ Then run:
 agent-bus
 ```
 
-### Install from PyPI (future)
-
-```bash
-pip install agent-bus
-# or run without installing:
-uvx agent-bus
-```
-
 ## MCP Client Setup
 
 Agent Bus runs as a local process. Configure your MCP client to start the server in one of these ways:
 
-### Option A: Run from a local checkout (recommended for development)
+### Option A: Run from GitHub with `uvx` (no checkout)
+
+Use `uvx --from <git-url> agent-bus` as the server command.
+
+```bash
+claude mcp add agent-bus -- uvx --from "agent-bus[semantic] @ git+https://github.com/alessandrobologna/agent-bus-mcp.git" agent-bus
+codex mcp add agent-bus -- uvx --from "agent-bus[semantic] @ git+https://github.com/alessandrobologna/agent-bus-mcp.git" agent-bus
+gemini mcp add agent-bus uvx -- --from "agent-bus[semantic] @ git+https://github.com/alessandrobologna/agent-bus-mcp.git" agent-bus
+```
+
+### Option B: Run from a local checkout
 
 Use `uv --project <path> run agent-bus` as the server command.
 
@@ -68,16 +128,6 @@ codex mcp add agent-bus -- uv --project /path/to/agent-bus-mcp run agent-bus
 gemini mcp add agent-bus uv -- --project /path/to/agent-bus-mcp run agent-bus
 ```
 
-### Option B: Run from GitHub (no local checkout)
-
-Use `uvx --from <git-url> agent-bus` as the server command.
-
-```bash
-claude mcp add agent-bus -- uvx --from git+https://github.com/alessandrobologna/agent-bus-mcp.git agent-bus
-codex mcp add agent-bus -- uvx --from git+https://github.com/alessandrobologna/agent-bus-mcp.git agent-bus
-gemini mcp add agent-bus uvx -- --from git+https://github.com/alessandrobologna/agent-bus-mcp.git agent-bus
-```
-
 ### OpenCode
 
 Add to `~/.opencode/opencode.json` in the `mcp` section:
@@ -85,7 +135,12 @@ Add to `~/.opencode/opencode.json` in the `mcp` section:
 ```json
 "agent-bus": {
   "type": "local",
-  "command": ["uv", "--project", "/path/to/agent-bus-mcp", "run", "agent-bus"]
+  "command": [
+    "uvx",
+    "--from",
+    "agent-bus[semantic] @ git+https://github.com/alessandrobologna/agent-bus-mcp.git",
+    "agent-bus"
+  ]
 }
 ```
 
@@ -101,6 +156,7 @@ Tools:
 - `topic_join`
 - `topic_presence`
 - `cursor_reset`
+- `messages_search`
 - `sync`
 
 Typical flow:
@@ -137,11 +193,10 @@ uv sync --extra web
 uv run agent-bus serve
 ```
 
-From GitHub install:
+From GitHub (no checkout):
 
 ```bash
-pip install "agent-bus[web] @ git+https://github.com/alessandrobologna/agent-bus-mcp.git"
-agent-bus serve
+uvx --from "agent-bus[web] @ git+https://github.com/alessandrobologna/agent-bus-mcp.git" agent-bus serve
 ```
 
 ## CLI
@@ -159,12 +214,34 @@ agent-bus cli db wipe --yes
 
 Note: `topics rename` rewrites message content by default by replacing occurrences of the old topic name with the new one. Use `--no-rewrite-messages` to disable.
 
+## Search (CLI + Web UI)
+
+Lexical search works out of the box (SQLite FTS5). Hybrid/semantic search uses optional local embeddings.
+
+```bash
+agent-bus cli search "cursor reset"                 # hybrid (default)
+agent-bus cli search "sqlite wal" --mode fts        # exact / lexical only
+agent-bus cli search "replay history" --mode semantic
+agent-bus cli search "poll backoff" --topic-id <topic_id>
+```
+
+To enable embeddings (local SentenceTransformers) and index existing messages:
+
+```bash
+uvx --from "agent-bus[semantic] @ git+https://github.com/alessandrobologna/agent-bus-mcp.git" agent-bus cli embeddings index
+# or from a local checkout:
+uv sync --extra semantic
+uv run agent-bus cli embeddings index
+```
+
+In the Web UI, open a topic and use the search button in the header.
+
 ## Configuration
 
 - `AGENT_BUS_DB`: SQLite DB path (default: `~/.agent_bus/agent_bus.sqlite`)
 - `AGENT_BUS_MAX_OUTBOX` (default: 50)
 - `AGENT_BUS_MAX_MESSAGE_CHARS` (default: 65536)
-- `AGENT_BUS_MAX_SYNC_ITEMS` (default: 20) — max allowed `sync(max_items=...)`; keep this small and call `sync` repeatedly until `has_more=false`
+- `AGENT_BUS_MAX_SYNC_ITEMS` (default: 20): max allowed `sync(max_items=...)`. Keep this small and call `sync` repeatedly until `has_more=false`.
 - `AGENT_BUS_POLL_INITIAL_MS` (default: 250)
 - `AGENT_BUS_POLL_MAX_MS` (default: 1000)
 
