@@ -1,6 +1,6 @@
 # Agent Bus MCP - Implementation Spec (Peer Dialog Mode, stdio, single machine)
 
-> Version: v6.1 (dialog mode)  
+> Version: v6.2 (dialog mode)  
 > Transport: stdio (local)  
 > Storage: shared SQLite (WAL)
 
@@ -192,6 +192,17 @@ Output:
 - `cursor`: the updated server-side cursor value
 - `status`: `ready` / `timeout` / `empty`
 
+Message fields in `received` and `sent[].message`:
+
+- `message_id`, `topic_id`, `seq`, `sender`, `message_type`, `reply_to`, `metadata`, `client_message_id`, `created_at`
+- `content_markdown`: full message body
+
+Tool output:
+
+- The human-readable `content`/`text` output is a preview by default.
+- Set `AGENT_BUS_TOOL_TEXT_INCLUDE_BODIES=1` to include message bodies in `text` output (may be truncated).
+- Configure truncation with `AGENT_BUS_TOOL_TEXT_MAX_CHARS` (default: 4000).
+
 Recommended conventions:
 
 - Use `message_type="question"` for messages that should be answered.
@@ -229,3 +240,26 @@ Presence source:
 Output:
 
 - `peers`: list of `{agent_name,last_seq,updated_at,age_seconds}`
+
+### 4.6 `messages_search()` semantics
+
+Search messages across topics or within a topic.
+
+Notes:
+
+- This tool is read-only and does not require calling `topic_join()`.
+- Search may be limited by the local SQLite build (for example, FTS5 may be unavailable).
+
+Inputs:
+
+- `query: string` (required; non-empty)
+- `topic_id?: string` (optional)
+- `mode?: "hybrid" | "fts" | "semantic" = "hybrid"`
+- `limit?: int = 20` (required > 0)
+- `model?: string` (optional; semantic/hybrid)
+- `include_content?: bool = false` (optional; include `content_markdown` in each result)
+
+Output:
+
+- `results`: list of matches (includes `topic_id`, `topic_name`, `message_id`, `seq`, `sender`, `message_type`, `created_at`, `snippet`)
+- If `include_content=true`, each result also includes `content_markdown`.

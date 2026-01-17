@@ -4,6 +4,7 @@ import time
 from typing import Annotated, Any, Literal, cast
 
 from mcp.server.fastmcp import FastMCP
+from mcp.types import CallToolResult
 from pydantic import Field
 
 from agent_bus.common import (
@@ -22,8 +23,20 @@ from agent_bus.db import (
     TopicClosedError,
     TopicNotFoundError,
 )
+from agent_bus.tool_schemas import (
+    CursorResetOutput,
+    MessagesSearchOutput,
+    PingOutput,
+    SyncOutput,
+    TopicCloseOutput,
+    TopicCreateOutput,
+    TopicJoinOutput,
+    TopicListOutput,
+    TopicPresenceOutput,
+    TopicResolveOutput,
+)
 
-SPEC_VERSION = "v6.1"
+SPEC_VERSION = "v6.2"
 
 db = AgentBusDB()
 mcp = FastMCP(
@@ -32,7 +45,10 @@ mcp = FastMCP(
         "Join a topic with topic_join(agent_name=..., topic_id=...|name=...), then use sync() to "
         "read/write messages. Use small max_items (<= 20) and call sync repeatedly until has_more "
         "is false. If you need to replay history, call cursor_reset(topic_id=..., last_seq=0). "
-        "Outbox items require content_markdown. Use reply_to to respond to a specific message. "
+        "Read messages from structuredContent.received[*].content_markdown. Some MCP clients do "
+        "not expose structuredContent. In that case, set AGENT_BUS_TOOL_TEXT_INCLUDE_BODIES=1 to "
+        "include bodies in the sync() text output (may be truncated). Outbox items require "
+        "content_markdown. Use reply_to to respond to a specific message. "
         "Convention: message_type='question' for questions and message_type='answer' for replies. "
         "Tip: use client_message_id to make retries idempotent."
     ),
@@ -66,8 +82,14 @@ def _schema_mismatch_result(e: SchemaMismatchError) -> Any:
     return tool_error(code=ErrorCode.DB_SCHEMA_MISMATCH, message=str(e))
 
 
+def _truncate_for_tool_text(body: str, *, max_chars: int) -> tuple[str, bool]:
+    if len(body) <= max_chars:
+        return body, False
+    return body[:max_chars] + "\n… (truncated)", True
+
+
 @mcp.tool(description="Health check for the Agent Bus dialog MCP server.")
-def ping() -> Any:
+def ping() -> Annotated[CallToolResult, PingOutput]:
     """Health check for the Agent Bus dialog MCP server."""
     return tool_ok(text="pong", structured={"ok": True, "spec_version": SPEC_VERSION})
 
@@ -77,7 +99,7 @@ def topic_create(
     name: str | None = None,
     metadata: dict[str, Any] | None = None,
     mode: Literal["reuse", "new"] = "reuse",
-) -> Any:
+) -> Annotated[CallToolResult, TopicCreateOutput]:
     """Create a topic (or reuse an existing open topic).
 
     mode:
@@ -100,7 +122,9 @@ def topic_create(
 
 
 @mcp.tool(description="List topics in the shared Agent Bus DB.")
-def topic_list(status: Literal["open", "closed", "all"] = "open") -> Any:
+def topic_list(
+    status: Literal["open", "closed", "all"] = "open",
+) -> Annotated[CallToolResult, TopicListOutput]:
     """List topics in the shared Agent Bus DB."""
     try:
         topics = db.topic_list(status=status)
@@ -137,7 +161,8 @@ def messages_search(
     mode: Literal["hybrid", "fts", "semantic"] = "hybrid",
     limit: int = 20,
     model: str | None = None,
-) -> Any:
+    include_content: bool = False,
+) -> Annotated[CallToolResult, MessagesSearchOutput]:
     """Search messages across topics or within a topic.
 
     This tool is read-only and does not require calling topic_join().
@@ -152,6 +177,16 @@ def messages_search(
         )
     if not isinstance(limit, int) or limit <= 0:
         return tool_error(code=ErrorCode.INVALID_ARGUMENT, message="limit must be > 0")
+    if not isinstance(include_content, bool):
+        return tool_error(code=ErrorCode.INVALID_ARGUMENT, message="include_content must be a bool")
+
+    try:
+        tool_text_include_bodies = (
+            env_int("AGENT_BUS_TOOL_TEXT_INCLUDE_BODIES", default=0, min_value=0) != 0
+        )
+        tool_text_max_chars = env_int("AGENT_BUS_TOOL_TEXT_MAX_CHARS", default=4000, min_value=80)
+    except ValueError as e:  # pragma: no cover
+        return tool_error(code=ErrorCode.INVALID_ARGUMENT, message=str(e))
 
     try:
         from agent_bus.search import DEFAULT_EMBEDDING_MODEL, search_messages
@@ -163,6 +198,7 @@ def messages_search(
             topic_id=topic_id,
             limit=limit,
             model=model or DEFAULT_EMBEDDING_MODEL,
+            include_content=include_content,
         )
     except SchemaMismatchError as e:
         return _schema_mismatch_result(e)
@@ -173,9 +209,42 @@ def messages_search(
 
     warnings: list[ToolWarning] = [ToolWarning(code=w) for w in warnings_list]
     lines = [f"Search: mode={mode} results={len(results)}"]
+    if include_content and not tool_text_include_bodies:
+        lines.append(
+            "Note: include_content=true adds content_markdown to structuredContent. "
+            "Set AGENT_BUS_TOOL_TEXT_INCLUDE_BODIES=1 to also include bodies in text output."
+        )
+        lines.append("")
     for r in results[:20]:
-        snippet = str(r.get("snippet") or "").splitlines()[0][:80]
-        lines.append(f"- {r['topic_name']} [{r['seq']}] {r['sender']}: {snippet}")
+        meta: list[str] = []
+        fts_rank = r.get("fts_rank", r.get("rank"))
+        if fts_rank is not None:
+            meta.append(f"fts_rank={fts_rank}")
+        semantic_score = r.get("semantic_score")
+        if semantic_score is not None:
+            meta.append(f"semantic_score={semantic_score}")
+        meta_str = f" ({', '.join(meta)})" if meta else ""
+
+        lines.append(
+            f"- {r['topic_name']} [{r['seq']}] {r['sender']} ({r['message_type']}) "
+            f"id={r['message_id']}{meta_str}"
+        )
+
+        if (
+            include_content
+            and tool_text_include_bodies
+            and isinstance(r.get("content_markdown"), str)
+        ):
+            body, truncated = _truncate_for_tool_text(
+                r["content_markdown"], max_chars=tool_text_max_chars
+            )
+            lines.append(body)
+            if truncated:
+                lines.append(f"(truncated; {len(r['content_markdown'])} chars total)")
+        else:
+            snippet = str(r.get("snippet") or "").splitlines()[0][:80]
+            lines.append(snippet)
+        lines.append("")
     if len(results) > 20:
         lines.append(f"... ({len(results) - 20} more)")
 
@@ -185,6 +254,7 @@ def messages_search(
             "query": query,
             "mode": mode,
             "topic_id": topic_id,
+            "include_content": include_content,
             "results": results,
             "count": len(results),
         },
@@ -193,7 +263,9 @@ def messages_search(
 
 
 @mcp.tool(description="Close a topic (idempotent).")
-def topic_close(topic_id: str, reason: str | None = None) -> Any:
+def topic_close(
+    topic_id: str, reason: str | None = None
+) -> Annotated[CallToolResult, TopicCloseOutput]:
     """Close a topic (idempotent)."""
     try:
         topic, already_closed = db.topic_close(topic_id=topic_id, reason=reason)
@@ -226,7 +298,9 @@ def topic_close(topic_id: str, reason: str | None = None) -> Any:
 
 
 @mcp.tool(description="Resolve a topic by name.")
-def topic_resolve(name: str, allow_closed: bool = False) -> Any:
+def topic_resolve(
+    name: str, allow_closed: bool = False
+) -> Annotated[CallToolResult, TopicResolveOutput]:
     """Resolve a topic by name."""
     if not isinstance(name, str) or not name:
         return tool_error(
@@ -253,7 +327,7 @@ def topic_join(
     topic_id: str | None = None,
     name: str | None = None,
     allow_closed: bool = False,
-) -> Any:
+) -> Annotated[CallToolResult, TopicJoinOutput]:
     """Join a topic as a named peer (in-memory per server process).
 
     Requires joining before calling `sync()`.
@@ -306,7 +380,9 @@ def topic_join(
 
 
 @mcp.tool(description="List peers recently active on a topic (based on sync cursor activity).")
-def topic_presence(topic_id: str, window_seconds: int = 300, limit: int = 200) -> Any:
+def topic_presence(
+    topic_id: str, window_seconds: int = 300, limit: int = 200
+) -> Annotated[CallToolResult, TopicPresenceOutput]:
     """List peers recently active on a topic.
 
     Presence is derived from the `cursors` table. A peer becomes "active" when it calls `sync()`,
@@ -364,7 +440,9 @@ def topic_presence(topic_id: str, window_seconds: int = 300, limit: int = 200) -
 
 
 @mcp.tool(description="Reset/set the server-side cursor for the joined peer on a topic.")
-def cursor_reset(topic_id: str, *, last_seq: int = 0) -> Any:
+def cursor_reset(
+    topic_id: str, *, last_seq: int = 0
+) -> Annotated[CallToolResult, CursorResetOutput]:
     """Reset/set the server-side cursor for this peer on a topic.
 
     Set last_seq=0 to replay the full history.
@@ -405,7 +483,14 @@ def cursor_reset(topic_id: str, *, last_seq: int = 0) -> Any:
     )
 
 
-@mcp.tool(description="Sync messages on a topic (delta-based, read/write, server-side cursor).")
+@mcp.tool(
+    description=(
+        "Sync messages on a topic (delta-based, read/write, server-side cursor). "
+        "Use structuredContent.received[*].content_markdown for full message bodies. Some clients "
+        "only show text output; by default the text output is a preview. Set "
+        "AGENT_BUS_TOOL_TEXT_INCLUDE_BODIES=1 to include message bodies (may be truncated)."
+    )
+)
 def sync(
     topic_id: str,
     *,
@@ -438,7 +523,7 @@ def sync(
     wait_seconds: int = 60,
     auto_advance: bool = True,
     ack_through: int | None = None,
-) -> Any:
+) -> Annotated[CallToolResult, SyncOutput]:
     """Read/write sync against a topic message stream.
 
     Requires joining the topic first via `topic_join()`.
@@ -501,6 +586,10 @@ def sync(
         max_sync_items = env_int("AGENT_BUS_MAX_SYNC_ITEMS", default=20, min_value=1)
         poll_initial_ms = env_int("AGENT_BUS_POLL_INITIAL_MS", default=250, min_value=1)
         poll_max_ms = env_int("AGENT_BUS_POLL_MAX_MS", default=1000, min_value=1)
+        tool_text_include_bodies = (
+            env_int("AGENT_BUS_TOOL_TEXT_INCLUDE_BODIES", default=0, min_value=0) != 0
+        )
+        tool_text_max_chars = env_int("AGENT_BUS_TOOL_TEXT_MAX_CHARS", default=4000, min_value=80)
     except ValueError as e:  # pragma: no cover
         return tool_error(code=ErrorCode.INVALID_ARGUMENT, message=str(e))
 
@@ -683,9 +772,23 @@ def sync(
         f"Sync: status={status} received={len(structured_received)} sent={len(structured_sent)} "
         f"cursor={cursor.last_seq} has_more={has_more}"
     ]
+
     for m in structured_received[:20]:
-        preview = m["content_markdown"].splitlines()[0][:80]
-        lines.append(f"[{m['seq']}] {m['sender']}: {preview}")
+        header = f"[{m['seq']}] {m['sender']} ({m['message_type']}) id={m['message_id']}" + (
+            f" reply_to={m['reply_to']}" if m.get("reply_to") else ""
+        )
+        if tool_text_include_bodies:
+            lines.append(header)
+            body, truncated = _truncate_for_tool_text(
+                m["content_markdown"], max_chars=tool_text_max_chars
+            )
+            lines.append(body)
+            if truncated:
+                lines.append(f"(truncated; {len(m['content_markdown'])} chars total)")
+            lines.append("")
+        else:
+            preview = m["content_markdown"].splitlines()[0][:80]
+            lines.append(f"{header}: {preview}")
     if len(structured_received) > 20:
         lines.append(f"... ({len(structured_received) - 20} more)")
 

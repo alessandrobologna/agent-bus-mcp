@@ -297,6 +297,7 @@ class AgentBusDB:
         sender: str | None = None,
         message_type: str | None = None,
         limit: int = 20,
+        include_content: bool = False,
     ) -> list[dict[str, Any]]:
         """Search messages with SQLite FTS5.
 
@@ -329,6 +330,7 @@ class AgentBusDB:
                 where.append("m.message_type = ?")
                 params.append(message_type)
 
+            content_col = ", m.content_markdown AS content_markdown" if include_content else ""
             params.append(limit)
 
             rows = conn.execute(
@@ -343,6 +345,7 @@ class AgentBusDB:
                   m.created_at,
                   snippet(messages_fts, 0, '[', ']', '…', 10) AS snippet,
                   bm25(messages_fts) AS rank
+                  {content_col}
                 FROM messages_fts
                 JOIN messages m ON m.rowid = messages_fts.rowid
                 JOIN topics t ON t.topic_id = m.topic_id
@@ -353,8 +356,9 @@ class AgentBusDB:
                 tuple(params),
             ).fetchall()
 
-        return [
-            {
+        results: list[dict[str, Any]] = []
+        for r in rows:
+            item: dict[str, Any] = {
                 "topic_id": r["topic_id"],
                 "topic_name": r["topic_name"],
                 "message_id": r["message_id"],
@@ -365,8 +369,10 @@ class AgentBusDB:
                 "snippet": r["snippet"],
                 "rank": cast(float, r["rank"]),
             }
-            for r in rows
-        ]
+            if include_content:
+                item["content_markdown"] = r["content_markdown"]
+            results.append(item)
+        return results
 
     def get_message_by_id(self, *, message_id: str) -> Message:
         with self.connect() as conn:

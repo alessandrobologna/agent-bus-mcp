@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from functools import lru_cache
 from hashlib import sha256
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from agent_bus.db import AgentBusDB
 
@@ -140,9 +140,25 @@ def _semantic_best_by_message(
     return best
 
 
-def _semantic_snippet(db: AgentBusDB, *, message_id: str, start_char: int, end_char: int) -> str:
-    msg = db.get_message_by_id(message_id=message_id)
-    raw = msg.content_markdown
+def _get_message_content(
+    db: AgentBusDB, *, message_id: str, cache: dict[str, str]
+) -> str:  # pragma: no cover (simple cache)
+    raw = cache.get(message_id)
+    if raw is None:
+        raw = db.get_message_by_id(message_id=message_id).content_markdown
+        cache[message_id] = raw
+    return raw
+
+
+def _semantic_snippet(
+    db: AgentBusDB,
+    *,
+    message_id: str,
+    start_char: int,
+    end_char: int,
+    content_cache: dict[str, str],
+) -> str:
+    raw = _get_message_content(db, message_id=message_id, cache=content_cache)
     start = max(0, min(len(raw), start_char))
     end = max(0, min(len(raw), end_char))
     if end <= start:
@@ -162,6 +178,7 @@ def search_messages(
     limit: int = 20,
     model: str = DEFAULT_EMBEDDING_MODEL,
     fts_candidates: int = 100,
+    include_content: bool = False,
 ) -> tuple[list[dict[str, Any]], list[str]]:
     if not isinstance(query, str) or not query.strip():
         raise ValueError("query must be a non-empty string")
@@ -169,11 +186,18 @@ def search_messages(
         raise ValueError("limit must be > 0")
     if fts_candidates <= 0:
         raise ValueError("fts_candidates must be > 0")
+    if not isinstance(include_content, bool):
+        raise ValueError("include_content must be a bool")
 
     warnings: list[str] = []
 
     if mode == "fts":
-        return db.search_messages_fts(query=query, topic_id=topic_id, limit=limit), warnings
+        return (
+            db.search_messages_fts(
+                query=query, topic_id=topic_id, limit=limit, include_content=include_content
+            ),
+            warnings,
+        )
 
     if mode not in {"semantic", "hybrid"}:
         raise ValueError("mode must be one of: fts, semantic, hybrid")
@@ -184,10 +208,16 @@ def search_messages(
             warnings.append(
                 "semantic_deps_missing: install with `uv sync --extra semantic` for reranking"
             )
-            return db.search_messages_fts(query=query, topic_id=topic_id, limit=limit), warnings
+            return (
+                db.search_messages_fts(
+                    query=query, topic_id=topic_id, limit=limit, include_content=include_content
+                ),
+                warnings,
+            )
         raise RuntimeError("Semantic search dependencies not installed.")
 
     if mode == "semantic":
+        content_cache: dict[str, str] = {}
         best = _semantic_best_by_message(
             db, query=query, model=model, topic_id=topic_id, message_ids=None
         )
@@ -196,11 +226,13 @@ def search_messages(
         ]
         out: list[dict[str, Any]] = []
         for r in ranked:
+            mid = cast(str, r["message_id"])
+            content = _get_message_content(db, message_id=mid, cache=content_cache)
             out.append(
                 {
                     "topic_id": r["topic_id"],
                     "topic_name": r["topic_name"],
-                    "message_id": r["message_id"],
+                    "message_id": mid,
                     "seq": r["seq"],
                     "sender": r["sender"],
                     "message_type": r["message_type"],
@@ -208,10 +240,12 @@ def search_messages(
                     "semantic_score": r["semantic_score"],
                     "snippet": _semantic_snippet(
                         db,
-                        message_id=r["message_id"],
+                        message_id=mid,
                         start_char=int(r["start_char"]),
                         end_char=int(r["end_char"]),
+                        content_cache=content_cache,
                     ),
+                    **({"content_markdown": content} if include_content else {}),
                 }
             )
         return out, warnings
@@ -234,6 +268,7 @@ def search_messages(
             limit=limit,
             model=model,
             fts_candidates=fts_candidates,
+            include_content=include_content,
         )
 
     message_ids = [r["message_id"] for r in fts]
@@ -242,6 +277,7 @@ def search_messages(
     )
 
     merged: list[dict[str, Any]] = []
+    content_cache: dict[str, str] = {}
     for r in fts:
         mid = r["message_id"]
         best_row = best.get(mid)
@@ -252,6 +288,7 @@ def search_messages(
                 message_id=mid,
                 start_char=int(best_row["start_char"]),
                 end_char=int(best_row["end_char"]),
+                content_cache=content_cache,
             )
         else:
             semantic_score = None
@@ -279,6 +316,11 @@ def search_messages(
 
     merged.sort(key=_sort_key)
     top = merged[:limit]
+
+    if include_content:
+        for item in top:
+            mid = item["message_id"]
+            item["content_markdown"] = _get_message_content(db, message_id=mid, cache=content_cache)
 
     if best and any(r.get("semantic_score") is None for r in top):
         warnings.append("hybrid_partial_semantic: some results not embedded (run embeddings index)")

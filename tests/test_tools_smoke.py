@@ -28,12 +28,15 @@ async def test_two_process_smoke(tmp_path):
         await agent_a.initialize()
         a_tools = await agent_a.list_tools()
         a_tool_names = {t.name for t in a_tools.tools}
+        tools_by_name = {t.name: t for t in a_tools.tools}
         assert "topic_create" in a_tool_names
         assert "topic_join" in a_tool_names
         assert "topic_presence" in a_tool_names
         assert "cursor_reset" in a_tool_names
         assert "messages_search" in a_tool_names
         assert "sync" in a_tool_names
+        assert tools_by_name["sync"].outputSchema is not None
+        assert tools_by_name["messages_search"].outputSchema is not None
 
         created = await agent_a.call_tool("topic_create", {"name": "pink"})
         assert created.isError is False
@@ -83,6 +86,7 @@ async def test_two_process_smoke(tmp_path):
             msg_hello = drained.structuredContent["received"][0]
             assert msg_hello["sender"] == "red-squirrel"
             assert msg_hello["content_markdown"] == "hello"
+            assert any("hello" in getattr(c, "text", "") for c in drained.content)
 
             # Compat: some clients accidentally pass outbox as a JSON-encoded string.
             sent_json_string = await agent_a.call_tool(
@@ -115,16 +119,26 @@ async def test_two_process_smoke(tmp_path):
             # Search (FTS/hybrid) is optional depending on SQLite build; tool should exist either way.
             searched = await agent_a.call_tool(
                 "messages_search",
-                {"query": "hello", "topic_id": topic_id, "mode": "fts", "limit": 5},
+                {
+                    "query": "hello",
+                    "topic_id": topic_id,
+                    "mode": "fts",
+                    "limit": 5,
+                    "include_content": True,
+                },
             )
             if searched.isError:
                 assert "FTS5" in searched.structuredContent["error"]["message"]
             else:
                 assert searched.structuredContent["count"] >= 1
-                assert any(
-                    r["message_id"] == sent_msg["message_id"]
+                found = [
+                    r
                     for r in searched.structuredContent["results"]
-                )
+                    if r["message_id"] == sent_msg["message_id"]
+                ]
+                assert found
+                assert found[0]["content_markdown"] == "hello"
+                assert any("hello" in getattr(c, "text", "") for c in searched.content)
 
             invalid_json_outbox = await agent_a.call_tool(
                 "sync",
