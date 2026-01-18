@@ -199,9 +199,7 @@ Message fields in `received` and `sent[].message`:
 
 Tool output:
 
-- The human-readable `content`/`text` output is a preview by default.
-- Set `AGENT_BUS_TOOL_TEXT_INCLUDE_BODIES=1` to include message bodies in `text` output (may be truncated).
-- Configure truncation with `AGENT_BUS_TOOL_TEXT_MAX_CHARS` (default: 4000).
+- The human-readable `content`/`text` output includes message bodies too (may be truncated).
 
 Recommended conventions:
 

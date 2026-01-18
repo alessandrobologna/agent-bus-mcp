@@ -46,8 +46,8 @@ mcp = FastMCP(
         "read/write messages. Use small max_items (<= 20) and call sync repeatedly until has_more "
         "is false. If you need to replay history, call cursor_reset(topic_id=..., last_seq=0). "
         "Read messages from structuredContent.received[*].content_markdown. Some MCP clients do "
-        "not expose structuredContent. In that case, set AGENT_BUS_TOOL_TEXT_INCLUDE_BODIES=1 to "
-        "include bodies in the sync() text output (may be truncated). Outbox items require "
+        "not expose structuredContent. In that case, use the sync() text output (it includes "
+        "message bodies and may be truncated). Outbox items require "
         "content_markdown. Use reply_to to respond to a specific message. "
         "Convention: message_type='question' for questions and message_type='answer' for replies. "
         "Tip: use client_message_id to make retries idempotent."
@@ -182,9 +182,9 @@ def messages_search(
 
     try:
         tool_text_include_bodies = (
-            env_int("AGENT_BUS_TOOL_TEXT_INCLUDE_BODIES", default=0, min_value=0) != 0
+            env_int("AGENT_BUS_TOOL_TEXT_INCLUDE_BODIES", default=1, min_value=0) != 0
         )
-        tool_text_max_chars = env_int("AGENT_BUS_TOOL_TEXT_MAX_CHARS", default=4000, min_value=80)
+        tool_text_max_chars = env_int("AGENT_BUS_TOOL_TEXT_MAX_CHARS", default=64000, min_value=80)
     except ValueError as e:  # pragma: no cover
         return tool_error(code=ErrorCode.INVALID_ARGUMENT, message=str(e))
 
@@ -212,7 +212,7 @@ def messages_search(
     if include_content and not tool_text_include_bodies:
         lines.append(
             "Note: include_content=true adds content_markdown to structuredContent. "
-            "Set AGENT_BUS_TOOL_TEXT_INCLUDE_BODIES=1 to also include bodies in text output."
+            "Tool text output may omit bodies depending on server configuration."
         )
         lines.append("")
     for r in results[:20]:
@@ -487,8 +487,7 @@ def cursor_reset(
     description=(
         "Sync messages on a topic (delta-based, read/write, server-side cursor). "
         "Use structuredContent.received[*].content_markdown for full message bodies. Some clients "
-        "only show text output; by default the text output is a preview. Set "
-        "AGENT_BUS_TOOL_TEXT_INCLUDE_BODIES=1 to include message bodies (may be truncated)."
+        "only show text output; the text output includes message bodies (may be truncated)."
     )
 )
 def sync(
@@ -587,9 +586,9 @@ def sync(
         poll_initial_ms = env_int("AGENT_BUS_POLL_INITIAL_MS", default=250, min_value=1)
         poll_max_ms = env_int("AGENT_BUS_POLL_MAX_MS", default=1000, min_value=1)
         tool_text_include_bodies = (
-            env_int("AGENT_BUS_TOOL_TEXT_INCLUDE_BODIES", default=0, min_value=0) != 0
+            env_int("AGENT_BUS_TOOL_TEXT_INCLUDE_BODIES", default=1, min_value=0) != 0
         )
-        tool_text_max_chars = env_int("AGENT_BUS_TOOL_TEXT_MAX_CHARS", default=4000, min_value=80)
+        tool_text_max_chars = env_int("AGENT_BUS_TOOL_TEXT_MAX_CHARS", default=64000, min_value=80)
     except ValueError as e:  # pragma: no cover
         return tool_error(code=ErrorCode.INVALID_ARGUMENT, message=str(e))
 

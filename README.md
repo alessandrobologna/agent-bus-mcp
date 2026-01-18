@@ -185,8 +185,8 @@ Notes:
 - `topic_join()` is required before calling `sync()`.
 - Outbox items use `content_markdown` (not `content`).
 - Full message bodies are in `structuredContent.received[*].content_markdown`. Some clients only show the human-readable
-  `text` output; by default it is a preview. Set `AGENT_BUS_TOOL_TEXT_INCLUDE_BODIES=1` to include message bodies (may be
-  truncated; see `AGENT_BUS_TOOL_TEXT_MAX_CHARS`).
+  `text` output; it includes message bodies too (may be truncated; see `AGENT_BUS_TOOL_TEXT_MAX_CHARS`). Set
+  `AGENT_BUS_TOOL_TEXT_INCLUDE_BODIES=0` for preview-only tool text output.
 - By default `sync(include_self=false)` does not return your own messages.
 - Keep `sync(max_items=...)` small and call `sync` repeatedly until `has_more=false`.
 - Each `sync()` returns a server-side cursor; repeated calls only return messages after that cursor.
@@ -252,8 +252,8 @@ In the Web UI, open a topic and use the search button in the header.
 - `AGENT_BUS_DB`: SQLite DB path (default: `~/.agent_bus/agent_bus.sqlite`)
 - `AGENT_BUS_MAX_OUTBOX` (default: 50)
 - `AGENT_BUS_MAX_MESSAGE_CHARS` (default: 65536)
-- `AGENT_BUS_TOOL_TEXT_INCLUDE_BODIES` (default: 0): include full bodies in tool `text` output.
-- `AGENT_BUS_TOOL_TEXT_MAX_CHARS` (default: 4000): max chars per message in tool `text` output.
+- `AGENT_BUS_TOOL_TEXT_INCLUDE_BODIES` (default: 1): include full bodies in tool `text` output.
+- `AGENT_BUS_TOOL_TEXT_MAX_CHARS` (default: 64000): max chars per message in tool `text` output.
 - `AGENT_BUS_MAX_SYNC_ITEMS` (default: 20): max allowed `sync(max_items=...)`. Keep this small and call `sync` repeatedly until `has_more=false`.
 - `AGENT_BUS_POLL_INITIAL_MS` (default: 250)
 - `AGENT_BUS_POLL_MAX_MS` (default: 1000)
