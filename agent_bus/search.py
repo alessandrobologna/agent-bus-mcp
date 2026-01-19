@@ -5,11 +5,12 @@ from functools import lru_cache
 from hashlib import sha256
 from typing import Any, Literal, cast
 
-from agent_bus.db import AgentBusDB
+from agent_bus.db import AgentBusDB, DBBusyError
 
 SearchMode = Literal["fts", "semantic", "hybrid"]
 
-DEFAULT_EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+# FastEmbed default model (downloaded on first use).
+DEFAULT_EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"
 DEFAULT_CHUNK_SIZE = 1200  # characters
 DEFAULT_CHUNK_OVERLAP = 200  # characters
 
@@ -71,36 +72,24 @@ def chunk_text(
     return chunks
 
 
-def _semantic_deps():
-    try:
-        import numpy as np
-        from sentence_transformers import SentenceTransformer
-    except ImportError:
-        return None
-    return np, SentenceTransformer
-
-
 @lru_cache(maxsize=2)
-def _load_sentence_transformer(model: str):
-    deps = _semantic_deps()
-    if deps is None:
-        raise RuntimeError(
-            "Semantic search dependencies not installed. Install with: uv sync --extra semantic"
-        )
-    _, SentenceTransformer = deps
-    return SentenceTransformer(model)
+def _load_embedding_model(model: str):
+    from fastembed import TextEmbedding
+
+    return TextEmbedding(model_name=model)
 
 
 def _embed_query(model: str, query: str):
-    np, _ = _semantic_deps()  # type: ignore[assignment]
-    st = _load_sentence_transformer(model)
-    emb = st.encode([query], normalize_embeddings=True)
-    vec = np.asarray(emb[0], dtype=np.float32)
-    return vec
+    import numpy as np
+
+    embedder = _load_embedding_model(model)
+    emb = next(embedder.query_embed([query]))
+    return np.asarray(emb, dtype=np.float32)
 
 
 def _cosine_scores(query_vec, candidate_rows: list[dict[str, Any]]):
-    np, _ = _semantic_deps()  # type: ignore[assignment]
+    import numpy as np
+
     if not candidate_rows:
         return np.array([], dtype=np.float32)
 
@@ -121,13 +110,13 @@ def _semantic_best_by_message(
     topic_id: str | None,
     message_ids: list[str] | None,
 ) -> dict[str, dict[str, Any]]:
-    query_vec = _embed_query(model, query)
     candidates = db.list_chunk_embedding_candidates(
         model=model, topic_id=topic_id, message_ids=message_ids
     )
     if not candidates:
         return {}
 
+    query_vec = _embed_query(model, query)
     scores = _cosine_scores(query_vec, candidates)
 
     best: dict[str, dict[str, Any]] = {}
@@ -202,24 +191,14 @@ def search_messages(
     if mode not in {"semantic", "hybrid"}:
         raise ValueError("mode must be one of: fts, semantic, hybrid")
 
-    # Semantic or hybrid: require deps, but keep hybrid usable even if deps are missing.
-    if _semantic_deps() is None:
-        if mode == "hybrid":
-            warnings.append(
-                "semantic_deps_missing: install with `uv sync --extra semantic` for reranking"
-            )
-            return (
-                db.search_messages_fts(
-                    query=query, topic_id=topic_id, limit=limit, include_content=include_content
-                ),
-                warnings,
-            )
-        raise RuntimeError("Semantic search dependencies not installed.")
-
     if mode == "semantic":
         content_cache: dict[str, str] = {}
         best = _semantic_best_by_message(
-            db, query=query, model=model, topic_id=topic_id, message_ids=None
+            db,
+            query=query,
+            model=model,
+            topic_id=topic_id,
+            message_ids=None,
         )
         ranked = sorted(best.values(), key=lambda r: float(r["semantic_score"]), reverse=True)[
             :limit
@@ -272,9 +251,15 @@ def search_messages(
         )
 
     message_ids = [r["message_id"] for r in fts]
-    best = _semantic_best_by_message(
-        db, query=query, model=model, topic_id=topic_id, message_ids=message_ids
-    )
+    try:
+        best = _semantic_best_by_message(
+            db, query=query, model=model, topic_id=topic_id, message_ids=message_ids
+        )
+    except DBBusyError:
+        raise
+    except Exception as e:  # pragma: no cover (best-effort hybrid)
+        warnings.append(f"hybrid_semantic_failed: {e}")
+        best = {}
 
     merged: list[dict[str, Any]] = []
     content_cache: dict[str, str] = {}

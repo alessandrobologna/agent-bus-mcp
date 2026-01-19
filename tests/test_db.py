@@ -279,6 +279,60 @@ def test_get_messages_returns_messages_after_seq(tmp_path):
     assert [m.content_markdown for m in limited] == ["message 1", "message 2"]
 
 
+def test_embedding_jobs_claim_dedup_and_complete(tmp_path):
+    db = AgentBusDB(path=str(tmp_path / "bus.sqlite"))
+    t = db.topic_create(name="pink", metadata=None, mode="new")
+
+    sent, _, _, _ = db.sync_once(
+        topic_id=t.topic_id,
+        agent_name="a",
+        outbox=[{"content_markdown": "hello", "message_type": "message"}],
+        max_items=10,
+        include_self=True,
+        auto_advance=True,
+        ack_through=None,
+    )
+    assert sent
+    message_id = sent[0][0].message_id
+
+    model = "unit-test-model"
+    db.enqueue_embedding_jobs(jobs=[(message_id, t.topic_id)], model=model)
+    db.enqueue_embedding_jobs(jobs=[(message_id, t.topic_id)], model=model)
+
+    claimed = db.claim_embedding_jobs(
+        model=model,
+        limit=10,
+        worker_id="w1",
+        lock_ttl_seconds=300,
+        error_retry_seconds=0,
+        max_attempts=3,
+    )
+    assert [c["message_id"] for c in claimed] == [message_id]
+    assert claimed[0]["attempts"] == 1
+
+    # Not stale: another worker should not be able to claim it yet.
+    claimed_other = db.claim_embedding_jobs(
+        model=model,
+        limit=10,
+        worker_id="w2",
+        lock_ttl_seconds=300,
+        error_retry_seconds=0,
+        max_attempts=3,
+    )
+    assert claimed_other == []
+
+    db.complete_embedding_job(message_id=message_id, model=model)
+    claimed_after = db.claim_embedding_jobs(
+        model=model,
+        limit=10,
+        worker_id="w3",
+        lock_ttl_seconds=300,
+        error_retry_seconds=0,
+        max_attempts=3,
+    )
+    assert claimed_after == []
+
+
 def test_get_presence_returns_active_cursors(tmp_path):
     """Test that get_presence returns active cursors within the window."""
     db = AgentBusDB(path=str(tmp_path / "bus.sqlite"))

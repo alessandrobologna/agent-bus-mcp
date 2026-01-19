@@ -12,6 +12,7 @@ from agent_bus.common import (
     ToolWarning,
     WarningCode,
     env_int,
+    env_str,
     json_loads,
     tool_error,
     tool_ok,
@@ -191,13 +192,14 @@ def messages_search(
     try:
         from agent_bus.search import DEFAULT_EMBEDDING_MODEL, search_messages
 
+        default_model = env_str("AGENT_BUS_EMBEDDING_MODEL", default=DEFAULT_EMBEDDING_MODEL)
         results, warnings_list = search_messages(
             db,
             query=query,
             mode=mode,
             topic_id=topic_id,
             limit=limit,
-            model=model or DEFAULT_EMBEDDING_MODEL,
+            model=model or default_model,
             include_content=include_content,
         )
     except SchemaMismatchError as e:
@@ -682,6 +684,7 @@ def sync(
     received = []
     cursor = None
     has_more = False
+    tool_warnings: list[ToolWarning] = []
 
     try:
         sent, received, cursor, has_more = db.sync_once(
@@ -703,6 +706,28 @@ def sync(
         return tool_error(code=ErrorCode.DB_BUSY, message="Database is busy.")
     except ValueError as e:
         return tool_error(code=ErrorCode.INVALID_ARGUMENT, message=str(e))
+
+    # Opportunistically enqueue embeddings indexing for newly-created messages.
+    # This is best-effort: failures should not affect message delivery.
+    try:
+        from agent_bus.embedding_worker import (
+            autoindex_enabled,
+            embedding_model,
+        )
+
+        if autoindex_enabled():
+            model = embedding_model()
+            jobs = [(m.message_id, m.topic_id) for m, dup in sent if not dup]
+            if jobs:
+                db.enqueue_embedding_jobs(jobs=jobs, model=model)
+    except SchemaMismatchError as e:
+        tool_warnings.append(ToolWarning(code="embeddings_schema_mismatch", message=str(e)))
+    except DBBusyError:
+        tool_warnings.append(
+            ToolWarning(code="embeddings_enqueue_db_busy", message="Database busy; skipped enqueue")
+        )
+    except Exception as e:  # pragma: no cover
+        tool_warnings.append(ToolWarning(code="embeddings_enqueue_failed", message=str(e)))
 
     deadline = time.monotonic() + wait_seconds
     interval_s = poll_initial_ms / 1000.0
@@ -791,8 +816,11 @@ def sync(
     if len(structured_received) > 20:
         lines.append(f"... ({len(structured_received) - 20} more)")
 
-    return tool_ok(text="\n".join(lines), structured=structured)
+    return tool_ok(text="\n".join(lines), structured=structured, warnings=tool_warnings or None)
 
 
 def main() -> None:
+    from agent_bus.embedding_worker import start_background_embedding_worker
+
+    start_background_embedding_worker(db)
     mcp.run(transport="stdio")

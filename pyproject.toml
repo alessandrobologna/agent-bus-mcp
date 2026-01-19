@@ -7,10 +7,12 @@ name = "agent-bus"
 version = "0.1.0"
 description = "Local SQLite-backed MCP bus for peer coding agents"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.14"
 dependencies = [
   "click>=8.1.0",
   "mcp>=1.25.0",
+  "fastembed>=0.7.0",
+  "numpy>=1.26.0",
 ]
 
 [project.optional-dependencies]
@@ -18,10 +20,6 @@ web = [
   "fastapi>=0.115.0",
   "uvicorn>=0.32.0",
   "jinja2>=3.1.0",
-]
-semantic = [
-  "numpy>=1.26.0",
-  "sentence-transformers>=2.7.0",
 ]
 
 [dependency-groups]

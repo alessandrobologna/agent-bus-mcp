@@ -19,6 +19,7 @@ async def test_sync_max_message_length_validation(tmp_path):
         **os.environ,
         "AGENT_BUS_DB": str(tmp_path / "bus.sqlite"),
         "AGENT_BUS_MAX_MESSAGE_CHARS": "3",
+        "AGENT_BUS_EMBEDDINGS_AUTOINDEX": "0",
     }
     peer_server = StdioServerParameters(command=_bin("agent-bus"), env=env)
 

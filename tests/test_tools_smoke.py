@@ -17,7 +17,7 @@ def _bin(name: str) -> str:
 @pytest.mark.anyio
 async def test_two_process_smoke(tmp_path):
     db_path = str(tmp_path / "bus.sqlite")
-    env = {**os.environ, "AGENT_BUS_DB": db_path}
+    env = {**os.environ, "AGENT_BUS_DB": db_path, "AGENT_BUS_EMBEDDINGS_AUTOINDEX": "0"}
 
     peer_server = StdioServerParameters(command=_bin("agent-bus"), env=env)
 

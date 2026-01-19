@@ -596,12 +596,14 @@ def search_cmd(
         agent-bus cli search "cursor reset" --topic-id <topic_id>
         agent-bus cli search "how do I replay history" --mode semantic
     """
+    from agent_bus.common import env_str
     from agent_bus.search import DEFAULT_EMBEDDING_MODEL, search_messages
 
     if limit <= 0:
         raise click.ClickException("limit must be > 0")
 
     db = _db(ctx)
+    default_model = env_str("AGENT_BUS_EMBEDDING_MODEL", default=DEFAULT_EMBEDDING_MODEL)
     try:
         results, warnings = search_messages(
             db,
@@ -609,7 +611,7 @@ def search_cmd(
             mode=mode.lower(),  # type: ignore[arg-type]
             topic_id=topic_id,
             limit=limit,
-            model=model or DEFAULT_EMBEDDING_MODEL,
+            model=model or default_model,
         )
     except (ValueError, RuntimeError) as e:
         raise click.ClickException(str(e)) from e
@@ -653,7 +655,7 @@ def embeddings_group() -> None:
 
 
 @embeddings_group.command("index")
-@click.option("--model", default=None, help="SentenceTransformers model name.")
+@click.option("--model", default=None, help="FastEmbed model name.")
 @click.option("--topic-id", default=None, help="Restrict indexing to a topic_id.")
 @click.option("--chunk-size", type=int, default=None, help="Chunk size in characters.")
 @click.option("--chunk-overlap", type=int, default=None, help="Chunk overlap in characters.")
@@ -673,6 +675,7 @@ def embeddings_index(
     dry_run: bool,
 ) -> None:
     """Index message embeddings for semantic/hybrid search."""
+    from agent_bus.common import env_str
     from agent_bus.search import (
         DEFAULT_CHUNK_OVERLAP,
         DEFAULT_CHUNK_SIZE,
@@ -686,16 +689,15 @@ def embeddings_index(
 
     db = _db(ctx)
 
-    # Optional dependency: keep the core server lightweight.
     try:
         import numpy as np
-        from sentence_transformers import SentenceTransformer
+        from fastembed import TextEmbedding
     except ImportError:
         raise click.ClickException(
-            "Semantic dependencies not installed. Install with: uv sync --extra semantic"
+            "FastEmbed dependencies not installed. Install with: uv sync"
         ) from None
 
-    model_name = model or DEFAULT_EMBEDDING_MODEL
+    model_name = model or env_str("AGENT_BUS_EMBEDDING_MODEL", default=DEFAULT_EMBEDDING_MODEL)
     csize = chunk_size if chunk_size is not None else DEFAULT_CHUNK_SIZE
     coverlap = chunk_overlap if chunk_overlap is not None else DEFAULT_CHUNK_OVERLAP
 
@@ -706,7 +708,7 @@ def embeddings_index(
         click.echo(f"Topic: {topic_id}")
     click.echo("")
 
-    st = SentenceTransformer(model_name)
+    embedder = TextEmbedding(model_name=model_name)
 
     rows = db.list_messages_for_embedding(topic_id=topic_id, limit=limit)
     to_index: list[dict[str, Any]] = []
@@ -744,7 +746,7 @@ def embeddings_index(
             continue
 
         texts = [c.text for c in chunks]
-        embs = st.encode(texts, normalize_embeddings=True)
+        embs = list(embedder.passage_embed(texts))
         arr = np.asarray(embs, dtype=np.float32)
         dims = int(arr.shape[1])
 

@@ -238,7 +238,7 @@ class AgentBusDB:
     def _ensure_embeddings_schema(self, conn: sqlite3.Connection) -> None:
         """Create optional embeddings schema for semantic/hybrid search.
 
-        Embeddings are populated asynchronously by a separate indexer process.
+        Embeddings are populated asynchronously (e.g. via an indexer or background worker).
         """
         conn.executescript(
             """
@@ -272,14 +272,42 @@ class AgentBusDB:
             CREATE INDEX IF NOT EXISTS idx_chunk_embeddings_model
               ON chunk_embeddings(model);
 
+            CREATE TABLE IF NOT EXISTS embedding_jobs (
+              message_id TEXT NOT NULL,
+              model TEXT NOT NULL,
+              topic_id TEXT NOT NULL,
+              status TEXT NOT NULL, -- pending|processing|error
+              attempts INTEGER NOT NULL,
+              locked_by TEXT NULL,
+              locked_at REAL NULL,
+              last_error TEXT NULL,
+              created_at REAL NOT NULL,
+              updated_at REAL NOT NULL,
+              PRIMARY KEY(message_id, model)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_embedding_jobs_status_model_updated
+              ON embedding_jobs(status, model, updated_at);
+
+            DROP TRIGGER IF EXISTS messages_embeddings_ad;
+            DROP TRIGGER IF EXISTS messages_embeddings_au;
+
             CREATE TRIGGER IF NOT EXISTS messages_embeddings_ad AFTER DELETE ON messages BEGIN
               DELETE FROM chunk_embeddings WHERE message_id = old.message_id;
               DELETE FROM message_embedding_state WHERE message_id = old.message_id;
+              DELETE FROM embedding_jobs WHERE message_id = old.message_id;
             END;
 
             CREATE TRIGGER IF NOT EXISTS messages_embeddings_au AFTER UPDATE OF content_markdown ON messages BEGIN
               DELETE FROM chunk_embeddings WHERE message_id = old.message_id;
               DELETE FROM message_embedding_state WHERE message_id = old.message_id;
+              UPDATE embedding_jobs
+              SET status = 'pending',
+                  attempts = 0,
+                  locked_by = NULL,
+                  locked_at = NULL,
+                  last_error = NULL
+              WHERE message_id = old.message_id;
             END;
             """
         )
@@ -509,6 +537,173 @@ class AgentBusDB:
             }
             for r in rows
         ]
+
+    def enqueue_embedding_jobs(
+        self,
+        *,
+        jobs: list[tuple[str, str]],
+        model: str,
+    ) -> int:
+        """Enqueue embedding jobs for (message_id, topic_id) pairs.
+
+        Jobs are deduplicated by (message_id, model).
+        """
+        if not jobs:
+            return 0
+        updated_at = now()
+        created_at = updated_at
+        with self.connect() as conn, conn:
+            for message_id, topic_id in jobs:
+                conn.execute(
+                    """
+                    INSERT INTO embedding_jobs(
+                      message_id, model, topic_id, status, attempts, locked_by, locked_at,
+                      last_error, created_at, updated_at
+                    )
+                    VALUES (?, ?, ?, 'pending', 0, NULL, NULL, NULL, ?, ?)
+                    ON CONFLICT(message_id, model) DO UPDATE SET
+                      topic_id = excluded.topic_id,
+                      status = 'pending',
+                      attempts = 0,
+                      locked_by = NULL,
+                      locked_at = NULL,
+                      last_error = NULL,
+                      updated_at = excluded.updated_at
+                    """,
+                    (message_id, model, topic_id, created_at, updated_at),
+                )
+        return len(jobs)
+
+    def claim_embedding_jobs(
+        self,
+        *,
+        model: str,
+        limit: int,
+        worker_id: str,
+        lock_ttl_seconds: int,
+        error_retry_seconds: int,
+        max_attempts: int,
+    ) -> list[dict[str, Any]]:
+        if limit <= 0:
+            raise ValueError("limit must be > 0")
+        if lock_ttl_seconds <= 0:
+            raise ValueError("lock_ttl_seconds must be > 0")
+        if error_retry_seconds < 0:
+            raise ValueError("error_retry_seconds must be >= 0")
+        if max_attempts <= 0:
+            raise ValueError("max_attempts must be > 0")
+
+        claimed_at = now()
+        stale_before = claimed_at - lock_ttl_seconds
+        error_ready_before = claimed_at - error_retry_seconds
+
+        with self.connect() as conn:
+            # Serialize claim operations to avoid double-claiming across processes.
+            conn.execute("BEGIN IMMEDIATE")
+            rows = conn.execute(
+                """
+                SELECT message_id, topic_id
+                FROM embedding_jobs
+                WHERE model = ?
+                  AND attempts < ?
+                  AND (
+                    status = 'pending'
+                    OR (status = 'error' AND updated_at <= ?)
+                    OR (status = 'processing' AND (locked_at IS NULL OR locked_at <= ?))
+                  )
+                ORDER BY updated_at ASC
+                LIMIT ?
+                """,
+                (model, max_attempts, error_ready_before, stale_before, limit),
+            ).fetchall()
+
+            message_ids = [cast(str, r["message_id"]) for r in rows]
+            if not message_ids:
+                conn.commit()
+                return []
+
+            placeholders = ",".join("?" for _ in message_ids)
+            params: list[Any] = [
+                worker_id,
+                claimed_at,
+                claimed_at,
+                model,
+                max_attempts,
+                error_ready_before,
+                stale_before,
+                *message_ids,
+            ]
+            conn.execute(
+                f"""
+                UPDATE embedding_jobs
+                SET
+                  status = 'processing',
+                  locked_by = ?,
+                  locked_at = ?,
+                  updated_at = ?,
+                  attempts = attempts + 1
+                WHERE model = ?
+                  AND attempts < ?
+                  AND (
+                    status = 'pending'
+                    OR (status = 'error' AND updated_at <= ?)
+                    OR (status = 'processing' AND (locked_at IS NULL OR locked_at <= ?))
+                  )
+                  AND message_id IN ({placeholders})
+                """,
+                tuple(params),
+            )
+
+            claimed = conn.execute(
+                """
+                SELECT message_id, topic_id, attempts
+                FROM embedding_jobs
+                WHERE model = ? AND locked_by = ? AND locked_at = ?
+                """,
+                (model, worker_id, claimed_at),
+            ).fetchall()
+            conn.commit()
+
+        return [
+            {
+                "message_id": r["message_id"],
+                "topic_id": r["topic_id"],
+                "attempts": cast(int, r["attempts"]),
+            }
+            for r in claimed
+        ]
+
+    def complete_embedding_job(self, *, message_id: str, model: str) -> None:
+        updated_at = now()
+        with self.connect() as conn, conn:
+            conn.execute(
+                """
+                UPDATE embedding_jobs
+                SET status = 'done',
+                    locked_by = NULL,
+                    locked_at = NULL,
+                    last_error = NULL,
+                    updated_at = ?
+                WHERE message_id = ? AND model = ?
+                """,
+                (updated_at, message_id, model),
+            )
+
+    def fail_embedding_job(self, *, message_id: str, model: str, error: str) -> None:
+        updated_at = now()
+        with self.connect() as conn, conn:
+            conn.execute(
+                """
+                UPDATE embedding_jobs
+                SET status = 'error',
+                    locked_by = NULL,
+                    locked_at = NULL,
+                    last_error = ?,
+                    updated_at = ?
+                WHERE message_id = ? AND model = ?
+                """,
+                (error, updated_at, message_id, model),
+            )
 
     def list_chunk_embedding_candidates(
         self,

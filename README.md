@@ -33,8 +33,12 @@ flowchart TB
 
 ## Requirements
 
-- Python 3.12+
+- Python 3.12–3.13
 - `uv` (recommended)
+
+> [!IMPORTANT]
+> Python 3.14 is not supported yet because embeddings use FastEmbed, which depends on `onnxruntime` wheels that
+> are not available for CPython 3.14 on macOS yet. Use Python 3.13 (or 3.12) until upstream adds support.
 
 ## Install and run
 
@@ -42,29 +46,22 @@ Install from GitHub or from a local checkout. A PyPI release may be added later.
 
 ### Option A: Run from GitHub with `uvx` (recommended)
 
-Run the MCP server over stdio (recommended, includes semantic dependencies for hybrid reranking):
+Run the MCP server over stdio:
 
 ```bash
-uvx --from "agent-bus[semantic] @ git+https://github.com/alessandrobologna/agent-bus-mcp.git" agent-bus
-```
-
-Minimal install (no embeddings):
-
-```bash
-uvx --from git+https://github.com/alessandrobologna/agent-bus-mcp.git agent-bus
+uvx --from "agent-bus @ git+https://github.com/alessandrobologna/agent-bus-mcp.git" agent-bus
 ```
 
 Run CLI commands with the same `--from` value:
 
 ```bash
-uvx --from "agent-bus[semantic] @ git+https://github.com/alessandrobologna/agent-bus-mcp.git" agent-bus cli topics list --status all
+uvx --from "agent-bus @ git+https://github.com/alessandrobologna/agent-bus-mcp.git" agent-bus cli topics list --status all
 ```
 
 Optional extras:
 
 ```bash
 uvx --from "agent-bus[web] @ git+https://github.com/alessandrobologna/agent-bus-mcp.git" agent-bus serve
-uvx --from "agent-bus[web,semantic] @ git+https://github.com/alessandrobologna/agent-bus-mcp.git" agent-bus serve
 ```
 
 ### Option B: Clone and run locally (recommended for development)
@@ -90,14 +87,6 @@ pip install "agent-bus @ git+https://github.com/alessandrobologna/agent-bus-mcp.
 uv pip install "agent-bus @ git+https://github.com/alessandrobologna/agent-bus-mcp.git"
 ```
 
-For semantic/hybrid search reranking:
-
-```bash
-pip install "agent-bus[semantic] @ git+https://github.com/alessandrobologna/agent-bus-mcp.git"
-# or
-uv pip install "agent-bus[semantic] @ git+https://github.com/alessandrobologna/agent-bus-mcp.git"
-```
-
 Then run:
 
 ```bash
@@ -113,9 +102,9 @@ Agent Bus runs as a local process. Configure your MCP client to start the server
 Use `uvx --from <git-url> agent-bus` as the server command.
 
 ```bash
-claude mcp add agent-bus -- uvx --from "agent-bus[semantic] @ git+https://github.com/alessandrobologna/agent-bus-mcp.git" agent-bus
-codex mcp add agent-bus -- uvx --from "agent-bus[semantic] @ git+https://github.com/alessandrobologna/agent-bus-mcp.git" agent-bus
-gemini mcp add agent-bus uvx -- --from "agent-bus[semantic] @ git+https://github.com/alessandrobologna/agent-bus-mcp.git" agent-bus
+claude mcp add agent-bus -- uvx --from "agent-bus @ git+https://github.com/alessandrobologna/agent-bus-mcp.git" agent-bus
+codex mcp add agent-bus -- uvx --from "agent-bus @ git+https://github.com/alessandrobologna/agent-bus-mcp.git" agent-bus
+gemini mcp add agent-bus uvx -- --from "agent-bus @ git+https://github.com/alessandrobologna/agent-bus-mcp.git" agent-bus
 ```
 
 ### Option B: Run from a local checkout
@@ -138,7 +127,7 @@ Add to `~/.opencode/opencode.json` in the `mcp` section:
   "command": [
     "uvx",
     "--from",
-    "agent-bus[semantic] @ git+https://github.com/alessandrobologna/agent-bus-mcp.git",
+    "agent-bus @ git+https://github.com/alessandrobologna/agent-bus-mcp.git",
     "agent-bus"
   ]
 }
@@ -227,7 +216,7 @@ Note: `topics rename` rewrites message content by default by replacing occurrenc
 
 ## Search (CLI + Web UI)
 
-Lexical search works out of the box (SQLite FTS5). Hybrid/semantic search uses optional local embeddings.
+Lexical search works out of the box (SQLite FTS5). Hybrid/semantic search uses local embeddings (FastEmbed).
 
 ```bash
 agent-bus cli search "cursor reset"                 # hybrid (default)
@@ -236,14 +225,17 @@ agent-bus cli search "replay history" --mode semantic
 agent-bus cli search "poll backoff" --topic-id <topic_id>
 ```
 
-To enable embeddings (local SentenceTransformers) and index existing messages:
+To index embeddings (FastEmbed) for existing messages:
 
 ```bash
-uvx --from "agent-bus[semantic] @ git+https://github.com/alessandrobologna/agent-bus-mcp.git" agent-bus cli embeddings index
+uvx --from "agent-bus @ git+https://github.com/alessandrobologna/agent-bus-mcp.git" agent-bus cli embeddings index
 # or from a local checkout:
-uv sync --extra semantic
+uv sync
 uv run agent-bus cli embeddings index
 ```
+
+The MCP server can also enqueue and index embeddings for newly-sent messages in the background (best-effort).
+Disable with `AGENT_BUS_EMBEDDINGS_AUTOINDEX=0`.
 
 In the Web UI, open a topic and use the search button in the header.
 
@@ -257,6 +249,15 @@ In the Web UI, open a topic and use the search button in the header.
 - `AGENT_BUS_MAX_SYNC_ITEMS` (default: 20): max allowed `sync(max_items=...)`. Keep this small and call `sync` repeatedly until `has_more=false`.
 - `AGENT_BUS_POLL_INITIAL_MS` (default: 250)
 - `AGENT_BUS_POLL_MAX_MS` (default: 1000)
+- `AGENT_BUS_EMBEDDINGS_AUTOINDEX` (default: 1): enqueue + index embeddings for new messages (best-effort)
+- `AGENT_BUS_EMBEDDING_MODEL` (default: `BAAI/bge-small-en-v1.5`)
+- `AGENT_BUS_EMBEDDING_CHUNK_SIZE` (default: 1200)
+- `AGENT_BUS_EMBEDDING_CHUNK_OVERLAP` (default: 200)
+- `AGENT_BUS_EMBEDDINGS_WORKER_BATCH_SIZE` (default: 5)
+- `AGENT_BUS_EMBEDDINGS_POLL_MS` (default: 250)
+- `AGENT_BUS_EMBEDDINGS_LOCK_TTL_SECONDS` (default: 300)
+- `AGENT_BUS_EMBEDDINGS_ERROR_RETRY_SECONDS` (default: 30)
+- `AGENT_BUS_EMBEDDINGS_MAX_ATTEMPTS` (default: 5)
 
 ## Development
 
