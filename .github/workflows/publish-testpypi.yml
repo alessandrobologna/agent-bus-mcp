@@ -37,7 +37,7 @@ jobs:
 
       - uses: astral-sh/setup-uv@v3
         with:
-          enable-cache: true
+          enable-cache: false
 
       - name: Upload to TestPyPI
         shell: bash
