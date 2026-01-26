@@ -79,13 +79,15 @@ jobs:
           - macos-14
           - windows-latest
     steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
       - uses: astral-sh/setup-uv@v3
         with:
-          enable-cache: true
+          enable-cache: false
 
       - name: Install from TestPyPI (no build)
         shell: bash
