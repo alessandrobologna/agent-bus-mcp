@@ -34,11 +34,18 @@ jobs:
           py_version = pyproject["project"]["version"]
           cargo_version = cargo["package"]["version"]
 
-          if py_version != cargo_version:
-            raise SystemExit(
-              f"Version mismatch: pyproject.toml={py_version} Cargo.toml={cargo_version}"
-            )
-          print(f"Version OK: {py_version}")
+          if py_version == cargo_version:
+            print(f"Version OK: {py_version}")
+            raise SystemExit(0)
+
+          mapped = py_version.replace(".post", "-post")
+          if mapped == cargo_version:
+            print(f"Version OK: {py_version} (Cargo {cargo_version})")
+            raise SystemExit(0)
+
+          raise SystemExit(
+            f"Version mismatch: pyproject.toml={py_version} Cargo.toml={cargo_version}"
+          )
           PY
 
       - name: Build sdist
