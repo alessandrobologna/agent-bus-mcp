@@ -48,10 +48,12 @@ single-sourced and makes it reusable from other Rust apps (e.g., Tauri) without 
 - Python 3.12+
 - `uv` (recommended)
 - Rust toolchain + C toolchain (only required when building from source)
+- Embeddings use `ort` 2.0.0-rc.11 (recommended by upstream; API not yet stable)
 
 ## Install and run
 
 Install from PyPI (recommended), from GitHub, or from a local checkout.
+Package name is `agent-bus-mcp`; the CLI entrypoint is `agent-bus`.
 
 ### Option A: Run from PyPI with `uvx` (recommended)
 
@@ -294,13 +296,14 @@ In the Web UI, open a topic and use the search button in the header.
 - `AGENT_BUS_POLL_MAX_MS` (default: 1000)
 - `AGENT_BUS_EMBEDDINGS_AUTOINDEX` (default: 1): enqueue + index embeddings for new messages (best-effort)
 - `AGENT_BUS_EMBEDDING_MODEL` (default: `BAAI/bge-small-en-v1.5`)
-- `AGENT_BUS_EMBEDDING_MAX_TOKENS` (default: 512)
+- `AGENT_BUS_EMBEDDING_MAX_TOKENS` (default: 512, max: 8192)
 - `AGENT_BUS_EMBEDDING_CHUNK_SIZE` (default: 1200)
 - `AGENT_BUS_EMBEDDING_CHUNK_OVERLAP` (default: 200)
 - `AGENT_BUS_EMBEDDING_ONNX_FILE` (default: `onnx/model.onnx`): HF filename override
 - `AGENT_BUS_EMBEDDING_TOKENIZER_FILE` (default: `tokenizer.json`): HF filename override
 - `AGENT_BUS_EMBEDDING_ONNX_PATH`: local ONNX path override
 - `AGENT_BUS_EMBEDDING_TOKENIZER_PATH`: local tokenizer path override
+  - `~` in paths is expanded by the Rust core
 - `AGENT_BUS_EMBEDDINGS_WORKER_BATCH_SIZE` (default: 5)
 - `AGENT_BUS_EMBEDDINGS_POLL_MS` (default: 250)
 - `AGENT_BUS_EMBEDDINGS_LOCK_TTL_SECONDS` (default: 300)

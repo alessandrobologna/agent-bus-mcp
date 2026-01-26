@@ -28,6 +28,7 @@ create_exception!(agent_bus_core, TopicMismatchError, PyRuntimeError);
 const SCHEMA_VERSION: &str = "6";
 const DEFAULT_EMBEDDING_MODEL: &str = "BAAI/bge-small-en-v1.5";
 const DEFAULT_MAX_TOKENS: usize = 512;
+const MAX_EMBEDDING_MAX_TOKENS: usize = 8192;
 const DEFAULT_ONNX_FILE: &str = "onnx/model.onnx";
 const FALLBACK_ONNX_FILE: &str = "model.onnx";
 const DEFAULT_TOKENIZER_FILE: &str = "tokenizer.json";
@@ -538,7 +539,7 @@ fn default_max_tokens() -> usize {
     std::env::var("AGENT_BUS_EMBEDDING_MAX_TOKENS")
         .ok()
         .and_then(|raw| raw.parse::<usize>().ok())
-        .filter(|v| *v > 0)
+        .filter(|v| *v > 0 && *v <= MAX_EMBEDDING_MAX_TOKENS)
         .unwrap_or(DEFAULT_MAX_TOKENS)
 }
 
@@ -556,7 +557,7 @@ fn map_ort_error(err: ort::Error) -> PyErr {
 }
 
 #[pyfunction]
-#[pyo3(signature = (texts, model=None, normalize=true, max_tokens=None))]
+#[pyo3(signature = (texts, model=None, normalize=True, max_tokens=None))]
 fn embed_texts(
     py: Python<'_>,
     texts: Vec<String>,

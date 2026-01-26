@@ -6,6 +6,9 @@ on:
       - main
   pull_request:
 
+env:
+  ORT_VERSION: "1.23.2"
+
 jobs:
   build:
     runs-on: ${{ matrix.os }}
@@ -18,6 +21,7 @@ jobs:
           - windows-latest
         python-version:
           - "3.12"
+          - "3.13"
     steps:
       - uses: actions/checkout@v4
 
@@ -37,10 +41,9 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $version = "1.23.2"
-          $zip = "$env:RUNNER_TEMP/onnxruntime-win-x64-$version.zip"
-          $dir = "$env:RUNNER_TEMP/onnxruntime-win-x64-$version"
-          Invoke-WebRequest -Uri "https://github.com/microsoft/onnxruntime/releases/download/v$version/onnxruntime-win-x64-$version.zip" -OutFile $zip
+          $zip = "$env:RUNNER_TEMP/onnxruntime-win-x64-$env:ORT_VERSION.zip"
+          $dir = "$env:RUNNER_TEMP/onnxruntime-win-x64-$env:ORT_VERSION"
+          Invoke-WebRequest -Uri "https://github.com/microsoft/onnxruntime/releases/download/v$env:ORT_VERSION/onnxruntime-win-x64-$env:ORT_VERSION.zip" -OutFile $zip
           Expand-Archive -Path $zip -DestinationPath $env:RUNNER_TEMP
           "ORT_LIB_LOCATION=$dir\\lib" | Out-File -FilePath $env:GITHUB_ENV -Append
           "ORT_PREFER_DYNAMIC_LINK=1" | Out-File -FilePath $env:GITHUB_ENV -Append
