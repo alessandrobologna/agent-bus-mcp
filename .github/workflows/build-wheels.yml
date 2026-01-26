@@ -1,0 +1,112 @@
+name: build-wheels
+
+on:
+  workflow_call:
+    inputs:
+      upload_artifacts:
+        type: boolean
+        default: true
+  workflow_dispatch:
+    inputs:
+      upload_artifacts:
+        type: boolean
+        default: true
+
+env:
+  ORT_VERSION: "1.23.2"
+
+jobs:
+  sdist:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate version sync
+        run: |
+          python - <<'PY'
+          import tomllib
+
+          with open("pyproject.toml", "rb") as fh:
+            pyproject = tomllib.load(fh)
+          with open("Cargo.toml", "rb") as fh:
+            cargo = tomllib.load(fh)
+
+          py_version = pyproject["project"]["version"]
+          cargo_version = cargo["package"]["version"]
+
+          if py_version != cargo_version:
+            raise SystemExit(
+              f"Version mismatch: pyproject.toml={py_version} Cargo.toml={cargo_version}"
+            )
+          print(f"Version OK: {py_version}")
+          PY
+
+      - name: Build sdist
+        uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: --out dist
+
+      - name: Upload sdist
+        if: inputs.upload_artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  wheels:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-14
+          - windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download ONNX Runtime (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $zip = "$env:RUNNER_TEMP/onnxruntime-win-x64-$env:ORT_VERSION.zip"
+          $dir = "$env:RUNNER_TEMP/onnxruntime-win-x64-$env:ORT_VERSION"
+          Invoke-WebRequest -Uri "https://github.com/microsoft/onnxruntime/releases/download/v$env:ORT_VERSION/onnxruntime-win-x64-$env:ORT_VERSION.zip" -OutFile $zip
+          Expand-Archive -Path $zip -DestinationPath $env:RUNNER_TEMP
+          "ORT_LIB_LOCATION=$dir\\lib" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "ORT_PREFER_DYNAMIC_LINK=1" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "PATH=$dir\\lib;$env:PATH" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Build wheels (Linux, manylinux_2_28)
+        if: runner.os == 'Linux'
+        uses: PyO3/maturin-action@v1
+        with:
+          command: build
+          args: --release --out dist
+          manylinux: 2_28
+
+      - name: Build wheels (Linux, manylinux_2_28 aarch64)
+        if: runner.os == 'Linux'
+        uses: PyO3/maturin-action@v1
+        with:
+          command: build
+          args: --release --out dist
+          manylinux: 2_28
+          target: aarch64-unknown-linux-gnu
+
+      - name: Build wheels (macOS/Windows)
+        if: runner.os != 'Linux'
+        uses: PyO3/maturin-action@v1
+        with:
+          command: build
+          args: --release --out dist
+
+      - name: Upload wheels
+        if: inputs.upload_artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ runner.os }}
+          path: dist/*.whl
+          if-no-files-found: error

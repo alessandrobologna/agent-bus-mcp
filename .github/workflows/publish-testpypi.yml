@@ -2,90 +2,33 @@ name: publish-testpypi
 
 on:
   workflow_dispatch:
+    inputs:
+      publish_target:
+        description: "Publish destination"
+        required: true
+        type: choice
+        default: testpypi
+        options:
+          - testpypi
+          - pypi
 
-env:
-  ORT_VERSION: "1.23.2"
+permissions:
+  contents: write
 
 jobs:
-  sdist:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Build sdist
-        uses: PyO3/maturin-action@v1
-        with:
-          command: sdist
-          args: --out dist
-
-      - name: Upload sdist
-        uses: actions/upload-artifact@v4
-        with:
-          name: sdist
-          path: dist/*.tar.gz
-          if-no-files-found: error
-
-  wheels:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os:
-          - ubuntu-latest
-          - macos-14
-          - windows-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download ONNX Runtime (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $zip = "$env:RUNNER_TEMP/onnxruntime-win-x64-$env:ORT_VERSION.zip"
-          $dir = "$env:RUNNER_TEMP/onnxruntime-win-x64-$env:ORT_VERSION"
-          Invoke-WebRequest -Uri "https://github.com/microsoft/onnxruntime/releases/download/v$env:ORT_VERSION/onnxruntime-win-x64-$env:ORT_VERSION.zip" -OutFile $zip
-          Expand-Archive -Path $zip -DestinationPath $env:RUNNER_TEMP
-          "ORT_LIB_LOCATION=$dir\\lib" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "ORT_PREFER_DYNAMIC_LINK=1" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "PATH=$dir\\lib;$env:PATH" | Out-File -FilePath $env:GITHUB_ENV -Append
-
-      - name: Build wheels (Linux, manylinux_2_28)
-        if: runner.os == 'Linux'
-        uses: PyO3/maturin-action@v1
-        with:
-          command: build
-          args: --release --out dist
-          manylinux: 2_28
-
-      - name: Build wheels (Linux, manylinux_2_28 aarch64)
-        if: runner.os == 'Linux'
-        uses: PyO3/maturin-action@v1
-        with:
-          command: build
-          args: --release --out dist
-          manylinux: 2_28
-          target: aarch64-unknown-linux-gnu
-
-      - name: Build wheels (macOS/Windows)
-        if: runner.os != 'Linux'
-        uses: PyO3/maturin-action@v1
-        with:
-          command: build
-          args: --release --out dist
-
-      - name: Upload wheels
-        uses: actions/upload-artifact@v4
-        with:
-          name: wheels-${{ runner.os }}
-          path: dist/*.whl
-          if-no-files-found: error
+  build:
+    uses: ./.github/workflows/build-wheels.yml
+    with:
+      upload_artifacts: true
 
   upload:
-    needs:
-      - sdist
-      - wheels
+    needs: build
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
+      - uses: actions/checkout@v4
+
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
@@ -97,7 +40,95 @@ jobs:
           enable-cache: true
 
       - name: Upload to TestPyPI
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo_url="https://test.pypi.org/legacy/"
+          token="${{ secrets.TEST_PYPI_API_TOKEN }}"
+          if [ "${{ inputs.publish_target }}" = "pypi" ]; then
+            repo_url="https://upload.pypi.org/legacy/"
+            token="${{ secrets.PYPI_API_TOKEN }}"
+          fi
+          MATURIN_PYPI_TOKEN="$token" MATURIN_REPOSITORY_URL="$repo_url" \
+            uvx --from "maturin>=1.11.5,<2.0" maturin upload --non-interactive --skip-existing dist/*
+
+      - name: Determine version
+        id: version
+        run: |
+          python - <<'PY'
+          import os
+          import tomllib
+
+          with open("pyproject.toml", "rb") as fh:
+            data = tomllib.load(fh)
+          version = data["project"]["version"]
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+            fh.write(f"version={version}\n")
+          print(f"Detected version: {version}")
+          PY
+
+  qa-install:
+    needs: upload
+    if: ${{ inputs.publish_target == 'testpypi' }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-14
+          - windows-latest
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Install from TestPyPI (no build)
+        shell: bash
         env:
-          MATURIN_PYPI_TOKEN: ${{ secrets.TEST_PYPI_API_TOKEN }}
-          MATURIN_REPOSITORY_URL: https://test.pypi.org/legacy/
-        run: uvx --from "maturin>=1.11.5,<2.0" maturin upload --non-interactive --skip-existing dist/*
+          VERSION: ${{ needs.upload.outputs.version }}
+        run: |
+          set -euo pipefail
+          echo "Testing install for agent-bus-mcp==$VERSION on $RUNNER_OS"
+          for attempt in {1..10}; do
+            if uvx --no-build \
+                --default-index https://test.pypi.org/simple \
+                --index https://pypi.org/simple \
+                --from "agent-bus-mcp==${VERSION}" \
+                agent-bus --help; then
+              exit 0
+            fi
+            echo "Install failed (attempt $attempt). Waiting for TestPyPI propagation..."
+            sleep 20
+          done
+          echo "Install failed after retries."
+          exit 1
+
+  tag-release:
+    needs: upload
+    if: ${{ inputs.publish_target == 'pypi' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Create annotated tag
+        env:
+          VERSION: ${{ needs.upload.outputs.version }}
+        run: |
+          set -euo pipefail
+          tag="v${VERSION}"
+          if git rev-parse "$tag" >/dev/null 2>&1; then
+            echo "Tag $tag already exists, skipping."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$tag" "$GITHUB_SHA" -m "Release $tag"
+          git push origin "$tag"

@@ -77,3 +77,8 @@ jobs:
 
       - name: Ty type check
         run: uv run ty check
+
+  wheels:
+    uses: ./.github/workflows/build-wheels.yml
+    with:
+      upload_artifacts: false

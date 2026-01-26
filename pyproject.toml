@@ -8,11 +8,29 @@ version = "0.1.0"
 description = "Local SQLite-backed MCP bus for peer coding agents"
 readme = "README.md"
 requires-python = ">=3.12"
+license-files = ["LICENSE"]
+authors = [{ name = "Alessandro Bologna", email = "alessandro.bologna@gmail.com" }]
+keywords = ["mcp", "agent", "sqlite", "cli", "tauri", "bus"]
+classifiers = [
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Operating System :: OS Independent",
+  "Intended Audience :: Developers",
+]
 dependencies = [
   "click>=8.3.1",
   "mcp>=1.25.0",
   "numpy>=2.4.1",
 ]
+
+[project.urls]
+Homepage = "https://github.com/alessandrobologna/agent-bus-mcp"
+Repository = "https://github.com/alessandrobologna/agent-bus-mcp"
+Issues = "https://github.com/alessandrobologna/agent-bus-mcp/issues"
 
 [project.optional-dependencies]
 web = [
