@@ -4,7 +4,7 @@ import json
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, cast
 
 import click
 
@@ -96,14 +96,15 @@ def topics_list(ctx: click.Context, *, status: str, limit: int, as_json: bool) -
         raise click.ClickException("limit must be > 0")
 
     db = _db(ctx)
-    rows = db.topic_list_with_counts(status=status.lower(), limit=limit)
+    status_value = cast(Literal["open", "closed", "all"], status.lower())
+    rows = db.topic_list_with_counts(status=status_value, limit=limit)
 
     if as_json:
         click.echo(json.dumps({"topics": rows}, ensure_ascii=True, sort_keys=True, indent=2))
         return
 
     click.echo(f"DB path: {db.path}")
-    click.echo(f"Topics ({status}): {len(rows)}")
+    click.echo(f"Topics ({status_value}): {len(rows)}")
     if not rows:
         return
 
@@ -655,7 +656,7 @@ def embeddings_group() -> None:
 
 
 @embeddings_group.command("index")
-@click.option("--model", default=None, help="FastEmbed model name.")
+@click.option("--model", default=None, help="Embedding model repo (HuggingFace).")
 @click.option("--topic-id", default=None, help="Restrict indexing to a topic_id.")
 @click.option("--chunk-size", type=int, default=None, help="Chunk size in characters.")
 @click.option("--chunk-overlap", type=int, default=None, help="Chunk overlap in characters.")
@@ -691,11 +692,10 @@ def embeddings_index(
 
     try:
         import numpy as np
-        from fastembed import TextEmbedding
-    except ImportError:
-        raise click.ClickException(
-            "FastEmbed dependencies not installed. Install with: uv sync"
-        ) from None
+
+        from agent_bus import _core  # ty: ignore[unresolved-import]
+    except Exception as e:
+        raise click.ClickException(f"Embedding backend unavailable: {e}") from None
 
     model_name = model or env_str("AGENT_BUS_EMBEDDING_MODEL", default=DEFAULT_EMBEDDING_MODEL)
     csize = chunk_size if chunk_size is not None else DEFAULT_CHUNK_SIZE
@@ -707,8 +707,6 @@ def embeddings_index(
     if topic_id:
         click.echo(f"Topic: {topic_id}")
     click.echo("")
-
-    embedder = TextEmbedding(model_name=model_name)
 
     rows = db.list_messages_for_embedding(topic_id=topic_id, limit=limit)
     to_index: list[dict[str, Any]] = []
@@ -746,7 +744,7 @@ def embeddings_index(
             continue
 
         texts = [c.text for c in chunks]
-        embs = list(embedder.passage_embed(texts))
+        embs = _core.embed_texts(texts, model=model_name)
         arr = np.asarray(embs, dtype=np.float32)
         dims = int(arr.shape[1])
 

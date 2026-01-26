@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from functools import lru_cache
 from hashlib import sha256
 from typing import Any, Literal, cast
 
+from agent_bus import _core  # ty: ignore[unresolved-import]
 from agent_bus.db import AgentBusDB, DBBusyError
 
 SearchMode = Literal["fts", "semantic", "hybrid"]
 
-# FastEmbed default model (downloaded on first use).
+# Default embedding model (downloaded on first use).
 DEFAULT_EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"
 DEFAULT_CHUNK_SIZE = 1200  # characters
 DEFAULT_CHUNK_OVERLAP = 200  # characters
@@ -72,18 +72,10 @@ def chunk_text(
     return chunks
 
 
-@lru_cache(maxsize=2)
-def _load_embedding_model(model: str):
-    from fastembed import TextEmbedding
-
-    return TextEmbedding(model_name=model)
-
-
 def _embed_query(model: str, query: str):
     import numpy as np
 
-    embedder = _load_embedding_model(model)
-    emb = next(embedder.query_embed([query]))
+    emb = _core.embed_texts([query], model=model)[0]
     return np.asarray(emb, dtype=np.float32)
 
 
@@ -94,10 +86,7 @@ def _cosine_scores(query_vec, candidate_rows: list[dict[str, Any]]):
         return np.array([], dtype=np.float32)
 
     dims = int(candidate_rows[0]["dims"])
-    vectors = [
-        np.frombuffer(c["vector"], dtype=np.float32, count=dims)  # type: ignore[arg-type]
-        for c in candidate_rows
-    ]
+    vectors = [np.frombuffer(c["vector"], dtype=np.float32, count=dims) for c in candidate_rows]
     mat = np.vstack(vectors)
     return mat @ query_vec
 

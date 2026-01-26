@@ -1,45 +1,51 @@
 [build-system]
-requires = ["hatchling>=1.27.0"]
-build-backend = "hatchling.build"
+requires = ["maturin>=1.11.5,<2.0"]
+build-backend = "maturin"
 
 [project]
-name = "agent-bus"
+name = "agent-bus-mcp"
 version = "0.1.0"
 description = "Local SQLite-backed MCP bus for peer coding agents"
 readme = "README.md"
-requires-python = ">=3.12,<3.14"
+requires-python = ">=3.12"
 dependencies = [
-  "click>=8.1.0",
+  "click>=8.3.1",
   "mcp>=1.25.0",
-  "fastembed>=0.7.0",
-  "numpy>=1.26.0",
+  "numpy>=2.4.1",
 ]
 
 [project.optional-dependencies]
 web = [
-  "fastapi>=0.115.0",
-  "uvicorn>=0.32.0",
-  "jinja2>=3.1.0",
+  "fastapi>=0.128.0",
+  "uvicorn>=0.40.0",
+  "jinja2>=3.1.6",
 ]
 
 [dependency-groups]
 dev = [
-  "pytest>=8.0.0",
-  "ruff>=0.6.0",
-  "agent-bus[web]",
+  "pytest>=9.0.2",
+  "ruff>=0.14.13",
+  "ty>=0.0.13",
+  "maturin>=1.11.5,<2.0",
+  "agent-bus-mcp[web]",
 ]
 
 [project.scripts]
 agent-bus = "agent_bus.entrypoint:main"
 
-[tool.hatch.build.targets.wheel]
-packages = ["agent_bus"]
-
-[tool.hatch.build.targets.wheel.force-include]
-"agent_bus/web/templates" = "agent_bus/web/templates"
+[tool.maturin]
+bindings = "pyo3"
+module-name = "agent_bus._core"
+python-source = "."
+features = ["pyo3/abi3-py312", "pyo3/extension-module"]
+include = ["agent_bus/web/templates/**"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ty.src]
+include = ["agent_bus"]
+exclude = ["tests"]
 
 [tool.ruff]
 line-length = 100

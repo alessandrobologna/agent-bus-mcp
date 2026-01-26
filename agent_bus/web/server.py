@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, cast
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse
@@ -15,8 +16,17 @@ from agent_bus.db import AgentBusDB, TopicNotFoundError
 # Template directory
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
-app = FastAPI(title="Agent Bus", docs_url=None, redoc_url=None)
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    templates.env.filters["sender_color"] = get_sender_color
+    templates.env.filters["format_age"] = format_age
+    yield
+
+
+app = FastAPI(title="Agent Bus", docs_url=None, redoc_url=None, lifespan=lifespan)
 
 # Global DB instance (initialized on startup)
 _db: AgentBusDB | None = None
@@ -65,14 +75,6 @@ def sidebar_topics(db: AgentBusDB) -> list[dict[str, Any]]:
         if topic.get("created_at"):
             topic["age"] = format_age(topic["created_at"])
     return topics
-
-
-# Register template filters
-@app.on_event("startup")
-async def setup_template_filters() -> None:
-    """Register custom Jinja2 filters."""
-    templates.env.filters["sender_color"] = get_sender_color
-    templates.env.filters["format_age"] = format_age
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -329,10 +331,11 @@ async def topic_search(
     try:
         from agent_bus.search import DEFAULT_EMBEDDING_MODEL, search_messages
 
+        mode_value = cast(Literal["fts", "semantic", "hybrid"], mode.lower())
         results, warnings = search_messages(
             db,
             query=query,
-            mode=mode.lower(),
+            mode=mode_value,
             topic_id=topic_id,
             limit=max(1, min(limit, 50)),
             model=DEFAULT_EMBEDDING_MODEL,
