@@ -21,6 +21,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Validate version sync
+        run: |
+          python - <<'PY'
+          import tomllib
+
+          with open("pyproject.toml", "rb") as fh:
+            pyproject = tomllib.load(fh)
+          with open("Cargo.toml", "rb") as fh:
+            cargo = tomllib.load(fh)
+
+          py_version = pyproject["project"]["version"]
+          cargo_version = cargo["package"]["version"]
+
+          if py_version != cargo_version:
+            raise SystemExit(
+              f"Version mismatch: pyproject.toml={py_version} Cargo.toml={cargo_version}"
+            )
+          print(f"Version OK: {py_version}")
+          PY
+
       - name: Build sdist
         uses: PyO3/maturin-action@v1
         with:

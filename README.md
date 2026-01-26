@@ -50,6 +50,17 @@ single-sourced and makes it reusable from other Rust apps (e.g., Tauri) without 
 - Rust toolchain + C toolchain (only required when building from source)
 - Embeddings use `ort` 2.0.0-rc.11 (recommended by upstream; API not yet stable)
 
+## Quickstart (recommended)
+
+Use [install-mcp](https://github.com/supermemoryai/install-mcp) to add the server to an MCP client.
+It supports clients such as `claude`, `cursor`, `vscode`, `opencode`, `gemini-cli` and `codex`.
+
+```bash
+npx install-mcp "uvx agent-bus-mcp" --name agent-bus --client claude-code
+```
+
+Replace `claude-code` with your client name.
+
 ## Install and run
 
 Install from PyPI (recommended), from GitHub, or from a local checkout.
@@ -77,16 +88,7 @@ Optional extras:
 uvx --from "agent-bus-mcp[web]" agent-bus serve
 ```
 
-### Option B: Run from GitHub with `uvx` (builds from source)
-
-> [!IMPORTANT]
-> Installing from GitHub builds the Rust extension from source, so you'll need a Rust toolchain and a C toolchain.
-
-```bash
-uvx --from "agent-bus-mcp @ git+https://github.com/alessandrobologna/agent-bus-mcp.git" agent-bus
-```
-
-### Option C: Clone and run locally (recommended for development)
+### Option B: Clone and run locally (recommended for development)
 
 ```bash
 git clone https://github.com/alessandrobologna/agent-bus-mcp.git
@@ -106,20 +108,6 @@ Default DB path (override via `AGENT_BUS_DB`):
 
 ```bash
 export AGENT_BUS_DB="$HOME/.agent_bus/agent_bus.sqlite"
-```
-
-### Option D: Install from GitHub into an environment (builds from source)
-
-```bash
-pip install "agent-bus-mcp @ git+https://github.com/alessandrobologna/agent-bus-mcp.git"
-# or
-uv pip install "agent-bus-mcp @ git+https://github.com/alessandrobologna/agent-bus-mcp.git"
-```
-
-Then run:
-
-```bash
-agent-bus
 ```
 
 ## MCP Client Setup
