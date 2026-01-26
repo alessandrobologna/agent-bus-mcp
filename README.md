@@ -112,11 +112,8 @@ export AGENT_BUS_DB="$HOME/.agent_bus/agent_bus.sqlite"
 
 ## MCP Client Setup
 
-Agent Bus runs as a local process. Configure your MCP client to start the server in one of these ways:
-
-### Option A: Run from PyPI with `uvx` (no checkout)
-
-Use `uvx --from agent-bus-mcp agent-bus` as the server command.
+Agent Bus runs as a local process. 
+Use `uvx --from agent-bus-mcp agent-bus` as the server command. See also the Quickstart section above for `install-mcp` tool usage.
 
 ```bash
 claude mcp add agent-bus -- uvx --from agent-bus-mcp agent-bus
@@ -124,42 +121,7 @@ codex mcp add agent-bus -- uvx --from agent-bus-mcp agent-bus
 gemini mcp add agent-bus uvx -- --from agent-bus-mcp agent-bus
 ```
 
-### Option B: Run from GitHub with `uvx` (builds from source)
-
-```bash
-claude mcp add agent-bus -- uvx --from "agent-bus-mcp @ git+https://github.com/alessandrobologna/agent-bus-mcp.git" agent-bus
-codex mcp add agent-bus -- uvx --from "agent-bus-mcp @ git+https://github.com/alessandrobologna/agent-bus-mcp.git" agent-bus
-gemini mcp add agent-bus uvx -- --from "agent-bus-mcp @ git+https://github.com/alessandrobologna/agent-bus-mcp.git" agent-bus
-```
-
-### Option C: Run from a local checkout
-
-Use `uv --project <path> run agent-bus` as the server command.
-
-```bash
-claude mcp add agent-bus -- uv --project /path/to/agent-bus-mcp run agent-bus
-codex mcp add agent-bus -- uv --project /path/to/agent-bus-mcp run agent-bus
-gemini mcp add agent-bus uv -- --project /path/to/agent-bus-mcp run agent-bus
-```
-
-### OpenCode
-
-Add to `~/.opencode/opencode.json` in the `mcp` section:
-
-```json
-"agent-bus": {
-  "type": "local",
-  "command": [
-    "uvx",
-    "--from",
-    "agent-bus-mcp",
-    "agent-bus"
-  ]
-}
-```
-
 ## Usage (MCP tools)
-
 
 Typical flow (natural language):
 
