@@ -34,6 +34,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Download ONNX Runtime (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $version = "1.23.2"
+          $zip = "$env:RUNNER_TEMP/onnxruntime-win-x64-$version.zip"
+          $dir = "$env:RUNNER_TEMP/onnxruntime-win-x64-$version"
+          Invoke-WebRequest -Uri "https://github.com/microsoft/onnxruntime/releases/download/v$version/onnxruntime-win-x64-$version.zip" -OutFile $zip
+          Expand-Archive -Path $zip -DestinationPath $env:RUNNER_TEMP
+          "ORT_LIB_LOCATION=$dir\\lib" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "ORT_PREFER_DYNAMIC_LINK=1" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "PATH=$dir\\lib;$env:PATH" | Out-File -FilePath $env:GITHUB_ENV -Append
+
       - name: Build wheels (Linux, manylinux_2_28)
         if: runner.os == 'Linux'
         uses: PyO3/maturin-action@v1
