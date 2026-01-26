@@ -1,5 +1,5 @@
 use hf_hub::api::sync::Api;
-use once_cell::sync::Lazy;
+use once_cell::sync::{Lazy, OnceCell};
 use ort::session::Session;
 use ort::value::Tensor;
 use pyo3::create_exception;
@@ -13,7 +13,7 @@ use rusqlite::{params, params_from_iter, Connection};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokenizers::{PaddingDirection, PaddingStrategy, TruncationDirection, TruncationStrategy};
 use tokenizers::{PaddingParams, Tokenizer, TruncationParams};
@@ -61,7 +61,7 @@ struct Embedder {
     tokenizer: Tokenizer,
 }
 
-type EmbedderCell = Arc<OnceLock<Arc<Mutex<Embedder>>>>;
+type EmbedderCell = Arc<OnceCell<Arc<Mutex<Embedder>>>>;
 
 static EMBEDDERS: Lazy<Mutex<HashMap<String, EmbedderCell>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
@@ -441,11 +441,11 @@ fn get_embedder(model_id: &str, max_tokens: usize) -> PyResult<Arc<Mutex<Embedde
             .map_err(|_| PyRuntimeError::new_err("embedding cache lock poisoned"))?;
         cache
             .entry(key)
-            .or_insert_with(|| Arc::new(OnceLock::new()))
+            .or_insert_with(|| Arc::new(OnceCell::new()))
             .clone()
     };
 
-    let embedder = cell.get_or_try_init(|| {
+    let embedder = cell.get_or_try_init(|| -> PyResult<Arc<Mutex<Embedder>>> {
         let embedder = Embedder::load(model_id, max_tokens)?;
         Ok(Arc::new(Mutex::new(embedder)))
     })?;
@@ -557,7 +557,7 @@ fn map_ort_error(err: ort::Error) -> PyErr {
 }
 
 #[pyfunction]
-#[pyo3(signature = (texts, model=None, normalize=True, max_tokens=None))]
+#[pyo3(signature = (texts, model=None, normalize=true, max_tokens=None))]
 fn embed_texts(
     py: Python<'_>,
     texts: Vec<String>,
