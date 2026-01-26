@@ -56,7 +56,7 @@ Use [install-mcp](https://github.com/supermemoryai/install-mcp) to add the serve
 It supports clients such as `claude`, `cursor`, `vscode`, `opencode`, `gemini-cli` and `codex`.
 
 ```bash
-npx install-mcp "uvx agent-bus-mcp" --name agent-bus --client claude-code
+npx install-mcp "uvx --from agent-bus-mcp agent-bus" --name agent-bus --client claude-code
 ```
 
 Replace `claude-code` with your client name.
