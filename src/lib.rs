@@ -13,7 +13,7 @@ use rusqlite::{params, params_from_iter, Connection};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokenizers::{PaddingDirection, PaddingStrategy, TruncationDirection, TruncationStrategy};
 use tokenizers::{PaddingParams, Tokenizer, TruncationParams};
@@ -39,8 +39,13 @@ pub extern "C" fn __aarch64_cas8_sync(expected: u64, desired: u64, ptr: *mut u64
 
     let atomic_ptr = ptr.cast::<AtomicU64>();
     // SAFETY: This function is a compatibility shim for prebuilt dependencies that expect the
-    // `__aarch64_cas8_sync` symbol. The pointer is expected to be valid and properly aligned for
-    // 64-bit atomic operations.
+    // `__aarch64_cas8_sync` symbol (notably ONNX Runtime / XNNPACK on Linux aarch64). The pointer
+    // is expected to be valid and properly aligned for 64-bit atomic operations.
+    debug_assert_eq!(
+        (ptr as usize) % std::mem::align_of::<AtomicU64>(),
+        0,
+        "unaligned __aarch64_cas8_sync pointer"
+    );
     unsafe {
         match (*atomic_ptr).compare_exchange(expected, desired, Ordering::SeqCst, Ordering::SeqCst)
         {
@@ -55,7 +60,9 @@ struct Embedder {
     tokenizer: Tokenizer,
 }
 
-static EMBEDDERS: Lazy<Mutex<HashMap<String, Arc<Mutex<Embedder>>>>> =
+type EmbedderCell = Arc<OnceLock<Arc<Mutex<Embedder>>>>;
+
+static EMBEDDERS: Lazy<Mutex<HashMap<String, EmbedderCell>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
 #[derive(Debug)]
@@ -427,17 +434,21 @@ fn embedding_cache_key(model_id: &str, max_tokens: usize) -> String {
 
 fn get_embedder(model_id: &str, max_tokens: usize) -> PyResult<Arc<Mutex<Embedder>>> {
     let key = embedding_cache_key(model_id, max_tokens);
-    let mut cache = EMBEDDERS
-        .lock()
-        .map_err(|_| PyRuntimeError::new_err("embedding cache lock poisoned"))?;
-    if let Some(embedder) = cache.get(&key) {
-        return Ok(Arc::clone(embedder));
-    }
+    let cell = {
+        let mut cache = EMBEDDERS
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("embedding cache lock poisoned"))?;
+        cache
+            .entry(key)
+            .or_insert_with(|| Arc::new(OnceLock::new()))
+            .clone()
+    };
 
-    let embedder = Embedder::load(model_id, max_tokens)?;
-    let shared = Arc::new(Mutex::new(embedder));
-    cache.insert(key, Arc::clone(&shared));
-    Ok(shared)
+    let embedder = cell.get_or_try_init(|| {
+        let embedder = Embedder::load(model_id, max_tokens)?;
+        Ok(Arc::new(Mutex::new(embedder)))
+    })?;
+    Ok(Arc::clone(embedder))
 }
 
 fn resolve_embedding_paths(model_id: &str) -> PyResult<(PathBuf, PathBuf)> {

@@ -18,6 +18,15 @@ TopicStatus = Literal["open", "closed"]
 
 SCHEMA_VERSION = "6"
 
+__all__ = [
+    "AgentBusDB",
+    "DBBusyError",
+    "SchemaMismatchError",
+    "TopicClosedError",
+    "TopicMismatchError",
+    "TopicNotFoundError",
+]
+
 
 class AgentBusDB:
     def __init__(self, *, path: str | None = None) -> None:
