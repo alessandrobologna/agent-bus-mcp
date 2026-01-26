@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 from typing import Any, Literal
 
-from agent_bus._core import (  # type: ignore[import-not-found]  # noqa: F401
+from agent_bus._core import (  # type: ignore[import-not-found]
     CoreDb,
     DBBusyError,
     SchemaMismatchError,
