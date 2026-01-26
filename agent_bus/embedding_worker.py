@@ -47,9 +47,8 @@ def _worker_loop(
     stop_event: threading.Event,
 ) -> None:
     import numpy as np
-    from fastembed import TextEmbedding
 
-    embedder = TextEmbedding(model_name=model)
+    from agent_bus import _core  # ty: ignore[unresolved-import]
 
     while not stop_event.is_set():
         try:
@@ -108,7 +107,7 @@ def _worker_loop(
                     continue
 
                 texts = [c.text for c in chunks]
-                embs = list(embedder.passage_embed(texts))
+                embs = _core.embed_texts(texts, model=model)
                 arr = np.asarray(embs, dtype=np.float32)
                 dims = int(arr.shape[1])
 

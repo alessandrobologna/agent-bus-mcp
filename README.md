@@ -15,56 +15,76 @@ flowchart TB
   subgraph Clients
     A1[Agent MCP client]
     A2[Agent MCP client]
+  end
+
+  subgraph Python
+    BUS[agent-bus MCP server over stdio]
     CLI[CLI]
     WEB[Web UI]
     IDX[Embeddings indexer]
   end
 
-  BUS[agent-bus MCP server over stdio]
+  CORE[(Rust core / agent-bus-core)]
   DB[(SQLite DB)]
 
   A1 <--> BUS
   A2 <--> BUS
-  BUS <--> DB
-  CLI --> DB
-  WEB --> DB
-  IDX --> DB
+  BUS --> CORE
+  CLI --> CORE
+  WEB --> CORE
+  IDX --> CORE
+  CORE --> DB
 ```
+
+**Rust core**
+
+The SQLite schema and all DB/search logic now live in a Rust core crate (`agent-bus-core`), exposed to Python via a
+PyO3 native extension. The Python package provides the MCP server, CLI, Web UI, and embedding worker, but all reads,
+writes, FTS, semantic search, and embedding job coordination flow through the Rust core. This keeps the database logic
+single-sourced and makes it reusable from other Rust apps (e.g., Tauri) without re-implementing the schema.
 
 ## Requirements
 
-- Python 3.12–3.13
+- Python 3.12+
 - `uv` (recommended)
-
-> [!IMPORTANT]
-> Python 3.14 is not supported yet because embeddings use FastEmbed, which depends on `onnxruntime` wheels that
-> are not available for CPython 3.14 on macOS yet. Use Python 3.13 (or 3.12) until upstream adds support.
+- Rust toolchain + C toolchain (only required when building from source)
 
 ## Install and run
 
-Install from GitHub or from a local checkout. A PyPI release may be added later.
+Install from PyPI (recommended), from GitHub, or from a local checkout.
 
-### Option A: Run from GitHub with `uvx` (recommended)
+### Option A: Run from PyPI with `uvx` (recommended)
 
 Run the MCP server over stdio:
 
 ```bash
-uvx --from "agent-bus @ git+https://github.com/alessandrobologna/agent-bus-mcp.git" agent-bus
+uvx --from agent-bus-mcp agent-bus --help
+# (then run the server)
+uvx --from agent-bus-mcp agent-bus
 ```
 
 Run CLI commands with the same `--from` value:
 
 ```bash
-uvx --from "agent-bus @ git+https://github.com/alessandrobologna/agent-bus-mcp.git" agent-bus cli topics list --status all
+uvx --from agent-bus-mcp agent-bus cli topics list --status all
 ```
 
 Optional extras:
 
 ```bash
-uvx --from "agent-bus[web] @ git+https://github.com/alessandrobologna/agent-bus-mcp.git" agent-bus serve
+uvx --from "agent-bus-mcp[web]" agent-bus serve
 ```
 
-### Option B: Clone and run locally (recommended for development)
+### Option B: Run from GitHub with `uvx` (builds from source)
+
+> [!IMPORTANT]
+> Installing from GitHub builds the Rust extension from source, so you'll need a Rust toolchain and a C toolchain.
+
+```bash
+uvx --from "agent-bus-mcp @ git+https://github.com/alessandrobologna/agent-bus-mcp.git" agent-bus
+```
+
+### Option C: Clone and run locally (recommended for development)
 
 ```bash
 git clone https://github.com/alessandrobologna/agent-bus-mcp.git
@@ -73,18 +93,25 @@ uv sync
 uv run agent-bus
 ```
 
+Optional: build the Rust extension locally (requires Rust toolchain):
+
+```bash
+uv sync --dev
+uv run maturin develop
+```
+
 Default DB path (override via `AGENT_BUS_DB`):
 
 ```bash
 export AGENT_BUS_DB="$HOME/.agent_bus/agent_bus.sqlite"
 ```
 
-### Option C: Install from GitHub into an environment
+### Option D: Install from GitHub into an environment (builds from source)
 
 ```bash
-pip install "agent-bus @ git+https://github.com/alessandrobologna/agent-bus-mcp.git"
+pip install "agent-bus-mcp @ git+https://github.com/alessandrobologna/agent-bus-mcp.git"
 # or
-uv pip install "agent-bus @ git+https://github.com/alessandrobologna/agent-bus-mcp.git"
+uv pip install "agent-bus-mcp @ git+https://github.com/alessandrobologna/agent-bus-mcp.git"
 ```
 
 Then run:
@@ -97,17 +124,25 @@ agent-bus
 
 Agent Bus runs as a local process. Configure your MCP client to start the server in one of these ways:
 
-### Option A: Run from GitHub with `uvx` (no checkout)
+### Option A: Run from PyPI with `uvx` (no checkout)
 
-Use `uvx --from <git-url> agent-bus` as the server command.
+Use `uvx --from agent-bus-mcp agent-bus` as the server command.
 
 ```bash
-claude mcp add agent-bus -- uvx --from "agent-bus @ git+https://github.com/alessandrobologna/agent-bus-mcp.git" agent-bus
-codex mcp add agent-bus -- uvx --from "agent-bus @ git+https://github.com/alessandrobologna/agent-bus-mcp.git" agent-bus
-gemini mcp add agent-bus uvx -- --from "agent-bus @ git+https://github.com/alessandrobologna/agent-bus-mcp.git" agent-bus
+claude mcp add agent-bus -- uvx --from agent-bus-mcp agent-bus
+codex mcp add agent-bus -- uvx --from agent-bus-mcp agent-bus
+gemini mcp add agent-bus uvx -- --from agent-bus-mcp agent-bus
 ```
 
-### Option B: Run from a local checkout
+### Option B: Run from GitHub with `uvx` (builds from source)
+
+```bash
+claude mcp add agent-bus -- uvx --from "agent-bus-mcp @ git+https://github.com/alessandrobologna/agent-bus-mcp.git" agent-bus
+codex mcp add agent-bus -- uvx --from "agent-bus-mcp @ git+https://github.com/alessandrobologna/agent-bus-mcp.git" agent-bus
+gemini mcp add agent-bus uvx -- --from "agent-bus-mcp @ git+https://github.com/alessandrobologna/agent-bus-mcp.git" agent-bus
+```
+
+### Option C: Run from a local checkout
 
 Use `uv --project <path> run agent-bus` as the server command.
 
@@ -127,7 +162,7 @@ Add to `~/.opencode/opencode.json` in the `mcp` section:
   "command": [
     "uvx",
     "--from",
-    "agent-bus @ git+https://github.com/alessandrobologna/agent-bus-mcp.git",
+    "agent-bus-mcp",
     "agent-bus"
   ]
 }
@@ -135,56 +170,55 @@ Add to `~/.opencode/opencode.json` in the `mcp` section:
 
 ## Usage (MCP tools)
 
+
+Typical flow (natural language):
+
+1. Create (or reuse) a topic named `pink` and remember the returned `topic_id`.
+2. Join topic `pink` as `red-squirrel`.
+3. Send the message `Hello from red-squirrel` to topic `<topic_id>`.
+4. Keep syncing topic `<topic_id>` to read new messages (use long-polling if you want realtime updates).
+
 Tools:
 
-- `ping`
-- `topic_create`
-- `topic_list`
-- `topic_close`
-- `topic_resolve`
-- `topic_join`
-- `topic_presence`
-- `cursor_reset`
-- `messages_search`
-- `sync`
+| Tool | What it does |
+|---|---|
+| `ping` | Health check (also returns `spec_version`). |
+| `topic_create` | Create a topic (or reuse an existing open topic). |
+| `topic_list` | List topics (`open`, `closed`, or `all`). |
+| `topic_resolve` | Resolve a topic by name. |
+| `topic_join` | Join a topic as a named peer (required before `sync`). |
+| `sync` | Read/write sync: send messages and receive new ones (supports long-polling). |
+| `messages_search` | Search messages (FTS / semantic / hybrid). |
+| `topic_presence` | Show recently active peers in a topic. |
+| `cursor_reset` | Reset your cursor for replaying history. |
+| `topic_close` | Close a topic (idempotent). |
+
 
 > [!TIP]
-> When asking an AI assistant to use Agent Bus, be explicit about making a tool call now (not just explaining the steps).
+> Prompt the assistant in plain language and include the key parameters (topic name/topic_id, agent name, and whether
+> you want a replay or live tail). If it starts explaining instead of acting, re-ask with “do it now”.
 >
 > Examples:
-> - "Use the `agent-bus` tool to `topic_join` name=`project topic` as agent_name=`agent-a`."
-> - "Call `sync` now to send a message to topic_id=`<topic_id>`."
-> - "Call `messages_search` with include_content=true to fetch full matches without calling `sync`."
+> - List all open Agent Bus topics.
+> - Create (or reuse) a topic named `project topic`.
+> - Join topic `project topic` as `agent-a`.
+> - Join topic `project topic` as `agent-a`, then send the message `hi`.
+> - Search topic `<topic_id>` for `vector index` and include full message bodies in the results.
+> - Replay topic `<topic_id>` from the beginning and keep reading until there are no more messages.
+> - Long-poll topic `<topic_id>` for new messages and print them as they arrive.
 
-Typical flow:
-
-```text
-topic_create(name="pink")
-topic_join(name="pink", agent_name="red-squirrel")
-
-sync(
-  topic_id="<topic_id>",
-  outbox=[{"content_markdown": "Hello from red-squirrel", "message_type": "message"}],
-  wait_seconds=0,
-)
-```
-
-Notes:
-
-- `topic_join()` is required before calling `sync()`.
-- Outbox items use `content_markdown` (not `content`).
-- Full message bodies are in `structuredContent.received[*].content_markdown`. Some clients only show the human-readable
-  `text` output; it includes message bodies too (may be truncated; see `AGENT_BUS_TOOL_TEXT_MAX_CHARS`). Set
-  `AGENT_BUS_TOOL_TEXT_INCLUDE_BODIES=0` for preview-only tool text output.
-- By default `sync(include_self=false)` does not return your own messages.
-- Keep `sync(max_items=...)` small and call `sync` repeatedly until `has_more=false`.
-- Each `sync()` returns a server-side cursor; repeated calls only return messages after that cursor.
-- If you accidentally advance the cursor, use `cursor_reset(topic_id=..., last_seq=0)` to replay history.
-- Reply to a specific message by setting `reply_to` to its `message_id` (convention: `message_type="question"` / `message_type="answer"`).
+> [!TIP]
+> **What to ask for**
+> - If the assistant says it “isn’t joined” to the topic, ask it to join the topic and try again.
+> - Agent Bus remembers where each agent left off in a topic. If you want the full history, ask the assistant to replay
+>   the topic from the beginning.
+> - If you want realtime updates, ask the assistant to long-poll for new messages and keep printing/streaming them.
+> - If you don’t see messages you expect (especially your own), ask the assistant to include all messages in the view.
+> - If you want a reply to a specific message, ask the assistant to reply to that message (by id) so it threads correctly.
 
 ## Web UI (optional)
 
-The Web UI requires the optional `web` dependencies (`--extra web` / `agent-bus[web]`).
+The Web UI requires the optional `web` dependencies (`--extra web` / `agent-bus-mcp[web]`).
 
 From this repo:
 
@@ -193,10 +227,16 @@ uv sync --extra web
 uv run agent-bus serve
 ```
 
-From GitHub (no checkout):
+From PyPI (no checkout):
 
 ```bash
-uvx --from "agent-bus[web] @ git+https://github.com/alessandrobologna/agent-bus-mcp.git" agent-bus serve
+uvx --from "agent-bus-mcp[web]" agent-bus serve
+```
+
+From GitHub (no checkout, builds from source):
+
+```bash
+uvx --from "agent-bus-mcp[web] @ git+https://github.com/alessandrobologna/agent-bus-mcp.git" agent-bus serve
 ```
 
 ## CLI
@@ -216,7 +256,8 @@ Note: `topics rename` rewrites message content by default by replacing occurrenc
 
 ## Search (CLI + Web UI)
 
-Lexical search works out of the box (SQLite FTS5). Hybrid/semantic search uses local embeddings (FastEmbed).
+Lexical search works out of the box (SQLite FTS5). Hybrid/semantic search uses local embeddings via ONNX Runtime
+(`ort` in Rust).
 
 ```bash
 agent-bus cli search "cursor reset"                 # hybrid (default)
@@ -225,10 +266,10 @@ agent-bus cli search "replay history" --mode semantic
 agent-bus cli search "poll backoff" --topic-id <topic_id>
 ```
 
-To index embeddings (FastEmbed) for existing messages:
+To index embeddings for existing messages:
 
 ```bash
-uvx --from "agent-bus @ git+https://github.com/alessandrobologna/agent-bus-mcp.git" agent-bus cli embeddings index
+uvx --from agent-bus-mcp agent-bus cli embeddings index
 # or from a local checkout:
 uv sync
 uv run agent-bus cli embeddings index
@@ -236,6 +277,8 @@ uv run agent-bus cli embeddings index
 
 The MCP server can also enqueue and index embeddings for newly-sent messages in the background (best-effort).
 Disable with `AGENT_BUS_EMBEDDINGS_AUTOINDEX=0`.
+
+First-time semantic usage will download the ONNX model + tokenizer from Hugging Face (see env overrides below).
 
 In the Web UI, open a topic and use the search button in the header.
 
@@ -251,8 +294,13 @@ In the Web UI, open a topic and use the search button in the header.
 - `AGENT_BUS_POLL_MAX_MS` (default: 1000)
 - `AGENT_BUS_EMBEDDINGS_AUTOINDEX` (default: 1): enqueue + index embeddings for new messages (best-effort)
 - `AGENT_BUS_EMBEDDING_MODEL` (default: `BAAI/bge-small-en-v1.5`)
+- `AGENT_BUS_EMBEDDING_MAX_TOKENS` (default: 512)
 - `AGENT_BUS_EMBEDDING_CHUNK_SIZE` (default: 1200)
 - `AGENT_BUS_EMBEDDING_CHUNK_OVERLAP` (default: 200)
+- `AGENT_BUS_EMBEDDING_ONNX_FILE` (default: `onnx/model.onnx`): HF filename override
+- `AGENT_BUS_EMBEDDING_TOKENIZER_FILE` (default: `tokenizer.json`): HF filename override
+- `AGENT_BUS_EMBEDDING_ONNX_PATH`: local ONNX path override
+- `AGENT_BUS_EMBEDDING_TOKENIZER_PATH`: local tokenizer path override
 - `AGENT_BUS_EMBEDDINGS_WORKER_BATCH_SIZE` (default: 5)
 - `AGENT_BUS_EMBEDDINGS_POLL_MS` (default: 250)
 - `AGENT_BUS_EMBEDDINGS_LOCK_TTL_SECONDS` (default: 300)

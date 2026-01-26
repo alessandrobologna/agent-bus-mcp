@@ -1,0 +1,17 @@
+[package]
+name = "agent-bus-core"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "agent_bus_core"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.27", features = ["abi3-py312", "extension-module"] }
+rusqlite = { version = "0.38.0", features = ["bundled"] }
+uuid = { version = "1", features = ["v4"] }
+hf-hub = "0.4.3"
+once_cell = "1.19.0"
+ort = { version = "2.0.0-rc.11", default-features = false, features = ["std", "download-binaries", "copy-dylibs", "tls-rustls"] }
+tokenizers = "0.22.2"
