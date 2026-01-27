@@ -37,6 +37,13 @@ jobs:
           path: dist
           merge-multiple: true
 
+      - name: Remove non-distribution artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f dist/README.pypi.md || true
+          rm -rf dist/.pypi-assets || true
+
       - uses: astral-sh/setup-uv@v3
         with:
           enable-cache: false
