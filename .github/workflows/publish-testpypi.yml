@@ -22,6 +22,7 @@ jobs:
       upload_artifacts: true
       render_pypi_readme: true
       upload_pypi_assets: true
+      pypi_assets_mode: branch
 
   upload:
     needs: build
@@ -107,6 +108,7 @@ jobs:
             if uvx --no-build \
                 --default-index https://test.pypi.org/simple \
                 --index https://pypi.org/simple \
+                --index-strategy unsafe-best-match \
                 --from "agent-bus-mcp==${VERSION}" \
                 agent-bus --help; then
               exit 0

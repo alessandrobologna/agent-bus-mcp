@@ -12,6 +12,9 @@ on:
       upload_pypi_assets:
         type: boolean
         default: false
+      pypi_assets_mode:
+        type: string
+        default: release
       pypi_assets_tag:
         type: string
         default: pypi-assets
@@ -29,6 +32,9 @@ on:
       upload_pypi_assets:
         type: boolean
         default: false
+      pypi_assets_mode:
+        type: string
+        default: release
       pypi_assets_tag:
         type: string
         default: pypi-assets
@@ -47,6 +53,7 @@ jobs:
     with:
       enabled: ${{ inputs.render_pypi_readme }}
       mmdc_package: ${{ inputs.mermaid_cli_package }}
+      assets_mode: ${{ inputs.pypi_assets_mode }}
       release_tag: ${{ inputs.pypi_assets_tag }}
       upload_release_assets: ${{ inputs.upload_pypi_assets }}
       artifact_name: pypi-readme
