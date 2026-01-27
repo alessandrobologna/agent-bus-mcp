@@ -5,6 +5,13 @@ on:
     branches:
       - main
   pull_request:
+  workflow_dispatch:
+    inputs:
+      full_matrix:
+        description: "Run full Python version matrix (3.12–3.14)"
+        required: false
+        type: boolean
+        default: false
 
 env:
   ORT_VERSION: "1.23.2"
@@ -19,10 +26,7 @@ jobs:
           - ubuntu-latest
           - macos-14
           - windows-latest
-        python-version:
-          - "3.12"
-          - "3.13"
-          - "3.14"
+        python-version: ${{ fromJson((github.event_name == 'workflow_dispatch' && github.event.inputs.full_matrix == 'true') && '["3.12","3.13","3.14"]' || '["3.14"]') }}
     steps:
       - uses: actions/checkout@v4
 
