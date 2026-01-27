@@ -115,9 +115,11 @@ jobs:
         env:
           README_PATH: ${{ inputs.readme_path }}
           OUT_PATH: ${{ inputs.output_readme_path }}
+          ARTEFACTS_DIR: ${{ inputs.artefacts_dir }}
         run: |
           set -euo pipefail
           cp "$README_PATH" "$OUT_PATH"
+          mkdir -p "$ARTEFACTS_DIR"
 
       - name: Render README (Mermaid -> images)
         if: inputs.enabled && steps.detect.outputs.has_mermaid == 'true'
