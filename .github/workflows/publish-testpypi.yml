@@ -87,7 +87,7 @@ jobs:
 
       - uses: astral-sh/setup-uv@v3
         with:
-          enable-cache: true
+          enable-cache: false
 
       - name: Install from TestPyPI (no build)
         shell: bash
