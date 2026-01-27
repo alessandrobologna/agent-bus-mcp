@@ -20,6 +20,8 @@ jobs:
     uses: ./.github/workflows/build-wheels.yml
     with:
       upload_artifacts: true
+      render_pypi_readme: true
+      upload_pypi_assets: true
 
   upload:
     needs: build

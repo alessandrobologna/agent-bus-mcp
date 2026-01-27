@@ -1,0 +1,200 @@
+name: render-pypi-readme
+
+on:
+  workflow_call:
+    inputs:
+      enabled:
+        type: boolean
+        default: true
+      readme_path:
+        type: string
+        default: README.md
+      output_readme_path:
+        type: string
+        default: README.pypi.md
+      artefacts_dir:
+        type: string
+        default: .pypi-assets
+      output_format:
+        type: string
+        default: png
+      background_color:
+        type: string
+        default: transparent
+      mmdc_package:
+        type: string
+        default: "@mermaid-js/mermaid-cli@11.12.0"
+      release_tag:
+        type: string
+        default: pypi-assets
+      upload_release_assets:
+        type: boolean
+        default: false
+      artifact_name:
+        type: string
+        default: pypi-readme
+      node_version:
+        type: string
+        default: "20"
+  workflow_dispatch:
+    inputs:
+      enabled:
+        type: boolean
+        default: true
+      readme_path:
+        type: string
+        default: README.md
+      output_readme_path:
+        type: string
+        default: README.pypi.md
+      artefacts_dir:
+        type: string
+        default: .pypi-assets
+      output_format:
+        type: string
+        default: png
+      background_color:
+        type: string
+        default: transparent
+      mmdc_package:
+        type: string
+        default: "@mermaid-js/mermaid-cli@11.12.0"
+      release_tag:
+        type: string
+        default: pypi-assets
+      upload_release_assets:
+        type: boolean
+        default: false
+      artifact_name:
+        type: string
+        default: pypi-readme
+      node_version:
+        type: string
+        default: "20"
+
+permissions:
+  contents: read
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        if: inputs.enabled
+
+      - uses: actions/setup-node@v4
+        if: inputs.enabled
+        with:
+          node-version: ${{ inputs.node_version }}
+
+      - name: Detect Mermaid blocks
+        if: inputs.enabled
+        id: detect
+        env:
+          README_PATH: ${{ inputs.readme_path }}
+        run: |
+          set -euo pipefail
+          if grep -q '^```mermaid' "$README_PATH"; then
+            echo "has_mermaid=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "has_mermaid=false" >>"$GITHUB_OUTPUT"
+          fi
+
+      - name: Copy README (no Mermaid found)
+        if: inputs.enabled && steps.detect.outputs.has_mermaid != 'true'
+        env:
+          README_PATH: ${{ inputs.readme_path }}
+          OUT_PATH: ${{ inputs.output_readme_path }}
+        run: |
+          set -euo pipefail
+          cp "$README_PATH" "$OUT_PATH"
+
+      - name: Render README (Mermaid -> images)
+        if: inputs.enabled && steps.detect.outputs.has_mermaid == 'true'
+        env:
+          README_PATH: ${{ inputs.readme_path }}
+          OUT_PATH: ${{ inputs.output_readme_path }}
+          ARTEFACTS_DIR: ${{ inputs.artefacts_dir }}
+          OUTPUT_FORMAT: ${{ inputs.output_format }}
+          BACKGROUND_COLOR: ${{ inputs.background_color }}
+          MMDC_PACKAGE: ${{ inputs.mmdc_package }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$ARTEFACTS_DIR"
+          puppeteer_cfg="$RUNNER_TEMP/puppeteer.json"
+          echo '{"args":["--no-sandbox"]}' >"$puppeteer_cfg"
+          npx --yes --package "$MMDC_PACKAGE" mmdc \
+            -i "$README_PATH" \
+            -o "$OUT_PATH" \
+            --outputFormat "$OUTPUT_FORMAT" \
+            --backgroundColor "$BACKGROUND_COLOR" \
+            --artefacts "$ARTEFACTS_DIR/" \
+            --puppeteerConfigFile "$puppeteer_cfg"
+
+      - name: Upload diagrams to GitHub Release assets
+        if: inputs.enabled && inputs.upload_release_assets && steps.detect.outputs.has_mermaid == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTEFACTS_DIR: ${{ inputs.artefacts_dir }}
+          OUTPUT_FORMAT: ${{ inputs.output_format }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=("$ARTEFACTS_DIR"/*."$OUTPUT_FORMAT")
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "No rendered diagrams found, skipping."
+            exit 0
+          fi
+
+          tag="$RELEASE_TAG"
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            gh release create "$tag" \
+              --title "PyPI assets" \
+              --notes "Rendered Mermaid diagrams used by the PyPI project description." \
+              --prerelease
+          fi
+
+          gh release upload "$tag" "${files[@]}" --clobber
+
+      - name: Rewrite diagram URLs to GitHub Release assets
+        if: inputs.enabled && inputs.upload_release_assets && steps.detect.outputs.has_mermaid == 'true'
+        env:
+          OUT_PATH: ${{ inputs.output_readme_path }}
+          ARTEFACTS_DIR: ${{ inputs.artefacts_dir }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          REPO: ${{ github.repository }}
+        run: |
+          python - <<'PY'
+          from __future__ import annotations
+
+          import os
+          import re
+          from pathlib import Path
+
+          out_path = Path(os.environ["OUT_PATH"])
+          artefacts_dir = os.environ["ARTEFACTS_DIR"].rstrip("/")
+          repo = os.environ["REPO"]
+          release_tag = os.environ["RELEASE_TAG"]
+
+          base = f"https://github.com/{repo}/releases/download/{release_tag}/"
+          text = out_path.read_text(encoding="utf-8")
+          pattern = re.compile(
+              rf"\]\((?:\./)?{re.escape(artefacts_dir)}/([^\)]+)\)"
+          )
+          text = pattern.sub(lambda m: f"]({base}{m.group(1)})", text)
+          out_path.write_text(text, encoding="utf-8")
+          PY
+
+      - name: Upload artifact
+        if: inputs.enabled
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: |
+            ${{ inputs.output_readme_path }}
+            ${{ inputs.artefacts_dir }}/*.${{ inputs.output_format }}
+          if-no-files-found: error

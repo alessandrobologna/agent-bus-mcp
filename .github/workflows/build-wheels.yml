@@ -6,20 +6,77 @@ on:
       upload_artifacts:
         type: boolean
         default: true
+      render_pypi_readme:
+        type: boolean
+        default: false
+      upload_pypi_assets:
+        type: boolean
+        default: false
+      pypi_assets_tag:
+        type: string
+        default: pypi-assets
+      mermaid_cli_package:
+        type: string
+        default: "@mermaid-js/mermaid-cli@11.12.0"
   workflow_dispatch:
     inputs:
       upload_artifacts:
         type: boolean
         default: true
+      render_pypi_readme:
+        type: boolean
+        default: false
+      upload_pypi_assets:
+        type: boolean
+        default: false
+      pypi_assets_tag:
+        type: string
+        default: pypi-assets
+      mermaid_cli_package:
+        type: string
+        default: "@mermaid-js/mermaid-cli@11.12.0"
 
 env:
   ORT_VERSION: "1.23.2"
 
 jobs:
+  pypi-readme:
+    uses: ./.github/workflows/render-pypi-readme.yml
+    permissions:
+      contents: write
+    with:
+      enabled: ${{ inputs.render_pypi_readme }}
+      mmdc_package: ${{ inputs.mermaid_cli_package }}
+      release_tag: ${{ inputs.pypi_assets_tag }}
+      upload_release_assets: ${{ inputs.upload_pypi_assets }}
+      artifact_name: pypi-readme
+
   sdist:
+    needs: pypi-readme
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Download PyPI README artifacts
+        if: inputs.render_pypi_readme
+        uses: actions/download-artifact@v4
+        with:
+          name: pypi-readme
+          path: .
+
+      - name: Use PyPI README for package metadata
+        if: inputs.render_pypi_readme
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("pyproject.toml")
+          text = path.read_text(encoding="utf-8")
+          updated = text.replace('readme = "README.md"', 'readme = "README.pypi.md"')
+          if updated == text:
+            raise SystemExit('Expected to find \'readme = "README.md"\' in pyproject.toml')
+          path.write_text(updated, encoding="utf-8")
+          PY
 
       - name: Validate version sync
         run: |
@@ -56,6 +113,7 @@ jobs:
           if-no-files-found: error
 
   wheels:
+    needs: pypi-readme
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -66,6 +124,27 @@ jobs:
           - windows-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Download PyPI README artifacts
+        if: inputs.render_pypi_readme
+        uses: actions/download-artifact@v4
+        with:
+          name: pypi-readme
+          path: .
+
+      - name: Use PyPI README for package metadata
+        if: inputs.render_pypi_readme
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("pyproject.toml")
+          text = path.read_text(encoding="utf-8")
+          updated = text.replace('readme = "README.md"', 'readme = "README.pypi.md"')
+          if updated == text:
+            raise SystemExit('Expected to find \'readme = "README.md"\' in pyproject.toml')
+          path.write_text(updated, encoding="utf-8")
+          PY
 
       - name: Download ONNX Runtime (Windows)
         if: runner.os == 'Windows'
