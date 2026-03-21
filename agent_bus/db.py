@@ -124,6 +124,12 @@ class AgentBusDB:
             max_attempts,
         )
 
+    def claim_embedding_leader(self, *, worker_id: str, ttl_seconds: int) -> bool:
+        return bool(self._core.claim_embedding_leader(worker_id, int(ttl_seconds)))
+
+    def release_embedding_leader(self, *, worker_id: str) -> bool:
+        return bool(self._core.release_embedding_leader(worker_id))
+
     def complete_embedding_job(self, *, message_id: str, model: str) -> None:
         self._core.complete_embedding_job(message_id, model)
 

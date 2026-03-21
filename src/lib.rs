@@ -1,7 +1,5 @@
-use hf_hub::api::sync::Api;
+use fastembed::{EmbeddingModel, OutputKey, Pooling, TextEmbedding, TextInitOptions};
 use once_cell::sync::{Lazy, OnceCell};
-use ort::session::Session;
-use ort::value::Tensor;
 use pyo3::create_exception;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -11,12 +9,11 @@ use rusqlite::types::Value;
 use rusqlite::OptionalExtension;
 use rusqlite::{params, params_from_iter, Connection};
 use std::collections::HashMap;
+use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tokenizers::{PaddingDirection, PaddingStrategy, TruncationDirection, TruncationStrategy};
-use tokenizers::{PaddingParams, Tokenizer, TruncationParams};
 use uuid::Uuid;
 
 create_exception!(agent_bus_core, DBBusyError, PyRuntimeError);
@@ -29,9 +26,10 @@ const SCHEMA_VERSION: &str = "6";
 const DEFAULT_EMBEDDING_MODEL: &str = "BAAI/bge-small-en-v1.5";
 const DEFAULT_MAX_TOKENS: usize = 512;
 const MAX_EMBEDDING_MAX_TOKENS: usize = 8192;
-const DEFAULT_ONNX_FILE: &str = "onnx/model.onnx";
-const FALLBACK_ONNX_FILE: &str = "model.onnx";
-const DEFAULT_TOKENIZER_FILE: &str = "tokenizer.json";
+const EMBEDDING_CACHE_DIR_ENV: &str = "AGENT_BUS_EMBEDDING_CACHE_DIR";
+const FASTEMBED_CACHE_DIR_ENV: &str = "FASTEMBED_CACHE_DIR";
+const XDG_CACHE_HOME_ENV: &str = "XDG_CACHE_HOME";
+const HOME_ENV: &str = "HOME";
 
 #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
 #[no_mangle]
@@ -57,8 +55,9 @@ pub extern "C" fn __aarch64_cas8_sync(expected: u64, desired: u64, ptr: *mut u64
 }
 
 struct Embedder {
-    session: Session,
-    tokenizer: Tokenizer,
+    model: TextEmbedding,
+    pooling: Option<Pooling>,
+    output_key: Option<OutputKey>,
 }
 
 type EmbedderCell = Arc<OnceCell<Arc<Mutex<Embedder>>>>;
@@ -228,203 +227,66 @@ impl<'a, 'py> FromPyObject<'a, 'py> for EmbeddingChunk {
 
 impl Embedder {
     fn load(model_id: &str, max_tokens: usize) -> PyResult<Self> {
-        let (model_path, tokenizer_path) = resolve_embedding_paths(model_id)?;
-
-        let mut tokenizer = Tokenizer::from_file(&tokenizer_path).map_err(|e| {
-            PyRuntimeError::new_err(format!(
-                "failed to load tokenizer from {}: {e}",
-                tokenizer_path.display()
-            ))
-        })?;
-
         if max_tokens == 0 {
             return Err(PyValueError::new_err("max_tokens must be > 0"));
         }
-
-        tokenizer
-            .with_truncation(Some(TruncationParams {
-                max_length: max_tokens,
-                strategy: TruncationStrategy::LongestFirst,
-                stride: 0,
-                direction: TruncationDirection::Right,
-            }))
-            .map_err(|e| {
-                PyRuntimeError::new_err(format!("failed to set tokenizer truncation: {e}"))
-            })?;
-
-        tokenizer.with_padding(Some(PaddingParams {
-            strategy: PaddingStrategy::BatchLongest,
-            direction: PaddingDirection::Right,
-            pad_to_multiple_of: None,
-            pad_id: 0,
-            pad_type_id: 0,
-            pad_token: "[PAD]".to_string(),
-        }));
-
-        let session = Session::builder()
-            .map_err(map_ort_error)?
-            .commit_from_file(&model_path)
-            .map_err(|e| {
-                PyRuntimeError::new_err(format!(
-                    "failed to load ONNX model from {}: {e}",
-                    model_path.display()
-                ))
-            })?;
-
-        Ok(Self { session, tokenizer })
+        let model_name = resolve_embedding_model(model_id)?;
+        let pooling = TextEmbedding::get_default_pooling_method(&model_name);
+        let output_key = TextEmbedding::get_model_info(&model_name)
+            .map_err(map_fastembed_err)?
+            .output_key
+            .clone();
+        let mut options = TextInitOptions::new(model_name)
+            .with_max_length(max_tokens)
+            .with_show_download_progress(false);
+        if let Some(cache_dir) = embedding_cache_dir() {
+            options = options.with_cache_dir(cache_dir);
+        }
+        let model = TextEmbedding::try_new(options).map_err(map_fastembed_err)?;
+        Ok(Self {
+            model,
+            pooling,
+            output_key,
+        })
     }
 
     fn embed(&mut self, texts: &[String], normalize: bool) -> PyResult<Vec<Vec<f32>>> {
         if texts.is_empty() {
             return Ok(Vec::new());
         }
-
-        let inputs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
-        let encodings = self
-            .tokenizer
-            .encode_batch(inputs, true)
-            .map_err(|e| PyRuntimeError::new_err(format!("tokenization failed: {e}")))?;
-
-        if encodings.is_empty() {
-            return Ok(Vec::new());
+        if normalize {
+            let refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
+            return self.model.embed(refs, None).map_err(map_fastembed_err);
         }
 
-        let seq_len = encodings[0].get_ids().len();
-        if seq_len == 0 {
-            return Ok(vec![Vec::new(); encodings.len()]);
-        }
-
-        let batch = encodings.len();
-        let mut input_ids: Vec<i64> = Vec::with_capacity(batch * seq_len);
-        let mut attention_mask: Vec<i64> = Vec::with_capacity(batch * seq_len);
-        let mut token_type_ids: Vec<i64> = Vec::with_capacity(batch * seq_len);
-
-        for enc in &encodings {
-            if enc.get_ids().len() != seq_len {
-                return Err(PyRuntimeError::new_err(
-                    "tokenizer returned varying sequence lengths; enable padding",
-                ));
-            }
-            input_ids.extend(enc.get_ids().iter().map(|v| *v as i64));
-            attention_mask.extend(enc.get_attention_mask().iter().map(|v| *v as i64));
-            token_type_ids.extend(enc.get_type_ids().iter().map(|v| *v as i64));
-        }
-
-        let input_ids_tensor: Tensor<i64> =
-            Tensor::from_array(([batch, seq_len], input_ids)).map_err(map_ort_error)?;
-        let attention_tensor: Tensor<i64> =
-            Tensor::from_array(([batch, seq_len], attention_mask)).map_err(map_ort_error)?;
-        let token_type_tensor: Tensor<i64> =
-            Tensor::from_array(([batch, seq_len], token_type_ids)).map_err(map_ort_error)?;
-
-        let mut input_ids_opt = Some(input_ids_tensor);
-        let mut attention_opt = Some(attention_tensor);
-        let mut token_type_opt = Some(token_type_tensor);
-
-        let mut inputs = Vec::new();
-        for input in self.session.inputs() {
-            match input.name() {
-                "input_ids" => {
-                    inputs.push((
-                        "input_ids".to_string(),
-                        input_ids_opt
-                            .take()
-                            .ok_or_else(|| PyRuntimeError::new_err("input_ids already consumed"))?,
-                    ));
-                }
-                "attention_mask" => {
-                    inputs.push((
-                        "attention_mask".to_string(),
-                        attention_opt.take().ok_or_else(|| {
-                            PyRuntimeError::new_err("attention_mask already consumed")
-                        })?,
-                    ));
-                }
-                "token_type_ids" => {
-                    inputs.push((
-                        "token_type_ids".to_string(),
-                        token_type_opt.take().ok_or_else(|| {
-                            PyRuntimeError::new_err("token_type_ids already consumed")
-                        })?,
-                    ));
-                }
-                other => {
-                    return Err(PyRuntimeError::new_err(format!(
-                        "unsupported model input: {other}"
-                    )));
-                }
+        let raw_batches = self
+            .model
+            .transform(texts, None)
+            .map_err(map_fastembed_err)?
+            .into_raw();
+        let pooling = self.pooling.clone();
+        let output_key = self.output_key.clone();
+        let default_precedence = [
+            OutputKey::OnlyOne,
+            OutputKey::ByName("text_embeds"),
+            OutputKey::ByName("last_hidden_state"),
+            OutputKey::ByName("sentence_embedding"),
+        ];
+        let mut embeddings: Vec<Vec<f32>> = Vec::new();
+        for batch in &raw_batches {
+            let pooled = if let Some(key) = output_key.as_ref() {
+                batch
+                    .select_and_pool_output(&key, pooling.clone())
+                    .map_err(map_fastembed_err)?
+            } else {
+                batch
+                    .select_and_pool_output(&&default_precedence[..], pooling.clone())
+                    .map_err(map_fastembed_err)?
+            };
+            for row in pooled.rows() {
+                embeddings.push(row.to_vec());
             }
         }
-
-        if input_ids_opt.is_some() {
-            return Err(PyRuntimeError::new_err(
-                "model inputs did not include required input_ids",
-            ));
-        }
-
-        let outputs = self
-            .session
-            .run(inputs)
-            .map_err(|e| PyRuntimeError::new_err(format!("onnx inference failed: {e}")))?;
-
-        let output = if outputs.contains_key("sentence_embedding") {
-            outputs.get("sentence_embedding").unwrap()
-        } else if outputs.contains_key("embeddings") {
-            outputs.get("embeddings").unwrap()
-        } else if outputs.contains_key("pooler_output") {
-            outputs.get("pooler_output").unwrap()
-        } else if outputs.contains_key("last_hidden_state") {
-            outputs.get("last_hidden_state").unwrap()
-        } else {
-            &outputs[0]
-        };
-
-        let (shape, data) = output.try_extract_tensor::<f32>().map_err(map_ort_error)?;
-        let dims: &[i64] = shape;
-
-        let mut embeddings: Vec<Vec<f32>> = Vec::with_capacity(batch);
-        match dims.len() {
-            2 => {
-                let hidden = dims[1] as usize;
-                if data.len() < batch * hidden {
-                    return Err(PyRuntimeError::new_err("unexpected output shape"));
-                }
-                for i in 0..batch {
-                    let start = i * hidden;
-                    let end = start + hidden;
-                    let mut vec = data[start..end].to_vec();
-                    if normalize {
-                        l2_normalize(&mut vec);
-                    }
-                    embeddings.push(vec);
-                }
-            }
-            3 => {
-                let seq = dims[1] as usize;
-                let hidden = dims[2] as usize;
-                let stride = seq * hidden;
-                if data.len() < batch * stride {
-                    return Err(PyRuntimeError::new_err("unexpected output shape"));
-                }
-                for i in 0..batch {
-                    let base = i * stride;
-                    let start = base;
-                    let end = start + hidden;
-                    let mut vec = data[start..end].to_vec();
-                    if normalize {
-                        l2_normalize(&mut vec);
-                    }
-                    embeddings.push(vec);
-                }
-            }
-            _ => {
-                return Err(PyRuntimeError::new_err(format!(
-                    "unsupported output rank: {}",
-                    dims.len()
-                )));
-            }
-        }
-
         Ok(embeddings)
     }
 }
@@ -452,89 +314,6 @@ fn get_embedder(model_id: &str, max_tokens: usize) -> PyResult<Arc<Mutex<Embedde
     Ok(Arc::clone(embedder))
 }
 
-fn resolve_embedding_paths(model_id: &str) -> PyResult<(PathBuf, PathBuf)> {
-    let onnx_override = std::env::var("AGENT_BUS_EMBEDDING_ONNX_PATH").ok();
-    let tokenizer_override = std::env::var("AGENT_BUS_EMBEDDING_TOKENIZER_PATH").ok();
-
-    let tokenizer_path = if let Some(path) = tokenizer_override {
-        let raw = expand_home(&path).unwrap_or(path);
-        let resolved = PathBuf::from(raw);
-        if !resolved.exists() {
-            return Err(PyRuntimeError::new_err(format!(
-                "tokenizer path not found: {}",
-                resolved.display()
-            )));
-        }
-        Some(resolved)
-    } else {
-        None
-    };
-
-    if let Some(path) = onnx_override {
-        let raw = expand_home(&path).unwrap_or(path);
-        let resolved = PathBuf::from(raw);
-        if !resolved.exists() {
-            return Err(PyRuntimeError::new_err(format!(
-                "ONNX model path not found: {}",
-                resolved.display()
-            )));
-        }
-
-        let tok_path = if let Some(tok) = tokenizer_path {
-            tok
-        } else {
-            let candidate = resolved
-                .parent()
-                .map(|p| p.join(DEFAULT_TOKENIZER_FILE))
-                .filter(|p| p.exists());
-            if let Some(p) = candidate {
-                p
-            } else {
-                return Err(PyRuntimeError::new_err(
-                    "tokenizer path not found; set AGENT_BUS_EMBEDDING_TOKENIZER_PATH",
-                ));
-            }
-        };
-
-        return Ok((resolved, tok_path));
-    }
-
-    let api =
-        Api::new().map_err(|e| PyRuntimeError::new_err(format!("failed to init hf-hub: {e}")))?;
-    let repo = api.model(model_id.to_string());
-
-    let tokenizer_file = std::env::var("AGENT_BUS_EMBEDDING_TOKENIZER_FILE")
-        .ok()
-        .unwrap_or_else(|| DEFAULT_TOKENIZER_FILE.to_string());
-    let tokenizer_path = repo.get(&tokenizer_file).map_err(|e| {
-        PyRuntimeError::new_err(format!(
-            "failed to download tokenizer {tokenizer_file} from {model_id}: {e}"
-        ))
-    })?;
-
-    let mut candidates = Vec::new();
-    if let Ok(file) = std::env::var("AGENT_BUS_EMBEDDING_ONNX_FILE") {
-        candidates.push(file);
-    }
-    candidates.push(DEFAULT_ONNX_FILE.to_string());
-    candidates.push(FALLBACK_ONNX_FILE.to_string());
-
-    let mut last_err = None;
-    for file in candidates {
-        match repo.get(&file) {
-            Ok(path) => return Ok((path, tokenizer_path.clone())),
-            Err(e) => last_err = Some((file, e)),
-        }
-    }
-
-    if let Some((file, err)) = last_err {
-        return Err(PyRuntimeError::new_err(format!(
-            "failed to download ONNX model {file} from {model_id}: {err}"
-        )));
-    }
-    Err(PyRuntimeError::new_err("failed to resolve ONNX model"))
-}
-
 fn default_max_tokens() -> usize {
     std::env::var("AGENT_BUS_EMBEDDING_MAX_TOKENS")
         .ok()
@@ -543,17 +322,59 @@ fn default_max_tokens() -> usize {
         .unwrap_or(DEFAULT_MAX_TOKENS)
 }
 
-fn l2_normalize(vec: &mut [f32]) {
-    let norm = vec.iter().map(|v| v * v).sum::<f32>().sqrt();
-    if norm > 0.0 {
-        for v in vec {
-            *v /= norm;
+fn resolve_embedding_model(model_id: &str) -> PyResult<EmbeddingModel> {
+    let id = model_id.trim().to_ascii_lowercase();
+    match id.as_str() {
+        "sentence-transformers/all-minilm-l6-v2"
+        | "all-minilm-l6-v2"
+        | "allminilm-l6-v2"
+        | "minilm-l6-v2"
+        | "qdrant/all-minilm-l6-v2-onnx" => Ok(EmbeddingModel::AllMiniLML6V2),
+        "all-minilm-l6-v2-q"
+        | "all-minilm-l6-v2-quantized"
+        | "xenova/all-minilm-l6-v2" => Ok(EmbeddingModel::AllMiniLML6V2Q),
+        "sentence-transformers/all-mpnet-base-v2"
+        | "all-mpnet-base-v2"
+        | "allmpnet-base-v2"
+        | "mpnet-base-v2"
+        | "xenova/all-mpnet-base-v2" => Ok(EmbeddingModel::AllMpnetBaseV2),
+        "baai/bge-small-en-v1.5"
+        | "bge-small-en-v1.5"
+        | "xenova/bge-small-en-v1.5" => Ok(EmbeddingModel::BGESmallENV15),
+        "intfloat/multilingual-e5-small" | "multilingual-e5-small" => {
+            Ok(EmbeddingModel::MultilingualE5Small)
         }
+        _ => Err(PyValueError::new_err(format!(
+            "unsupported embedding model: {model_id}; supported: sentence-transformers/all-MiniLM-L6-v2, sentence-transformers/all-mpnet-base-v2, BAAI/bge-small-en-v1.5, intfloat/multilingual-e5-small"
+        ))),
     }
 }
 
-fn map_ort_error(err: ort::Error) -> PyErr {
-    PyRuntimeError::new_err(format!("onnx runtime error: {err}"))
+fn embedding_cache_dir() -> Option<PathBuf> {
+    if let Some(path) = non_empty_env_path(EMBEDDING_CACHE_DIR_ENV) {
+        return Some(path);
+    }
+    if let Some(path) = non_empty_env_path(FASTEMBED_CACHE_DIR_ENV) {
+        return Some(path);
+    }
+    if let Some(path) = non_empty_env_path(XDG_CACHE_HOME_ENV) {
+        return Some(path.join("fastembed"));
+    }
+    non_empty_env_path(HOME_ENV).map(|home| home.join(".cache").join("fastembed"))
+}
+
+fn non_empty_env_path(key: &str) -> Option<PathBuf> {
+    let raw = env::var(key).ok()?;
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(PathBuf::from(trimmed))
+    }
+}
+
+fn map_fastembed_err(err: impl std::fmt::Display) -> PyErr {
+    PyRuntimeError::new_err(format!("embedding error: {err}"))
 }
 
 #[pyfunction]
@@ -1114,6 +935,62 @@ impl CoreDb {
             out.append(dict)?;
         }
         Ok(out.into())
+    }
+
+    fn claim_embedding_leader(&self, worker_id: String, ttl_seconds: i64) -> PyResult<bool> {
+        if ttl_seconds <= 0 {
+            return Err(PyValueError::new_err("ttl_seconds must be > 0"));
+        }
+
+        let conn = self.connect()?;
+        conn.execute_batch("BEGIN IMMEDIATE")
+            .map_err(map_db_error)?;
+
+        conn.execute(
+            "
+            INSERT OR IGNORE INTO embedding_worker_leader(id, leader_id, heartbeat_at, expires_at)
+            VALUES (1, '', 0, 0)
+            ",
+            [],
+        )
+        .map_err(map_db_error)?;
+
+        let now_ts = now();
+        let expires_at = now_ts + ttl_seconds as f64;
+        let updated = conn
+            .execute(
+                "
+                UPDATE embedding_worker_leader
+                SET leader_id = ?, heartbeat_at = ?, expires_at = ?
+                WHERE id = 1 AND (leader_id = ? OR expires_at <= ?)
+                ",
+                params![worker_id, now_ts, expires_at, worker_id, now_ts],
+            )
+            .map_err(map_db_error)?;
+
+        conn.execute_batch("COMMIT").map_err(map_db_error)?;
+        Ok(updated == 1)
+    }
+
+    fn release_embedding_leader(&self, worker_id: String) -> PyResult<bool> {
+        let conn = self.connect()?;
+        conn.execute_batch("BEGIN IMMEDIATE")
+            .map_err(map_db_error)?;
+
+        let now_ts = now();
+        let updated = conn
+            .execute(
+                "
+                UPDATE embedding_worker_leader
+                SET leader_id = '', heartbeat_at = ?, expires_at = ?
+                WHERE id = 1 AND leader_id = ?
+                ",
+                params![now_ts, now_ts, worker_id],
+            )
+            .map_err(map_db_error)?;
+
+        conn.execute_batch("COMMIT").map_err(map_db_error)?;
+        Ok(updated == 1)
     }
 
     fn complete_embedding_job(&self, message_id: String, model: String) -> PyResult<()> {
@@ -2645,6 +2522,13 @@ impl CoreDb {
 
             CREATE INDEX IF NOT EXISTS idx_embedding_jobs_status_model_updated
               ON embedding_jobs(status, model, updated_at);
+
+            CREATE TABLE IF NOT EXISTS embedding_worker_leader (
+              id INTEGER PRIMARY KEY CHECK (id = 1),
+              leader_id TEXT NOT NULL,
+              heartbeat_at REAL NOT NULL,
+              expires_at REAL NOT NULL
+            );
 
             DROP TRIGGER IF EXISTS messages_embeddings_ad;
             DROP TRIGGER IF EXISTS messages_embeddings_au;

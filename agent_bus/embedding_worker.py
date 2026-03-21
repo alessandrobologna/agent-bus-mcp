@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import threading
+import time
 import uuid
+from collections.abc import Callable
 from contextlib import suppress
 from typing import Any
 
@@ -32,6 +34,147 @@ def autoindex_enabled() -> bool:
     return env_int("AGENT_BUS_EMBEDDINGS_AUTOINDEX", default=1, min_value=0) != 0
 
 
+def leader_ttl_seconds() -> int:
+    return env_int("AGENT_BUS_EMBEDDINGS_LEADER_TTL_SECONDS", default=30, min_value=1)
+
+
+def leader_heartbeat_seconds() -> int:
+    return env_int("AGENT_BUS_EMBEDDINGS_LEADER_HEARTBEAT_SECONDS", default=10, min_value=1)
+
+
+EmbedFn = Callable[[list[str], str], list[list[float]]]
+ProgressFn = Callable[[int, int, int, int, int], None]
+HeartbeatFn = Callable[[], None]
+EMBEDDING_BACKEND_SIGNATURE = "fastembed-v1"
+
+
+def embedding_content_hash(content: str) -> str:
+    return sha256_hex(f"{EMBEDDING_BACKEND_SIGNATURE}\0{content}")
+
+
+def _index_message(
+    *,
+    db: AgentBusDB,
+    embed_fn: EmbedFn,
+    message_id: str,
+    topic_id: str,
+    content: str,
+    model: str,
+    chunk_size: int,
+    chunk_overlap: int,
+) -> str:
+    import numpy as np
+
+    content_hash = embedding_content_hash(content)
+    state = db.get_embedding_state(message_id=message_id, model=model)
+    if (
+        state is not None
+        and state["content_hash"] == content_hash
+        and int(state["chunk_size"]) == chunk_size
+        and int(state["chunk_overlap"]) == chunk_overlap
+    ):
+        return "skipped"
+
+    chunks = chunk_text(content, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+    if not chunks:
+        return "skipped"
+
+    texts = [c.text for c in chunks]
+    embs = embed_fn(texts, model)
+    arr = np.asarray(embs, dtype=np.float32)
+    dims = int(arr.shape[1])
+
+    payload: list[dict[str, Any]] = []
+    for c, vec in zip(chunks, arr, strict=True):
+        payload.append(
+            {
+                "chunk_index": c.chunk_index,
+                "start_char": c.start_char,
+                "end_char": c.end_char,
+                "text_hash": sha256_hex(c.text),
+                "vector": vec.tobytes(),
+            }
+        )
+
+    db.upsert_embeddings(
+        message_id=message_id,
+        model=model,
+        topic_id=topic_id,
+        content_hash=content_hash,
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+        dims=dims,
+        chunks=payload,
+    )
+    return "indexed"
+
+
+def index_message_rows(
+    *,
+    db: AgentBusDB,
+    rows: list[dict[str, Any]],
+    model: str,
+    chunk_size: int,
+    chunk_overlap: int,
+    embed_fn: EmbedFn | None = None,
+    progress: ProgressFn | None = None,
+    progress_every: int = 10,
+    heartbeat: HeartbeatFn | None = None,
+    heartbeat_every_seconds: float = 10.0,
+) -> dict[str, int]:
+    from agent_bus import _core  # ty: ignore[unresolved-import]
+
+    if embed_fn is None:
+
+        def embed_fn(texts: list[str], selected_model: str) -> list[list[float]]:
+            return _core.embed_texts(texts, model=selected_model)
+
+    indexed = 0
+    skipped = 0
+    errors = 0
+    processed = 0
+    total = len(rows)
+    last_heartbeat = time.monotonic()
+
+    if progress is not None:
+        progress(0, total, indexed, skipped, errors)
+
+    for row in rows:
+        if heartbeat is not None and (time.monotonic() - last_heartbeat) >= heartbeat_every_seconds:
+            heartbeat()
+            last_heartbeat = time.monotonic()
+
+        result = _index_message(
+            db=db,
+            embed_fn=embed_fn,
+            message_id=str(row["message_id"]),
+            topic_id=str(row["topic_id"]),
+            content=str(row["content_markdown"]),
+            model=model,
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+        )
+        if result == "indexed":
+            indexed += 1
+        else:
+            skipped += 1
+
+        processed += 1
+        if progress is not None and (
+            processed == total or (progress_every > 0 and processed % progress_every == 0)
+        ):
+            progress(processed, total, indexed, skipped, errors)
+
+    if heartbeat is not None and total > 0:
+        heartbeat()
+    return {
+        "processed": processed,
+        "indexed": indexed,
+        "skipped": skipped,
+        "errors": errors,
+    }
+
+
 def _worker_loop(
     *,
     db: AgentBusDB,
@@ -44,106 +187,106 @@ def _worker_loop(
     error_retry_seconds: int,
     max_attempts: int,
     poll_seconds: float,
+    leader_ttl_seconds: int,
+    leader_heartbeat_seconds: int,
     stop_event: threading.Event,
 ) -> None:
-    import numpy as np
-
     from agent_bus import _core  # ty: ignore[unresolved-import]
 
-    while not stop_event.is_set():
-        try:
-            jobs = db.claim_embedding_jobs(
-                model=model,
-                limit=batch_size,
-                worker_id=worker_id,
-                lock_ttl_seconds=lock_ttl_seconds,
-                error_retry_seconds=error_retry_seconds,
-                max_attempts=max_attempts,
-            )
-        except (SchemaMismatchError, ValueError):
-            return
-        except DBBusyError:
-            stop_event.wait(poll_seconds)
-            continue
-        except Exception:  # pragma: no cover
-            stop_event.wait(poll_seconds)
-            continue
+    def embed_fn(texts: list[str], selected_model: str) -> list[list[float]]:
+        return _core.embed_texts(texts, model=selected_model)
 
-        if not jobs:
-            stop_event.wait(poll_seconds)
-            continue
+    next_heartbeat_at = 0.0
+    has_leader = False
 
-        for job in jobs:
-            if stop_event.is_set():
-                return
-            message_id = str(job["message_id"])
-            topic_id = str(job["topic_id"])
+    def _heartbeat() -> bool:
+        nonlocal next_heartbeat_at, has_leader
+        claimed = db.claim_embedding_leader(worker_id=worker_id, ttl_seconds=leader_ttl_seconds)
+        has_leader = claimed
+        if claimed:
+            next_heartbeat_at = time.monotonic() + leader_heartbeat_seconds
+        return claimed
 
+    try:
+        while not stop_event.is_set():
             try:
-                msg = db.get_message_by_id(message_id=message_id)
-            except (ValueError, DBBusyError):
-                # Message removed or DB temporarily unavailable; drop the job and move on.
-                with suppress(DBBusyError):
-                    db.complete_embedding_job(message_id=message_id, model=model)
-                continue
-
-            content = msg.content_markdown
-            content_hash = sha256_hex(content)
-
-            try:
-                state = db.get_embedding_state(message_id=message_id, model=model)
-                if (
-                    state is not None
-                    and state["content_hash"] == content_hash
-                    and int(state["chunk_size"]) == chunk_size
-                    and int(state["chunk_overlap"]) == chunk_overlap
-                ):
-                    db.complete_embedding_job(message_id=message_id, model=model)
+                if not has_leader:
+                    if not _heartbeat():
+                        stop_event.wait(poll_seconds)
+                        continue
+                elif time.monotonic() >= next_heartbeat_at and not _heartbeat():
+                    stop_event.wait(poll_seconds)
                     continue
 
-                chunks = chunk_text(content, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
-                if not chunks:
-                    db.complete_embedding_job(message_id=message_id, model=model)
-                    continue
-
-                texts = [c.text for c in chunks]
-                embs = _core.embed_texts(texts, model=model)
-                arr = np.asarray(embs, dtype=np.float32)
-                dims = int(arr.shape[1])
-
-                payload: list[dict[str, Any]] = []
-                for c, vec in zip(chunks, arr, strict=True):
-                    payload.append(
-                        {
-                            "chunk_index": c.chunk_index,
-                            "start_char": c.start_char,
-                            "end_char": c.end_char,
-                            "text_hash": sha256_hex(c.text),
-                            "vector": vec.tobytes(),
-                        }
-                    )
-
-                db.upsert_embeddings(
-                    message_id=message_id,
+                jobs = db.claim_embedding_jobs(
                     model=model,
-                    topic_id=topic_id,
-                    content_hash=content_hash,
-                    chunk_size=chunk_size,
-                    chunk_overlap=chunk_overlap,
-                    dims=dims,
-                    chunks=payload,
+                    limit=batch_size,
+                    worker_id=worker_id,
+                    lock_ttl_seconds=lock_ttl_seconds,
+                    error_retry_seconds=error_retry_seconds,
+                    max_attempts=max_attempts,
                 )
-                db.complete_embedding_job(message_id=message_id, model=model)
+            except (SchemaMismatchError, ValueError):
+                return
             except DBBusyError:
-                # Leave the job claimed; it can be reclaimed after TTL if needed.
                 stop_event.wait(poll_seconds)
                 continue
-            except Exception as e:  # pragma: no cover
-                with suppress(DBBusyError):
-                    db.fail_embedding_job(message_id=message_id, model=model, error=str(e))
+            except Exception:  # pragma: no cover
+                stop_event.wait(poll_seconds)
+                continue
 
-        # Avoid a tight loop when there is always work (and allow other DB users to make progress).
-        stop_event.wait(0.01)
+            if not jobs:
+                if has_leader:
+                    with suppress(Exception):
+                        db.release_embedding_leader(worker_id=worker_id)
+                    has_leader = False
+                    next_heartbeat_at = 0.0
+                stop_event.wait(poll_seconds)
+                continue
+
+            for job in jobs:
+                if stop_event.is_set():
+                    return
+                if time.monotonic() >= next_heartbeat_at and not _heartbeat():
+                    stop_event.wait(poll_seconds)
+                    break
+
+                message_id = str(job["message_id"])
+                topic_id = str(job["topic_id"])
+
+                try:
+                    msg = db.get_message_by_id(message_id=message_id)
+                except (ValueError, DBBusyError):
+                    # Message removed or DB temporarily unavailable; drop the job and move on.
+                    with suppress(DBBusyError):
+                        db.complete_embedding_job(message_id=message_id, model=model)
+                    continue
+
+                try:
+                    _index_message(
+                        db=db,
+                        embed_fn=embed_fn,
+                        message_id=message_id,
+                        topic_id=topic_id,
+                        content=msg.content_markdown,
+                        model=model,
+                        chunk_size=chunk_size,
+                        chunk_overlap=chunk_overlap,
+                    )
+                    db.complete_embedding_job(message_id=message_id, model=model)
+                except DBBusyError:
+                    # Leave the job claimed; it can be reclaimed after TTL if needed.
+                    stop_event.wait(poll_seconds)
+                    continue
+                except Exception as e:  # pragma: no cover
+                    with suppress(DBBusyError):
+                        db.fail_embedding_job(message_id=message_id, model=model, error=str(e))
+
+            # Avoid a tight loop when there is always work (and allow other DB users to make progress).
+            stop_event.wait(0.01)
+    finally:
+        with suppress(Exception):
+            db.release_embedding_leader(worker_id=worker_id)
 
 
 _worker_lock = threading.Lock()
@@ -170,6 +313,10 @@ def start_background_embedding_worker(db: AgentBusDB) -> None:
         lock_ttl_seconds = env_int(
             "AGENT_BUS_EMBEDDINGS_LOCK_TTL_SECONDS", default=300, min_value=1
         )
+        leader_ttl = leader_ttl_seconds()
+        heartbeat_seconds = leader_heartbeat_seconds()
+        if heartbeat_seconds >= leader_ttl:
+            heartbeat_seconds = max(1, leader_ttl // 2)
         error_retry_seconds = env_int(
             "AGENT_BUS_EMBEDDINGS_ERROR_RETRY_SECONDS", default=30, min_value=0
         )
@@ -193,6 +340,8 @@ def start_background_embedding_worker(db: AgentBusDB) -> None:
                 "error_retry_seconds": error_retry_seconds,
                 "max_attempts": max_attempts,
                 "poll_seconds": poll_seconds,
+                "leader_ttl_seconds": leader_ttl,
+                "leader_heartbeat_seconds": heartbeat_seconds,
                 "stop_event": stop_event,
             },
             name="agent-bus-embeddings-worker",

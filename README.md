@@ -48,7 +48,7 @@ single-sourced and makes it reusable from other Rust apps (e.g., Tauri) without 
 - Python 3.12+
 - `uv` (recommended)
 - Rust toolchain + C toolchain (only required when building from source)
-- Embeddings use `ort` 2.0.0-rc.11 (recommended by upstream; API not yet stable)
+- Embeddings use `fastembed` (Rust) on top of ONNX Runtime
 
 ## Quickstart (recommended)
 
@@ -208,8 +208,8 @@ Note: `topics rename` rewrites message content by default by replacing occurrenc
 
 ## Search (CLI + Web UI)
 
-Lexical search works out of the box (SQLite FTS5). Hybrid/semantic search uses local embeddings via ONNX Runtime
-(`ort` in Rust).
+Lexical search works out of the box (SQLite FTS5). Hybrid/semantic search uses local embeddings via
+`fastembed` in the Rust core.
 
 ```bash
 agent-bus cli search "cursor reset"                 # hybrid (default)
@@ -227,10 +227,13 @@ uv sync
 uv run agent-bus cli embeddings index
 ```
 
+If you are upgrading from the older raw ONNX/tokenizer backend, run the indexing command once after
+upgrading so existing semantic data is refreshed under the new `fastembed` backend.
+
 The MCP server can also enqueue and index embeddings for newly-sent messages in the background (best-effort).
 Disable with `AGENT_BUS_EMBEDDINGS_AUTOINDEX=0`.
 
-First-time semantic usage will download the ONNX model + tokenizer from Hugging Face (see env overrides below).
+First-time semantic usage will download the selected embedding model through `fastembed`.
 
 In the Web UI, open a topic and use the search button in the header.
 
@@ -246,19 +249,19 @@ In the Web UI, open a topic and use the search button in the header.
 - `AGENT_BUS_POLL_MAX_MS` (default: 1000)
 - `AGENT_BUS_EMBEDDINGS_AUTOINDEX` (default: 1): enqueue + index embeddings for new messages (best-effort)
 - `AGENT_BUS_EMBEDDING_MODEL` (default: `BAAI/bge-small-en-v1.5`)
+  - Supported aliases include `sentence-transformers/all-MiniLM-L6-v2`, `sentence-transformers/all-mpnet-base-v2`, `BAAI/bge-small-en-v1.5`, and `intfloat/multilingual-e5-small`
 - `AGENT_BUS_EMBEDDING_MAX_TOKENS` (default: 512, max: 8192)
 - `AGENT_BUS_EMBEDDING_CHUNK_SIZE` (default: 1200)
 - `AGENT_BUS_EMBEDDING_CHUNK_OVERLAP` (default: 200)
-- `AGENT_BUS_EMBEDDING_ONNX_FILE` (default: `onnx/model.onnx`): HF filename override
-- `AGENT_BUS_EMBEDDING_TOKENIZER_FILE` (default: `tokenizer.json`): HF filename override
-- `AGENT_BUS_EMBEDDING_ONNX_PATH`: local ONNX path override
-- `AGENT_BUS_EMBEDDING_TOKENIZER_PATH`: local tokenizer path override
-  - `~` in paths is expanded by the Rust core
+- `AGENT_BUS_EMBEDDING_CACHE_DIR`: override the local `fastembed` cache directory
+- `FASTEMBED_CACHE_DIR`: standard `fastembed` cache override if the bus-specific variable is unset
 - `AGENT_BUS_EMBEDDINGS_WORKER_BATCH_SIZE` (default: 5)
 - `AGENT_BUS_EMBEDDINGS_POLL_MS` (default: 250)
 - `AGENT_BUS_EMBEDDINGS_LOCK_TTL_SECONDS` (default: 300)
 - `AGENT_BUS_EMBEDDINGS_ERROR_RETRY_SECONDS` (default: 30)
 - `AGENT_BUS_EMBEDDINGS_MAX_ATTEMPTS` (default: 5)
+- `AGENT_BUS_EMBEDDINGS_LEADER_TTL_SECONDS` (default: 30): SQLite-backed lease for the active embedding worker
+- `AGENT_BUS_EMBEDDINGS_LEADER_HEARTBEAT_SECONDS` (default: 10): how often the active worker renews its lease
 
 ## Development
 
