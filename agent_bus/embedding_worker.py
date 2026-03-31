@@ -43,7 +43,7 @@ def leader_heartbeat_seconds() -> int:
 
 
 EmbedFn = Callable[[list[str], str], list[list[float]]]
-ProgressFn = Callable[[int, int, int, int, int], None]
+ProgressFn = Callable[[int, int, int, int], None]
 HeartbeatFn = Callable[[], None]
 EMBEDDING_BACKEND_SIGNATURE = "fastembed-v1"
 
@@ -131,13 +131,12 @@ def index_message_rows(
 
     indexed = 0
     skipped = 0
-    errors = 0
     processed = 0
     total = len(rows)
     last_heartbeat = time.monotonic()
 
     if progress is not None:
-        progress(0, total, indexed, skipped, errors)
+        progress(0, total, indexed, skipped)
 
     for row in rows:
         if heartbeat is not None and (time.monotonic() - last_heartbeat) >= heartbeat_every_seconds:
@@ -163,7 +162,7 @@ def index_message_rows(
         if progress is not None and (
             processed == total or (progress_every > 0 and processed % progress_every == 0)
         ):
-            progress(processed, total, indexed, skipped, errors)
+            progress(processed, total, indexed, skipped)
 
     if heartbeat is not None and total > 0:
         heartbeat()
@@ -171,7 +170,6 @@ def index_message_rows(
         "processed": processed,
         "indexed": indexed,
         "skipped": skipped,
-        "errors": errors,
     }
 
 

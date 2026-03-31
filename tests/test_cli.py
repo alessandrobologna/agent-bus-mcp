@@ -136,7 +136,7 @@ def test_cli_embeddings_index_fails_when_leader_lock_held(tmp_path: Path, monkey
     monkeypatch.setattr(
         embedding_worker,
         "index_message_rows",
-        lambda **_: {"processed": 1, "indexed": 1, "skipped": 0, "errors": 0},
+        lambda **_: {"processed": 1, "indexed": 1, "skipped": 0},
     )
 
     runner = CliRunner()
@@ -170,6 +170,37 @@ def test_cli_embeddings_index_fails_when_indexing_raises(tmp_path: Path, monkeyp
     res = runner.invoke(cli, ["--db-path", db_path, "embeddings", "index"])
     assert res.exit_code != 0
     assert "Embedding indexing failed: boom" in res.output
+
+
+def test_cli_embeddings_index_reports_summary_without_errors_counter(
+    tmp_path: Path, monkeypatch
+) -> None:
+    db_path = str(tmp_path / "bus.sqlite")
+    db = AgentBusDB(path=db_path)
+    topic = db.topic_create(name="pink", metadata=None, mode="new")
+    db.sync_once(
+        topic_id=topic.topic_id,
+        agent_name="a",
+        outbox=[{"content_markdown": "hello world", "message_type": "message"}],
+        max_items=10,
+        include_self=True,
+        auto_advance=True,
+        ack_through=None,
+    )
+
+    import agent_bus.embedding_worker as embedding_worker
+
+    monkeypatch.setattr(
+        embedding_worker,
+        "index_message_rows",
+        lambda **_: {"processed": 1, "indexed": 1, "skipped": 0},
+    )
+
+    runner = CliRunner()
+    res = runner.invoke(cli, ["--db-path", db_path, "embeddings", "index"])
+    assert res.exit_code == 0, res.output
+    assert "Indexed 1 message(s); skipped 0." in res.output
+    assert "errors" not in res.output
 
 
 def test_cli_topics_watch_shows_recent_messages(tmp_path: Path) -> None:

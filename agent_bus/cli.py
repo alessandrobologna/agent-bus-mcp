@@ -747,9 +747,9 @@ def embeddings_index(
             raise click.ClickException("Lost embedding leader lock during indexing.")
         last_heartbeat = time.monotonic()
 
-    def _progress(processed: int, total: int, indexed: int, skipped_rows: int, errors: int) -> None:
+    def _progress(processed: int, total: int, indexed: int, skipped_rows: int) -> None:
         click.echo(
-            f"Processed {processed}/{total} rows (indexed={indexed}, skipped={skipped_rows}, errors={errors})…",
+            f"Processed {processed}/{total} rows (indexed={indexed}, skipped={skipped_rows})…",
             err=True,
         )
 
@@ -774,6 +774,6 @@ def embeddings_index(
         db.release_embedding_leader(worker_id=leader_id)
 
     click.echo(
-        f"Indexed {stats['indexed']} message(s); skipped {stats['skipped']}; errors {stats['errors']}.",
+        f"Indexed {stats['indexed']} message(s); skipped {stats['skipped']}.",
         err=True,
     )
