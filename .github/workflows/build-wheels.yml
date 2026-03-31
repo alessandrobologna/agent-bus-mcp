@@ -6,73 +6,42 @@ on:
       upload_artifacts:
         type: boolean
         default: true
-      render_pypi_readme:
+      use_pypi_readme:
         type: boolean
         default: false
-      upload_pypi_assets:
-        type: boolean
-        default: false
-      pypi_assets_mode:
+      pypi_readme_artifact_name:
         type: string
-        default: release
-      pypi_assets_tag:
-        type: string
-        default: pypi-assets
-      mermaid_cli_package:
-        type: string
-        default: "@mermaid-js/mermaid-cli@11.12.0"
+        default: pypi-readme
   workflow_dispatch:
     inputs:
       upload_artifacts:
         type: boolean
         default: true
-      render_pypi_readme:
+      use_pypi_readme:
         type: boolean
         default: false
-      upload_pypi_assets:
-        type: boolean
-        default: false
-      pypi_assets_mode:
+      pypi_readme_artifact_name:
         type: string
-        default: release
-      pypi_assets_tag:
-        type: string
-        default: pypi-assets
-      mermaid_cli_package:
-        type: string
-        default: "@mermaid-js/mermaid-cli@11.12.0"
+        default: pypi-readme
 
 env:
   ORT_VERSION: "1.23.2"
 
 jobs:
-  pypi-readme:
-    uses: ./.github/workflows/render-pypi-readme.yml
-    permissions:
-      contents: write
-    with:
-      enabled: ${{ inputs.render_pypi_readme }}
-      mmdc_package: ${{ inputs.mermaid_cli_package }}
-      assets_mode: ${{ inputs.pypi_assets_mode }}
-      release_tag: ${{ inputs.pypi_assets_tag }}
-      upload_release_assets: ${{ inputs.upload_pypi_assets }}
-      artifact_name: pypi-readme
-
   sdist:
-    needs: pypi-readme
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - name: Download PyPI README artifacts
-        if: inputs.render_pypi_readme
+        if: inputs.use_pypi_readme
         uses: actions/download-artifact@v4
         with:
-          name: pypi-readme
+          name: ${{ inputs.pypi_readme_artifact_name }}
           path: .
 
       - name: Use PyPI README for package metadata
-        if: inputs.render_pypi_readme
+        if: inputs.use_pypi_readme
         shell: bash
         run: |
           python - <<'PY'
@@ -121,7 +90,6 @@ jobs:
           if-no-files-found: error
 
   wheels:
-    needs: pypi-readme
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -134,14 +102,14 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Download PyPI README artifacts
-        if: inputs.render_pypi_readme
+        if: inputs.use_pypi_readme
         uses: actions/download-artifact@v4
         with:
-          name: pypi-readme
+          name: ${{ inputs.pypi_readme_artifact_name }}
           path: .
 
       - name: Use PyPI README for package metadata
-        if: inputs.render_pypi_readme
+        if: inputs.use_pypi_readme
         shell: bash
         run: |
           python - <<'PY'
