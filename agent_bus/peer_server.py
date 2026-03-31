@@ -60,17 +60,6 @@ mcp = FastMCP(
 _joined_agent_names: dict[str, str] = {}
 
 
-def _patch_tool_input_schemas() -> None:
-    """Tighten exported JSON Schema where function signatures can't express it."""
-    topic_join_tool = mcp._tool_manager.get_tool("topic_join")
-    if topic_join_tool is not None:
-        params = topic_join_tool.parameters
-        params["oneOf"] = [{"required": ["topic_id"]}, {"required": ["name"]}]
-        params["description"] = (
-            "Join arguments. Provide agent_name plus exactly one of topic_id or name."
-        )
-
-
 def _normalize_agent_name(agent_name: str) -> str:
     return agent_name.strip()
 
@@ -878,6 +867,3 @@ def main() -> None:
 
     start_background_embedding_worker(db)
     mcp.run(transport="stdio")
-
-
-_patch_tool_input_schemas()
