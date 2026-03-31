@@ -31,7 +31,7 @@ jobs:
   sdist:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Download PyPI README artifacts
         if: inputs.use_pypi_readme
@@ -99,7 +99,7 @@ jobs:
           - macos-14
           - windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Download PyPI README artifacts
         if: inputs.use_pypi_readme
