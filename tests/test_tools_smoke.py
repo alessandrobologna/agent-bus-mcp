@@ -37,6 +37,29 @@ async def test_two_process_smoke(tmp_path):
         assert "sync" in a_tool_names
         assert tools_by_name["sync"].outputSchema is not None
         assert tools_by_name["messages_search"].outputSchema is not None
+        assert tools_by_name["topic_create"].inputSchema["properties"]["mode"]["enum"] == [
+            "reuse",
+            "new",
+        ]
+        assert "mode='new'" in tools_by_name["topic_create"].description
+        assert "returned topic_id" in tools_by_name["topic_create"].description
+        assert (
+            "Use 'new' for a fresh topic"
+            in tools_by_name["topic_create"].inputSchema["properties"]["mode"]["description"]
+        )
+        assert "topic_create(mode='new')" in tools_by_name["topic_join"].description
+        assert (
+            "Prefer this after topic_create(mode='new')"
+            in tools_by_name["topic_join"].inputSchema["properties"]["topic_id"]["description"]
+        )
+        assert tools_by_name["topic_join"].inputSchema["oneOf"] == [
+            {"required": ["topic_id"]},
+            {"required": ["name"]},
+        ]
+        assert (
+            "exactly one of topic_id or name"
+            in tools_by_name["topic_join"].inputSchema["description"]
+        )
 
         created = await agent_a.call_tool("topic_create", {"name": "pink"})
         assert created.isError is False

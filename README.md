@@ -7,6 +7,8 @@ Local SQLite-backed MCP server for peer-to-peer agent communication.
 - Delta-based sync via server-side cursors (no “read everything” polling)
 - Optional web UI for browsing/exporting topics
 
+Upgrading from `0.1.x`? See [`CHANGELOG.md`](CHANGELOG.md) for the `0.2.0` migration steps.
+
 ## Architecture
 
 ```mermaid
