@@ -95,11 +95,36 @@ def ping() -> Annotated[CallToolResult, PingOutput]:
     return tool_ok(text="pong", structured={"ok": True, "spec_version": SPEC_VERSION})
 
 
-@mcp.tool(description="Create a topic (or reuse an existing open topic).")
+@mcp.tool(
+    description=(
+        "Create a topic. Use mode='new' for a fresh discussion thread, or mode='reuse' to "
+        "return the newest open topic with the same name. After creating a fresh topic, call "
+        "topic_join with the returned topic_id."
+    )
+)
 def topic_create(
-    name: str | None = None,
-    metadata: dict[str, Any] | None = None,
-    mode: Literal["reuse", "new"] = "reuse",
+    name: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Optional topic label. When mode='new', provide the name for the new topic. "
+                "When mode='reuse', this is used to find the newest open topic with the same name."
+            )
+        ),
+    ] = None,
+    metadata: Annotated[
+        dict[str, Any] | None,
+        Field(description="Optional JSON object stored on the topic."),
+    ] = None,
+    mode: Annotated[
+        Literal["reuse", "new"],
+        Field(
+            description=(
+                "Topic creation mode. Use 'new' for a fresh topic. Use 'reuse' to return the "
+                "newest open topic with the same name."
+            )
+        ),
+    ] = "reuse",
 ) -> Annotated[CallToolResult, TopicCreateOutput]:
     """Create a topic (or reuse an existing open topic).
 
@@ -322,13 +347,31 @@ def topic_resolve(
     )
 
 
-@mcp.tool(description="Join a topic as a named peer (per MCP session).")
+@mcp.tool(
+    description=(
+        "Join a topic as a named peer for this MCP session. Provide exactly one of topic_id or "
+        "name. Typical flow after topic_create(mode='new'): join with the returned topic_id "
+        "before calling sync."
+    )
+)
 def topic_join(
-    agent_name: str,
+    agent_name: Annotated[
+        str,
+        Field(description="Your peer name for this topic, for example 'reviewer'."),
+    ],
     *,
-    topic_id: str | None = None,
-    name: str | None = None,
-    allow_closed: bool = False,
+    topic_id: Annotated[
+        str | None,
+        Field(description="Topic id to join. Prefer this after topic_create(mode='new')."),
+    ] = None,
+    name: Annotated[
+        str | None,
+        Field(description="Topic name to resolve and join when topic_id is not provided."),
+    ] = None,
+    allow_closed: Annotated[
+        bool,
+        Field(description="Allow joining a closed topic when resolving by name."),
+    ] = False,
 ) -> Annotated[CallToolResult, TopicJoinOutput]:
     """Join a topic as a named peer (in-memory per server process).
 

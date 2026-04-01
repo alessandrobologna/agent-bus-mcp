@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import time
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -656,7 +657,7 @@ def embeddings_group() -> None:
 
 
 @embeddings_group.command("index")
-@click.option("--model", default=None, help="Embedding model repo (HuggingFace).")
+@click.option("--model", default=None, help="Embedding model name.")
 @click.option("--topic-id", default=None, help="Restrict indexing to a topic_id.")
 @click.option("--chunk-size", type=int, default=None, help="Chunk size in characters.")
 @click.option("--chunk-overlap", type=int, default=None, help="Chunk overlap in characters.")
@@ -677,25 +678,22 @@ def embeddings_index(
 ) -> None:
     """Index message embeddings for semantic/hybrid search."""
     from agent_bus.common import env_str
+    from agent_bus.embedding_worker import (
+        embedding_content_hash,
+        index_message_rows,
+        leader_heartbeat_seconds,
+        leader_ttl_seconds,
+    )
     from agent_bus.search import (
         DEFAULT_CHUNK_OVERLAP,
         DEFAULT_CHUNK_SIZE,
         DEFAULT_EMBEDDING_MODEL,
-        chunk_text,
-        sha256_hex,
     )
 
     if limit <= 0:
         raise click.ClickException("limit must be > 0")
 
     db = _db(ctx)
-
-    try:
-        import numpy as np
-
-        from agent_bus import _core  # ty: ignore[unresolved-import]
-    except Exception as e:
-        raise click.ClickException(f"Embedding backend unavailable: {e}") from None
 
     model_name = model or env_str("AGENT_BUS_EMBEDDING_MODEL", default=DEFAULT_EMBEDDING_MODEL)
     csize = chunk_size if chunk_size is not None else DEFAULT_CHUNK_SIZE
@@ -714,7 +712,7 @@ def embeddings_index(
     for r in rows:
         mid = r["message_id"]
         content = r["content_markdown"]
-        content_hash = sha256_hex(content)
+        content_hash = embedding_content_hash(content)
         state = db.get_embedding_state(message_id=mid, model=model_name)
         if (
             state is not None
@@ -732,47 +730,50 @@ def embeddings_index(
     if dry_run:
         return
 
-    indexed = 0
-    for item in to_index:
-        mid = item["message_id"]
-        tid = item["topic_id"]
-        content = item["content_markdown"]
-        content_hash = item["content_hash"]
+    ttl_seconds = leader_ttl_seconds()
+    heartbeat_seconds = leader_heartbeat_seconds()
+    if heartbeat_seconds >= ttl_seconds:
+        heartbeat_seconds = max(1, ttl_seconds // 2)
 
-        chunks = chunk_text(content, chunk_size=csize, chunk_overlap=coverlap)
-        if not chunks:
-            continue
+    leader_id = f"cli-index-{uuid.uuid4().hex[:8]}"
+    if not db.claim_embedding_leader(worker_id=leader_id, ttl_seconds=ttl_seconds):
+        raise click.ClickException("Another embedding indexer is active (leader lock held).")
 
-        texts = [c.text for c in chunks]
-        embs = _core.embed_texts(texts, model=model_name)
-        arr = np.asarray(embs, dtype=np.float32)
-        dims = int(arr.shape[1])
+    last_heartbeat = time.monotonic()
 
-        payload: list[dict[str, Any]] = []
-        for c, vec in zip(chunks, arr, strict=True):
-            payload.append(
-                {
-                    "chunk_index": c.chunk_index,
-                    "start_char": c.start_char,
-                    "end_char": c.end_char,
-                    "text_hash": sha256_hex(c.text),
-                    "vector": vec.tobytes(),
-                }
-            )
+    def _heartbeat() -> None:
+        nonlocal last_heartbeat
+        if not db.claim_embedding_leader(worker_id=leader_id, ttl_seconds=ttl_seconds):
+            raise click.ClickException("Lost embedding leader lock during indexing.")
+        last_heartbeat = time.monotonic()
 
-        db.upsert_embeddings(
-            message_id=mid,
-            model=model_name,
-            topic_id=tid,
-            content_hash=content_hash,
-            chunk_size=csize,
-            chunk_overlap=coverlap,
-            dims=dims,
-            chunks=payload,
+    def _progress(processed: int, total: int, indexed: int, skipped_rows: int) -> None:
+        click.echo(
+            f"Processed {processed}/{total} rows (indexed={indexed}, skipped={skipped_rows})…",
+            err=True,
         )
-        indexed += 1
 
-        if indexed % 10 == 0:
-            click.echo(f"Indexed {indexed}/{len(to_index)}…", err=True)
+    try:
+        try:
+            stats = index_message_rows(
+                db=db,
+                rows=to_index,
+                model=model_name,
+                chunk_size=csize,
+                chunk_overlap=coverlap,
+                progress=_progress,
+                progress_every=10,
+                heartbeat=_heartbeat,
+                heartbeat_every_seconds=float(heartbeat_seconds),
+            )
+        except Exception as exc:
+            raise click.ClickException(f"Embedding indexing failed: {exc}") from exc
+        if to_index and (time.monotonic() - last_heartbeat) >= heartbeat_seconds:
+            _heartbeat()
+    finally:
+        db.release_embedding_leader(worker_id=leader_id)
 
-    click.echo(f"Indexed {indexed} message(s).", err=True)
+    click.echo(
+        f"Indexed {stats['indexed']} message(s); skipped {stats['skipped']}.",
+        err=True,
+    )

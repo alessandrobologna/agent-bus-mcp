@@ -194,6 +194,22 @@ def test_sync_once_client_message_id_is_idempotent(tmp_path):
     assert sent1[0][0].seq == sent2[0][0].seq
 
 
+def test_embedding_leader_lock_is_exclusive(tmp_path):
+    db_path = tmp_path / "bus.sqlite"
+    db1 = AgentBusDB(path=str(db_path))
+    db2 = AgentBusDB(path=str(db_path))
+
+    topic = db1.topic_create(name="pink", metadata=None, mode="new")
+    assert topic.topic_id
+
+    assert db1.claim_embedding_leader(worker_id="worker-a", ttl_seconds=30) is True
+    assert db2.claim_embedding_leader(worker_id="worker-b", ttl_seconds=30) is False
+    assert db1.claim_embedding_leader(worker_id="worker-a", ttl_seconds=30) is True
+    assert db2.release_embedding_leader(worker_id="worker-b") is False
+    assert db1.release_embedding_leader(worker_id="worker-a") is True
+    assert db2.claim_embedding_leader(worker_id="worker-b", ttl_seconds=30) is True
+
+
 def test_sync_once_ack_through_rejects_future_seq(tmp_path):
     db = AgentBusDB(path=str(tmp_path / "bus.sqlite"))
     t = db.topic_create(name="pink", metadata=None, mode="new")

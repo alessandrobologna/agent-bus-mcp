@@ -16,13 +16,30 @@ permissions:
   contents: write
 
 jobs:
+  pypi-readme:
+    uses: ./.github/workflows/render-pypi-readme.yml
+    permissions:
+      contents: write
+    with:
+      enabled: true
+      readme_path: README.md
+      output_readme_path: README.pypi.md
+      artefacts_dir: .pypi-assets
+      output_format: png
+      background_color: transparent
+      mmdc_package: "@mermaid-js/mermaid-cli@11.12.0"
+      assets_mode: branch
+      release_tag: pypi-assets
+      upload_release_assets: true
+      artifact_name: pypi-readme
+
   build:
+    needs: pypi-readme
     uses: ./.github/workflows/build-wheels.yml
     with:
       upload_artifacts: true
-      render_pypi_readme: true
-      upload_pypi_assets: true
-      pypi_assets_mode: branch
+      use_pypi_readme: true
+      pypi_readme_artifact_name: pypi-readme
 
   upload:
     needs: build
@@ -30,7 +47,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Download artifacts
         uses: actions/download-artifact@v4
@@ -124,7 +141,7 @@ jobs:
     if: ${{ inputs.publish_target == 'pypi' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
           fetch-tags: true
