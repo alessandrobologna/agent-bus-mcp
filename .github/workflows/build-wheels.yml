@@ -140,7 +140,8 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           command: build
-          args: --release --out dist
+          # manylinux builds run in a container, so pin the interpreter here.
+          args: --release --out dist -i python3.12
           manylinux: 2_28
 
       - name: Build wheels (Linux, manylinux_2_28 aarch64)
@@ -148,7 +149,7 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           command: build
-          args: --release --out dist
+          args: --release --out dist -i python3.12
           manylinux: 2_28
           target: aarch64-unknown-linux-gnu
 
