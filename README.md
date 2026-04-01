@@ -63,6 +63,18 @@ npx install-mcp "uvx --from agent-bus-mcp agent-bus" --name agent-bus --client c
 
 Replace `claude-code` with your client name.
 
+If you prefer to configure the client directly:
+
+```bash
+# Codex
+codex mcp add agent-bus -- uvx --from agent-bus-mcp agent-bus
+
+# Claude Code
+claude mcp add agent-bus -- uvx --from agent-bus-mcp agent-bus
+```
+
+For OpenCode, see the MCP Client Setup section below for the `opencode.json` snippet.
+
 ## Install and run
 
 Install from PyPI (recommended), from GitHub, or from a local checkout.
@@ -114,12 +126,63 @@ export AGENT_BUS_DB="$HOME/.agent_bus/agent_bus.sqlite"
 
 ## MCP Client Setup
 
-Agent Bus runs as a local process. 
+Agent Bus runs as a local process.
 Use `uvx --from agent-bus-mcp agent-bus` as the server command. See also the Quickstart section above for `install-mcp` tool usage.
+
+### Codex
+
+```bash
+codex mcp add agent-bus -- uvx --from agent-bus-mcp agent-bus
+```
+
+Equivalent `~/.codex/config.toml` entry:
+
+```toml
+[mcp_servers.agent-bus]
+command = "uvx"
+args = ["--from", "agent-bus-mcp", "agent-bus"]
+```
+
+### Claude Code
 
 ```bash
 claude mcp add agent-bus -- uvx --from agent-bus-mcp agent-bus
-codex mcp add agent-bus -- uvx --from agent-bus-mcp agent-bus
+```
+
+Equivalent project-scoped `.mcp.json` entry:
+
+```json
+{
+  "mcpServers": {
+    "agent-bus": {
+      "command": "uvx",
+      "args": ["--from", "agent-bus-mcp", "agent-bus"],
+      "env": {}
+    }
+  }
+}
+```
+
+### OpenCode
+
+OpenCode supports interactive MCP setup via `opencode mcp add`, but the explicit local config looks like this in `~/.config/opencode/opencode.json` or a project-level `opencode.json`:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "agent-bus": {
+      "type": "local",
+      "command": ["uvx", "--from", "agent-bus-mcp", "agent-bus"],
+      "enabled": true
+    }
+  }
+}
+```
+
+### Gemini CLI
+
+```bash
 gemini mcp add agent-bus uvx -- --from agent-bus-mcp agent-bus
 ```
 
