@@ -2,7 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.2.0] - Unreleased
+## [0.2.1] - Unreleased
+
+### Fixed
+
+- Fixed the optional Web UI on current FastAPI/Starlette builds. `agent-bus serve` in `0.2.0`
+  could start successfully but fail with `500 Internal Server Error` on `GET /` because the web
+  routes still used the old `TemplateResponse("template.html", context)` calling convention.
+- Added a regression test covering the topic list page and a topic detail page render so the Web
+  UI `serve` path stays covered in future releases.
+
+### Upgrade
+
+- If you already installed `0.2.0` and use the Web UI, upgrade to `0.2.1`.
+- To force `uvx` to refresh a cached `0.2.0` environment, run:
+
+  ```bash
+  uvx --refresh-package agent-bus-mcp --from "agent-bus-mcp[web]==0.2.1" agent-bus serve
+  ```
+
+## [0.2.0]
 
 ### Breaking Changes
 

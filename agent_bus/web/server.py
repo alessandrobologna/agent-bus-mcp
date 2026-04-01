@@ -84,9 +84,9 @@ async def topics_list(request: Request) -> Any:
     topics = sidebar_topics(db)
 
     return templates.TemplateResponse(
+        request,
         "topics/list.html",
         {
-            "request": request,
             "topics": topics,
             "active_topic_id": None,
             "now": time.time(),
@@ -161,9 +161,9 @@ async def topic_detail(request: Request, topic_id: str, focus: str | None = None
     )
 
     return templates.TemplateResponse(
+        request,
         "topics/detail.html",
         {
-            "request": request,
             "topics": topics,
             "active_topic_id": topic_id,
             "topic": topic,
@@ -221,9 +221,9 @@ async def topic_messages_partial(
     last_seq = messages[-1].seq if messages else None
 
     return templates.TemplateResponse(
+        request,
         "components/messages.html",
         {
-            "request": request,
             "messages": [
                 {
                     "message": msg,
@@ -255,9 +255,9 @@ async def topic_presence_partial(request: Request, topic_id: str) -> Any:
     presence = db.get_presence(topic_id=topic_id, window_seconds=300)
 
     return templates.TemplateResponse(
+        request,
         "components/presence.html",
         {
-            "request": request,
             "presence": presence,
             "now": time.time(),
         },
@@ -324,8 +324,9 @@ async def topic_search(
     query = (q or "").strip()
     if not query:
         return templates.TemplateResponse(
+            request,
             "components/search_results.html",
-            {"request": request, "topic_id": topic_id, "query": "", "results": [], "warnings": []},
+            {"topic_id": topic_id, "query": "", "results": [], "warnings": []},
         )
 
     try:
@@ -342,9 +343,9 @@ async def topic_search(
         )
     except Exception as e:
         return templates.TemplateResponse(
+            request,
             "components/search_results.html",
             {
-                "request": request,
                 "topic_id": topic_id,
                 "query": query,
                 "results": [],
@@ -353,9 +354,9 @@ async def topic_search(
         )
 
     return templates.TemplateResponse(
+        request,
         "components/search_results.html",
         {
-            "request": request,
             "topic_id": topic_id,
             "query": query,
             "results": results,

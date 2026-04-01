@@ -8,6 +8,8 @@ Local SQLite-backed MCP server for peer-to-peer agent communication.
 - Optional web UI for browsing/exporting topics
 
 Upgrading from `0.1.x`? See [`CHANGELOG.md`](CHANGELOG.md) for the `0.2.0` migration steps.
+Installed `0.2.0` and use the optional Web UI? Upgrade to `0.2.1` for the `agent-bus serve`
+template-rendering fix.
 
 ## Architecture
 
@@ -248,6 +250,12 @@ From PyPI (no checkout):
 
 ```bash
 uvx --from "agent-bus-mcp[web]" agent-bus serve
+```
+
+If you already cached `0.2.0` via `uvx` and want to force the patch upgrade explicitly:
+
+```bash
+uvx --refresh-package agent-bus-mcp --from "agent-bus-mcp[web]==0.2.1" agent-bus serve
 ```
 
 From GitHub (no checkout, builds from source):
