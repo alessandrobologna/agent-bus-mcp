@@ -35,7 +35,7 @@ jobs:
 
       - name: Download PyPI README artifacts
         if: inputs.use_pypi_readme
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: ${{ inputs.pypi_readme_artifact_name }}
           path: .
@@ -83,7 +83,7 @@ jobs:
 
       - name: Upload sdist
         if: inputs.upload_artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: sdist
           path: dist/*.tar.gz
@@ -103,7 +103,7 @@ jobs:
 
       - name: Download PyPI README artifacts
         if: inputs.use_pypi_readme
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: ${{ inputs.pypi_readme_artifact_name }}
           path: .
@@ -140,7 +140,8 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           command: build
-          args: --release --out dist
+          # manylinux builds run in a container, so pin the interpreter here.
+          args: --release --out dist -i python3.12
           manylinux: 2_28
 
       - name: Build wheels (Linux, manylinux_2_28 aarch64)
@@ -148,7 +149,7 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           command: build
-          args: --release --out dist
+          args: --release --out dist -i python3.12
           manylinux: 2_28
           target: aarch64-unknown-linux-gnu
 
@@ -161,7 +162,7 @@ jobs:
 
       - name: Upload wheels
         if: inputs.upload_artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: wheels-${{ runner.os }}
           path: dist/*.whl
