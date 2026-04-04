@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import unicodedata
 from dataclasses import dataclass
 from typing import Annotated, Any, Literal, cast
 
@@ -96,7 +97,7 @@ def _validate_agent_name(agent_name: object) -> str | None:
     normalized = agent_name.strip()
     if len(normalized) > 64:
         return "agent_name must be <= 64 characters"
-    if any(c in normalized for c in ("\n", "\r", "\0")):
+    if any(unicodedata.category(c) == "Cc" for c in normalized):
         return "agent_name must not contain control characters"
     return None
 

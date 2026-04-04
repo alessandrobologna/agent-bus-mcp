@@ -1656,8 +1656,19 @@ impl CoreDb {
         agent_name: String,
         reclaim_token: Option<String>,
     ) -> PyResult<(String, String)> {
+        let agent_name = agent_name.trim().to_string();
         if agent_name.is_empty() {
             return Err(PyValueError::new_err("agent_name must be non-empty"));
+        }
+        if agent_name.chars().count() > 64 {
+            return Err(PyValueError::new_err(
+                "agent_name must be 64 characters or fewer",
+            ));
+        }
+        if agent_name.chars().any(char::is_control) {
+            return Err(PyValueError::new_err(
+                "agent_name must not contain control characters",
+            ));
         }
         if matches!(reclaim_token.as_deref(), Some("")) {
             return Err(PyValueError::new_err("reclaim_token must be non-empty"));

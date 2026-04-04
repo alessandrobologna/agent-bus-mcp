@@ -243,6 +243,22 @@ def test_reserve_agent_name_requires_reclaim_token_and_does_not_mark_presence(tm
     assert db.get_presence(topic_id=topic.topic_id, window_seconds=300) == []
 
 
+@pytest.mark.parametrize(
+    ("agent_name", "message"),
+    [
+        ("   ", "agent_name must be non-empty"),
+        ("a" * 65, "agent_name must be 64 characters or fewer"),
+        ("bad\x1fname", "agent_name must not contain control characters"),
+    ],
+)
+def test_reserve_agent_name_rejects_invalid_agent_names(tmp_path, agent_name, message):
+    db = AgentBusDB(path=str(tmp_path / "bus.sqlite"))
+    topic = db.topic_create(name="pink", metadata=None, mode="new")
+
+    with pytest.raises(ValueError, match=message):
+        db.reserve_agent_name(topic_id=topic.topic_id, agent_name=agent_name)
+
+
 def test_reserve_agent_name_adopts_legacy_name_on_first_join(tmp_path):
     db = AgentBusDB(path=str(tmp_path / "bus.sqlite"))
     topic = db.topic_create(name="pink", metadata=None, mode="new")
