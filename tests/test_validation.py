@@ -43,3 +43,35 @@ async def test_sync_max_message_length_validation(tmp_path):
         assert res.isError is True
         assert res.structuredContent["error"]["code"] == "INVALID_ARGUMENT"
         assert "exceeds max length" in res.structuredContent["error"]["message"]
+
+
+@pytest.mark.anyio
+async def test_invalid_sync_max_items_env_is_a_tool_error_not_startup_failure(tmp_path):
+    env = {
+        **os.environ,
+        "AGENT_BUS_DB": str(tmp_path / "bus.sqlite"),
+        "AGENT_BUS_MAX_SYNC_ITEMS": "bogus",
+        "AGENT_BUS_EMBEDDINGS_AUTOINDEX": "0",
+    }
+    peer_server = StdioServerParameters(command=_bin("agent-bus"), env=env)
+
+    async with (
+        stdio_client(peer_server) as (s_read, s_write),
+        ClientSession(s_read, s_write) as peer,
+    ):
+        await peer.initialize()
+
+        ping = await peer.call_tool("ping", {})
+        assert ping.isError is False
+
+        created = await peer.call_tool("topic_create", {"name": "pink"})
+        assert created.isError is False
+        topic_id = created.structuredContent["topic_id"]
+
+        joined = await peer.call_tool("topic_join", {"agent_name": "a", "topic_id": topic_id})
+        assert joined.isError is False
+
+        res = await peer.call_tool("sync", {"topic_id": topic_id, "wait_seconds": 0})
+        assert res.isError is True
+        assert res.structuredContent["error"]["code"] == "INVALID_ARGUMENT"
+        assert "AGENT_BUS_MAX_SYNC_ITEMS must be an int" in res.structuredContent["error"]["message"]

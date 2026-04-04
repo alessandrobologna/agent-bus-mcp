@@ -21,6 +21,7 @@ create_exception!(agent_bus_core, SchemaMismatchError, PyRuntimeError);
 create_exception!(agent_bus_core, TopicNotFoundError, PyRuntimeError);
 create_exception!(agent_bus_core, TopicClosedError, PyRuntimeError);
 create_exception!(agent_bus_core, TopicMismatchError, PyRuntimeError);
+create_exception!(agent_bus_core, AgentNameInUseError, PyRuntimeError);
 
 const SCHEMA_VERSION: &str = "6";
 const DEFAULT_EMBEDDING_MODEL: &str = "BAAI/bge-small-en-v1.5";
@@ -1381,6 +1382,11 @@ impl CoreDb {
         tx.execute("DELETE FROM cursors WHERE topic_id = ?", params![topic_id])
             .map_err(map_db_error)?;
         tx.execute(
+            "DELETE FROM agent_name_reservations WHERE topic_id = ?",
+            params![topic_id],
+        )
+        .map_err(map_db_error)?;
+        tx.execute(
             "DELETE FROM topic_seq WHERE topic_id = ?",
             params![topic_id],
         )
@@ -1642,6 +1648,84 @@ impl CoreDb {
             .map_err(map_db_error)?;
         let topic = row.ok_or_else(|| TopicNotFoundError::new_err(name))?;
         Ok(topic_to_dict(py, &topic))
+    }
+
+    fn reserve_agent_name(
+        &self,
+        topic_id: String,
+        agent_name: String,
+        reclaim_token: Option<String>,
+    ) -> PyResult<(String, String)> {
+        if agent_name.is_empty() {
+            return Err(PyValueError::new_err("agent_name must be non-empty"));
+        }
+        if matches!(reclaim_token.as_deref(), Some("")) {
+            return Err(PyValueError::new_err("reclaim_token must be non-empty"));
+        }
+
+        let claimed_at = now();
+        let mut conn = self.connect()?;
+        let tx = conn.transaction().map_err(map_db_error)?;
+
+        let exists = tx
+            .query_row(
+                "SELECT 1 FROM topics WHERE topic_id = ?",
+                params![&topic_id],
+                |_r| Ok(true),
+            )
+            .optional()
+            .map_err(map_db_error)?
+            .unwrap_or(false);
+        if !exists {
+            return Err(TopicNotFoundError::new_err(topic_id));
+        }
+
+        let token = new_reclaim_token();
+        let inserted = tx
+            .execute(
+                "
+                INSERT OR IGNORE INTO agent_name_reservations(
+                  topic_id, agent_name, reclaim_token, created_at, last_claimed_at
+                )
+                VALUES (?, ?, ?, ?, ?)
+                ",
+                params![&topic_id, &agent_name, &token, claimed_at, claimed_at],
+            )
+            .map_err(map_db_error)?;
+        if inserted == 1 {
+            tx.commit().map_err(map_db_error)?;
+            return Ok((agent_name, token));
+        }
+
+        let existing_token: String = tx
+            .query_row(
+                "
+                SELECT reclaim_token
+                FROM agent_name_reservations
+                WHERE topic_id = ? AND agent_name = ?
+                ",
+                params![&topic_id, &agent_name],
+                |row| row.get(0),
+            )
+            .map_err(map_db_error)?;
+
+        if reclaim_token.as_deref() == Some(existing_token.as_str()) {
+            tx.execute(
+                "
+                UPDATE agent_name_reservations
+                SET last_claimed_at = ?
+                WHERE topic_id = ? AND agent_name = ?
+                ",
+                params![claimed_at, &topic_id, &agent_name],
+            )
+            .map_err(map_db_error)?;
+            tx.commit().map_err(map_db_error)?;
+            return Ok((agent_name, existing_token));
+        }
+
+        Err(AgentNameInUseError::new_err(format!(
+            "agent_name is already reserved for this topic: {agent_name}"
+        )))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -2223,6 +2307,7 @@ fn _core(py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add("TopicNotFoundError", py.get_type::<TopicNotFoundError>())?;
     module.add("TopicClosedError", py.get_type::<TopicClosedError>())?;
     module.add("TopicMismatchError", py.get_type::<TopicMismatchError>())?;
+    module.add("AgentNameInUseError", py.get_type::<AgentNameInUseError>())?;
     module.add("SCHEMA_VERSION", SCHEMA_VERSION)?;
     Ok(())
 }
@@ -2365,6 +2450,15 @@ impl CoreDb {
               agent_name TEXT NOT NULL,
               last_seq INTEGER NOT NULL,
               updated_at REAL NOT NULL,
+              PRIMARY KEY(topic_id, agent_name)
+            );
+
+            CREATE TABLE IF NOT EXISTS agent_name_reservations (
+              topic_id TEXT NOT NULL,
+              agent_name TEXT NOT NULL,
+              reclaim_token TEXT NOT NULL,
+              created_at REAL NOT NULL,
+              last_claimed_at REAL NOT NULL,
               PRIMARY KEY(topic_id, agent_name)
             );
 
@@ -2562,6 +2656,10 @@ fn now() -> f64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or(Duration::from_secs(0))
         .as_secs_f64()
+}
+
+fn new_reclaim_token() -> String {
+    Uuid::new_v4().simple().to_string()
 }
 
 fn new_id() -> String {

@@ -132,12 +132,13 @@ class TopicResolveOutput(ToolOutputBase):
 
 
 class TopicJoinOutput(ToolOutputBase):
-    required_on_success = ("topic_id", "name", "status", "agent_name")
+    required_on_success = ("topic_id", "name", "status", "agent_name", "reclaim_token")
 
     topic_id: str | None = None
     name: str | None = None
     status: TopicStatus | None = None
     agent_name: str | None = None
+    reclaim_token: str | None = None
 
 
 class TopicPresenceOutput(ToolOutputBase):

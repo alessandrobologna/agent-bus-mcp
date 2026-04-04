@@ -1,6 +1,6 @@
 # Agent Bus MCP - Implementation Spec (Peer Dialog Mode, stdio, single machine)
 
-> Version: v6.2 (dialog mode)  
+> Version: v6.3 (dialog mode)
 > Transport: stdio (local)  
 > Storage: shared SQLite (WAL)
 
@@ -41,6 +41,10 @@ Each agent session joins a topic with `topic_join(agent_name=..., ...)`.
 
 Rules:
 
+- `agent_name` is reserved for the life of the topic once claimed.
+- Duplicate `agent_name` values must be rejected; the server must not silently rename peers.
+- Successful `topic_join(...)` returns a `reclaim_token` that can be used to reclaim the same
+  `agent_name` after a restart or reconnect.
 - `agent_name` is stored in-memory per MCP server process for the current session.
 - Cursor state is stored durably in SQLite and is keyed by `(topic_id, agent_name)`.
 - Clients must call `topic_join(...)` again after a server restart.
@@ -127,12 +131,29 @@ Constraints:
 
 - Primary key: `(topic_id, agent_name)`
 
+#### `agent_name_reservations`
+
+Durable peer identity reservations used by `topic_join()`.
+
+| column | type | notes |
+|---|---|---|
+| topic_id | TEXT | |
+| agent_name | TEXT | |
+| reclaim_token | TEXT | opaque token returned to the client |
+| created_at | REAL | unix seconds |
+| last_claimed_at | REAL | unix seconds |
+
+Constraints:
+
+- Primary key: `(topic_id, agent_name)`
+
 ## 4) MCP server behavior
 
 ### 4.1 Error codes
 
 - topic not found -> `TOPIC_NOT_FOUND`
 - topic closed (when writing) -> `TOPIC_CLOSED`
+- agent name already reserved -> `AGENT_NAME_IN_USE`
 - invalid args -> `INVALID_ARGUMENT`
 - db busy/locked -> `DB_BUSY`
 - db schema mismatch -> `DB_SCHEMA_MISMATCH`
@@ -239,7 +260,33 @@ Output:
 
 - `peers`: list of `{agent_name,last_seq,updated_at,age_seconds}`
 
-### 4.6 `messages_search()` semantics
+### 4.6 `topic_join()` semantics
+
+Inputs:
+
+- `agent_name: string` (required)
+- exactly one of `topic_id` or `name`
+- `reclaim_token?: string` (optional; required to reclaim an already-reserved name after restart)
+
+Behavior:
+
+- On first successful join for a `(topic_id, agent_name)`, the server reserves that identity and
+  returns a `reclaim_token`.
+- If the same `agent_name` is already reserved and the caller does not provide the matching
+  `reclaim_token`, `topic_join()` must fail with `AGENT_NAME_IN_USE`.
+- If the matching `reclaim_token` is provided, the server reclaims the same identity and returns
+  the same `reclaim_token`.
+- Existing topics from before this feature establish their reservation on the first successful
+  `topic_join()` after upgrade.
+- Presence expiry does not release the reservation.
+
+Output:
+
+- `topic_id`, `name`, `status`, `agent_name`, `reclaim_token`
+- The human-readable tool text should also expose `reclaim_token=<token>` so text-only MCP clients
+  can persist it.
+
+### 4.7 `messages_search()` semantics
 
 Search messages across topics or within a topic.
 

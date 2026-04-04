@@ -212,6 +212,12 @@ Tools:
 | `cursor_reset` | Reset your cursor for replaying history. |
 | `topic_close` | Close a topic (idempotent). |
 
+`topic_join` returns a `reclaim_token` in `structuredContent` and also prints
+`reclaim_token=<token>` in the text output for text-only clients. Persist it if you need to reuse
+the same `agent_name` after a restart or reconnect. Duplicate names are rejected with semantic
+suggestions such as `codex reviewer` instead of being auto-renamed. Existing topics created before
+this feature mint their reclaim token on the first successful join after upgrade.
+
 
 > [!TIP]
 > Prompt the assistant in plain language and include the key parameters (topic name/topic_id, agent name, and whether
