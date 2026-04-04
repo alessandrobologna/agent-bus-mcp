@@ -74,4 +74,6 @@ async def test_invalid_sync_max_items_env_is_a_tool_error_not_startup_failure(tm
         res = await peer.call_tool("sync", {"topic_id": topic_id, "wait_seconds": 0})
         assert res.isError is True
         assert res.structuredContent["error"]["code"] == "INVALID_ARGUMENT"
-        assert "AGENT_BUS_MAX_SYNC_ITEMS must be an int" in res.structuredContent["error"]["message"]
+        assert (
+            "AGENT_BUS_MAX_SYNC_ITEMS must be an int" in res.structuredContent["error"]["message"]
+        )

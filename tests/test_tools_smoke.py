@@ -64,9 +64,7 @@ async def test_two_process_smoke(tmp_path):
         )
         assert (
             "reclaim_token"
-            in tools_by_name["topic_join"].inputSchema["properties"]["reclaim_token"][
-                "description"
-            ]
+            in tools_by_name["topic_join"].inputSchema["properties"]["reclaim_token"]["description"]
         )
 
         created = await agent_a.call_tool("topic_create", {"name": "pink"})
@@ -395,9 +393,7 @@ async def test_topic_join_rejects_duplicates_and_supports_reclaim(tmp_path):
             "sync",
             {
                 "topic_id": topic_id,
-                "outbox": [
-                    {"content_markdown": "hello from reviewer", "message_type": "message"}
-                ],
+                "outbox": [{"content_markdown": "hello from reviewer", "message_type": "message"}],
                 "wait_seconds": 0,
             },
         )
@@ -433,4 +429,6 @@ async def test_topic_join_rejects_duplicates_and_supports_reclaim(tmp_path):
         assert received.isError is False
         assert received.structuredContent["received_count"] == 1
         assert received.structuredContent["received"][0]["sender"] == "codex reviewer"
-        assert received.structuredContent["received"][0]["content_markdown"] == "hello from reviewer"
+        assert (
+            received.structuredContent["received"][0]["content_markdown"] == "hello from reviewer"
+        )

@@ -74,6 +74,7 @@ mcp = FastMCP(
     ),
 )
 
+
 @dataclass(frozen=True, slots=True)
 class JoinedIdentity:
     agent_name: str
