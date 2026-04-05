@@ -4,6 +4,7 @@ import time
 from typing import Any, Literal
 
 from agent_bus._core import (  # type: ignore[import-not-found]
+    AgentNameInUseError,
     CoreDb,
     DBBusyError,
     SchemaMismatchError,
@@ -20,6 +21,7 @@ SCHEMA_VERSION = "6"
 
 __all__ = [
     "AgentBusDB",
+    "AgentNameInUseError",
     "DBBusyError",
     "SchemaMismatchError",
     "TopicClosedError",
@@ -202,6 +204,18 @@ class AgentBusDB:
     def topic_resolve(self, *, name: str, allow_closed: bool) -> Topic:
         data = self._core.topic_resolve(name, allow_closed)
         return _topic_from_dict(data)
+
+    def reserve_agent_name(
+        self,
+        *,
+        topic_id: str,
+        agent_name: str,
+        reclaim_token: str | None = None,
+    ) -> tuple[str, str]:
+        reserved_name, reserved_token = self._core.reserve_agent_name(
+            topic_id, agent_name, reclaim_token
+        )
+        return str(reserved_name), str(reserved_token)
 
     def sync_once(
         self,

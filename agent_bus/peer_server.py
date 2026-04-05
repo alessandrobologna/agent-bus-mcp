@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import time
+import unicodedata
+from dataclasses import dataclass
 from typing import Annotated, Any, Literal, cast
 
 from mcp.server.fastmcp import FastMCP
@@ -19,6 +21,7 @@ from agent_bus.common import (
 )
 from agent_bus.db import (
     AgentBusDB,
+    AgentNameInUseError,
     DBBusyError,
     SchemaMismatchError,
     TopicClosedError,
@@ -37,15 +40,32 @@ from agent_bus.tool_schemas import (
     TopicResolveOutput,
 )
 
-SPEC_VERSION = "v6.2"
+SPEC_VERSION = "v6.3"
+
+
+def _schema_env_int(name: str, *, default: int, min_value: int) -> int:
+    try:
+        return env_int(name, default=default, min_value=min_value)
+    except ValueError:
+        return default
+
+
+MAX_SYNC_ITEMS_LIMIT = _schema_env_int("AGENT_BUS_MAX_SYNC_ITEMS", default=20, min_value=1)
+DEFAULT_SYNC_ITEMS = min(20, MAX_SYNC_ITEMS_LIMIT)
+MAX_SYNC_ITEMS_DESCRIPTION = (
+    "Maximum number of items to return. "
+    f"Keep this small and no greater than {MAX_SYNC_ITEMS_LIMIT}; "
+    "loop until has_more=false."
+)
 
 db = AgentBusDB()
 mcp = FastMCP(
     name="agent-bus",
     instructions=(
         "Join a topic with topic_join(agent_name=..., topic_id=...|name=...), then use sync() to "
-        "read/write messages. Use small max_items (<= 20) and call sync repeatedly until has_more "
-        "is false. If you need to replay history, call cursor_reset(topic_id=..., last_seq=0). "
+        f"read/write messages. Use small max_items (<= {MAX_SYNC_ITEMS_LIMIT}) and call sync "
+        "repeatedly until has_more is false. If you need to replay history, call "
+        "cursor_reset(topic_id=..., last_seq=0). "
         "Read messages from structuredContent.received[*].content_markdown. Some MCP clients do "
         "not expose structuredContent. In that case, use the sync() text output (it includes "
         "message bodies and may be truncated). Outbox items require "
@@ -55,9 +75,16 @@ mcp = FastMCP(
     ),
 )
 
-# In-memory (per server process) mapping of joined topic_id -> agent_name.
+
+@dataclass(frozen=True, slots=True)
+class JoinedIdentity:
+    agent_name: str
+    reclaim_token: str
+
+
+# In-memory (per server process) mapping of joined topic_id -> agent identity.
 # This is intentionally ephemeral: clients must call topic_join() again after a server restart.
-_joined_agent_names: dict[str, str] = {}
+_joined_identities: dict[str, JoinedIdentity] = {}
 
 
 def _normalize_agent_name(agent_name: str) -> str:
@@ -70,13 +97,32 @@ def _validate_agent_name(agent_name: object) -> str | None:
     normalized = agent_name.strip()
     if len(normalized) > 64:
         return "agent_name must be <= 64 characters"
-    if any(c in normalized for c in ("\n", "\r", "\0")):
+    if any(unicodedata.category(c) == "Cc" for c in normalized):
         return "agent_name must not contain control characters"
     return None
 
 
 def _agent_name_for_topic(topic_id: str) -> str | None:
-    return _joined_agent_names.get(topic_id)
+    identity = _joined_identities.get(topic_id)
+    return identity.agent_name if identity is not None else None
+
+
+def _suggest_agent_names(agent_name: str) -> list[str]:
+    roles = ["reviewer", "frontend", "architect", "implementer", "researcher"]
+    fallbacks = ["blue", "curious", "steady", "swift"]
+    suggestions: list[str] = []
+    seen = {agent_name}
+    for role in roles:
+        candidate = f"{agent_name} {role}"
+        if candidate not in seen:
+            seen.add(candidate)
+            suggestions.append(candidate)
+    for prefix in fallbacks:
+        candidate = f"{prefix} {agent_name}"
+        if candidate not in seen:
+            seen.add(candidate)
+            suggestions.append(candidate)
+    return suggestions
 
 
 def _schema_mismatch_result(e: SchemaMismatchError) -> Any:
@@ -350,14 +396,20 @@ def topic_resolve(
 @mcp.tool(
     description=(
         "Join a topic as a named peer for this MCP session. Provide exactly one of topic_id or "
-        "name. Typical flow after topic_create(mode='new'): join with the returned topic_id "
-        "before calling sync."
+        "name. Duplicate agent names are rejected for the life of the topic. Persist the returned "
+        "reclaim_token if you need to reuse the same agent_name after a restart. Typical flow "
+        "after topic_create(mode='new'): join with the returned topic_id before calling sync."
     )
 )
 def topic_join(
     agent_name: Annotated[
         str,
-        Field(description="Your peer name for this topic, for example 'reviewer'."),
+        Field(
+            description=(
+                "Your peer name for this topic, for example 'reviewer'. The name stays reserved "
+                "for the life of the topic once claimed."
+            )
+        ),
     ],
     *,
     topic_id: Annotated[
@@ -372,6 +424,15 @@ def topic_join(
         bool,
         Field(description="Allow joining a closed topic when resolving by name."),
     ] = False,
+    reclaim_token: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Opaque reclaim_token returned by a prior successful topic_join(). Provide it to "
+                "reclaim the same agent_name after a restart or reconnect."
+            )
+        ),
+    ] = None,
 ) -> Annotated[CallToolResult, TopicJoinOutput]:
     """Join a topic as a named peer (in-memory per server process).
 
@@ -381,6 +442,12 @@ def topic_join(
     err = _validate_agent_name(agent_name)
     if err:
         return tool_error(code=ErrorCode.INVALID_ARGUMENT, message=err)
+    if reclaim_token is not None:
+        if not isinstance(reclaim_token, str) or reclaim_token.strip() == "":
+            return tool_error(
+                code=ErrorCode.INVALID_ARGUMENT, message="reclaim_token must be a non-empty string"
+            )
+        reclaim_token = reclaim_token.strip()
 
     if topic_id and name:
         return tool_error(
@@ -410,9 +477,44 @@ def topic_join(
         return tool_error(code=ErrorCode.DB_BUSY, message="Database is busy.")
 
     normalized = _normalize_agent_name(agent_name)
-    _joined_agent_names[topic.topic_id] = normalized
+    existing = _joined_identities.get(topic.topic_id)
+    if existing is not None and existing.agent_name == normalized:
+        reclaim = existing.reclaim_token
+    else:
+        try:
+            normalized, reclaim = db.reserve_agent_name(
+                topic_id=topic.topic_id,
+                agent_name=normalized,
+                reclaim_token=reclaim_token,
+            )
+        except SchemaMismatchError as e:
+            return _schema_mismatch_result(e)
+        except TopicNotFoundError:
+            return tool_error(code=ErrorCode.TOPIC_NOT_FOUND, message="Topic not found.")
+        except DBBusyError:
+            return tool_error(code=ErrorCode.DB_BUSY, message="Database is busy.")
+        except AgentNameInUseError:
+            return tool_error(
+                code=ErrorCode.AGENT_NAME_IN_USE,
+                message=(
+                    f'agent_name "{normalized}" is already reserved for this topic. '
+                    "Provide the original reclaim_token to reuse it, or choose a different "
+                    "agent_name."
+                ),
+                structured={
+                    "requested_agent_name": normalized,
+                    "suggested_agent_names": _suggest_agent_names(normalized),
+                },
+            )
+        _joined_identities[topic.topic_id] = JoinedIdentity(
+            agent_name=normalized,
+            reclaim_token=reclaim,
+        )
 
-    text = f'Joined topic "{topic.name}" ({topic.topic_id}) as "{normalized}".'
+    text = (
+        f'Joined topic "{topic.name}" ({topic.topic_id}) as "{normalized}".\n'
+        f"reclaim_token={reclaim}"
+    )
     return tool_ok(
         text=text,
         structured={
@@ -420,6 +522,7 @@ def topic_join(
             "name": topic.name,
             "status": topic.status,
             "agent_name": normalized,
+            "reclaim_token": reclaim,
         },
     )
 
@@ -562,7 +665,14 @@ def sync(
             },
         ),
     ] = None,
-    max_items: int = 20,
+    max_items: Annotated[
+        int,
+        Field(
+            description=MAX_SYNC_ITEMS_DESCRIPTION,
+            ge=1,
+            le=MAX_SYNC_ITEMS_LIMIT,
+        ),
+    ] = DEFAULT_SYNC_ITEMS,
     include_self: bool = False,
     wait_seconds: int = 60,
     auto_advance: bool = True,

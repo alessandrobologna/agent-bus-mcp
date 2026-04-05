@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import sqlite3
+
 import pytest
 
 import agent_bus.db as db_mod
 from agent_bus.db import (
     AgentBusDB,
+    AgentNameInUseError,
     TopicClosedError,
     TopicNotFoundError,
 )
@@ -208,6 +211,91 @@ def test_embedding_leader_lock_is_exclusive(tmp_path):
     assert db2.release_embedding_leader(worker_id="worker-b") is False
     assert db1.release_embedding_leader(worker_id="worker-a") is True
     assert db2.claim_embedding_leader(worker_id="worker-b", ttl_seconds=30) is True
+
+
+def test_reserve_agent_name_requires_reclaim_token_and_does_not_mark_presence(tmp_path):
+    db = AgentBusDB(path=str(tmp_path / "bus.sqlite"))
+    topic = db.topic_create(name="pink", metadata=None, mode="new")
+
+    first_name, reclaim_token = db.reserve_agent_name(topic_id=topic.topic_id, agent_name="codex")
+
+    assert first_name == "codex"
+    assert reclaim_token
+
+    with pytest.raises(AgentNameInUseError):
+        db.reserve_agent_name(topic_id=topic.topic_id, agent_name="codex")
+
+    with pytest.raises(AgentNameInUseError):
+        db.reserve_agent_name(
+            topic_id=topic.topic_id,
+            agent_name="codex",
+            reclaim_token="wrong-token",
+        )
+
+    reclaimed_name, reclaimed_token = db.reserve_agent_name(
+        topic_id=topic.topic_id,
+        agent_name="codex",
+        reclaim_token=reclaim_token,
+    )
+
+    assert reclaimed_name == "codex"
+    assert reclaimed_token == reclaim_token
+    assert db.get_presence(topic_id=topic.topic_id, window_seconds=300) == []
+
+
+def test_reserve_agent_name_rejects_blank_reclaim_token(tmp_path):
+    db = AgentBusDB(path=str(tmp_path / "bus.sqlite"))
+    topic = db.topic_create(name="pink", metadata=None, mode="new")
+    db.reserve_agent_name(topic_id=topic.topic_id, agent_name="codex")
+
+    with pytest.raises(ValueError, match="reclaim_token must be non-empty"):
+        db.reserve_agent_name(
+            topic_id=topic.topic_id,
+            agent_name="codex",
+            reclaim_token="   ",
+        )
+
+
+@pytest.mark.parametrize(
+    ("agent_name", "message"),
+    [
+        ("   ", "agent_name must be non-empty"),
+        ("a" * 65, "agent_name must be 64 characters or fewer"),
+        ("bad\x1fname", "agent_name must not contain control characters"),
+    ],
+)
+def test_reserve_agent_name_rejects_invalid_agent_names(tmp_path, agent_name, message):
+    db = AgentBusDB(path=str(tmp_path / "bus.sqlite"))
+    topic = db.topic_create(name="pink", metadata=None, mode="new")
+
+    with pytest.raises(ValueError, match=message):
+        db.reserve_agent_name(topic_id=topic.topic_id, agent_name=agent_name)
+
+
+def test_reserve_agent_name_adopts_legacy_name_on_first_join(tmp_path):
+    db = AgentBusDB(path=str(tmp_path / "bus.sqlite"))
+    topic = db.topic_create(name="pink", metadata=None, mode="new")
+
+    db.sync_once(
+        topic_id=topic.topic_id,
+        agent_name="legacy",
+        outbox=[],
+        max_items=50,
+        include_self=False,
+        auto_advance=True,
+        ack_through=None,
+    )
+
+    claimed_name, reclaim_token = db.reserve_agent_name(
+        topic_id=topic.topic_id,
+        agent_name="legacy",
+    )
+
+    assert claimed_name == "legacy"
+    assert reclaim_token
+
+    with pytest.raises(AgentNameInUseError):
+        db.reserve_agent_name(topic_id=topic.topic_id, agent_name="legacy")
 
 
 def test_sync_once_ack_through_rejects_future_seq(tmp_path):
@@ -538,6 +626,33 @@ def test_delete_topic_removes_all_data(tmp_path):
     # Second delete should return False
     deleted_again = db.delete_topic(topic_id=t.topic_id)
     assert deleted_again is False
+
+
+def test_delete_topic_removes_agent_name_reservations(tmp_path):
+    db_path = tmp_path / "bus.sqlite"
+    db = AgentBusDB(path=str(db_path))
+    t = db.topic_create(name="pink", metadata=None, mode="new")
+
+    claimed_name, reclaim_token = db.reserve_agent_name(topic_id=t.topic_id, agent_name="alice")
+    assert claimed_name == "alice"
+    assert reclaim_token
+
+    with sqlite3.connect(db.path) as conn:
+        count_before = conn.execute(
+            "SELECT COUNT(*) FROM agent_name_reservations WHERE topic_id = ?",
+            (t.topic_id,),
+        ).fetchone()[0]
+    assert count_before == 1
+
+    deleted = db.delete_topic(topic_id=t.topic_id)
+    assert deleted is True
+
+    with sqlite3.connect(db.path) as conn:
+        count_after = conn.execute(
+            "SELECT COUNT(*) FROM agent_name_reservations WHERE topic_id = ?",
+            (t.topic_id,),
+        ).fetchone()[0]
+    assert count_after == 0
 
 
 def test_delete_topic_nonexistent_returns_false(tmp_path):

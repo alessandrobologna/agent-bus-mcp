@@ -2,7 +2,45 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.2.1] - Unreleased
+## [0.3.0] - Unreleased
+
+### Breaking Changes
+
+- Topic participant names are now reserved for the lifetime of the topic. `topic_join()` rejects duplicate
+  `agent_name` values with `AGENT_NAME_IN_USE` instead of allowing multiple clients to share the same name.
+- Reconnecting clients are now expected to persist and reuse the returned `reclaim_token` if they want to
+  keep the same identity after a restart or reconnect.
+- The dialog protocol `spec_version` is now `v6.3`.
+
+### Changed
+
+- `topic_join()` now returns `reclaim_token` in both `structuredContent` and plain-text output so text-only
+  clients can persist reconnect state.
+- `delete_topic()` now removes durable agent-name reservations together with the rest of the topic-owned
+  state.
+- `sync.max_items` metadata now exposes the configured cap while preserving the longstanding default of
+  `min(20, AGENT_BUS_MAX_SYNC_ITEMS)`.
+
+### Added
+
+- The repo now includes a reusable `agent-bus-workflows` workflow skill asset for Agent Bus collaboration,
+  handoffs, and reviewer/implementer loops.
+
+### Upgrade
+
+- If your agents often join topics with generic names like `codex` or `claude`, update them to:
+  - choose semantic names up front when possible
+  - handle `AGENT_NAME_IN_USE` by selecting a suggested fallback name or by retrying with the original
+    `reclaim_token`
+- If your client persists Agent Bus state, store the last successful `agent_name` and `reclaim_token`
+  together per topic so reconnects can reclaim the same identity cleanly.
+- If you use `uvx`, you can preview the new release explicitly with:
+
+  ```bash
+  uvx --from agent-bus-mcp==0.3.0 agent-bus --help
+  ```
+
+## [0.2.1]
 
 ### Fixed
 

@@ -77,6 +77,36 @@ claude mcp add agent-bus -- uvx --from agent-bus-mcp agent-bus
 
 For OpenCode, see the MCP Client Setup section below for the `opencode.json` snippet.
 
+## Optional Workflow Skill
+
+This repo also includes a reusable workflow skill asset at
+[`./.agents/skills/agent-bus-workflows/`](./.agents/skills/agent-bus-workflows/).
+The workflow itself is portable across projects and repos wherever the host agent has Agent Bus MCP configured.
+The packaging shown here is Codex-style (`SKILL.md`, `agents/openai.yaml`, and `$agent-bus-workflows` invocation).
+
+The skill covers:
+- generic topic creation, joining, and handoffs
+- duplicate-name recovery with `AGENT_NAME_IN_USE`
+- reclaim-token reconnects
+- reviewer / implementer / re-review loops in one topic
+
+If you use Codex, copy it into your local skills directory:
+
+```bash
+mkdir -p ~/.codex/skills
+cp -R .agents/skills/agent-bus-workflows ~/.codex/skills/
+```
+
+Example prompts:
+
+```text
+Use $agent-bus-workflows to create a topic for this implementation handoff and poll briefly for replies.
+
+Use $agent-bus-workflows to act as the reviewer: post findings in Agent Bus, then poll for implementer updates.
+
+Use $agent-bus-workflows to join Agent Bus topic 1234 as the implementer, address valid findings, post back the fixes, and ask for re-review.
+```
+
 ## Install and run
 
 Install from PyPI (recommended), from GitHub, or from a local checkout.
@@ -211,6 +241,12 @@ Tools:
 | `topic_presence` | Show recently active peers in a topic. |
 | `cursor_reset` | Reset your cursor for replaying history. |
 | `topic_close` | Close a topic (idempotent). |
+
+`topic_join` returns a `reclaim_token` in `structuredContent` and also prints
+`reclaim_token=<token>` in the text output for text-only clients. Persist it if you need to reuse
+the same `agent_name` after a restart or reconnect. Duplicate names are rejected with semantic
+suggestions such as `codex reviewer` instead of being auto-renamed. Existing topics created before
+this feature mint their reclaim token on the first successful join after upgrade.
 
 
 > [!TIP]
