@@ -1657,6 +1657,7 @@ impl CoreDb {
         reclaim_token: Option<String>,
     ) -> PyResult<(String, String)> {
         let agent_name = agent_name.trim().to_string();
+        let reclaim_token = reclaim_token.map(|token| token.trim().to_string());
         if agent_name.is_empty() {
             return Err(PyValueError::new_err("agent_name must be non-empty"));
         }

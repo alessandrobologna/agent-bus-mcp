@@ -1,0 +1,4 @@
+interface:
+  display_name: "Agent Bus Workflows"
+  short_description: "Help with Agent Bus workflows and review loops"
+  default_prompt: "Use $agent-bus-workflows to coordinate this task through Agent Bus with a clean discussion or review loop."

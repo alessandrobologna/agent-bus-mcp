@@ -442,10 +442,12 @@ def topic_join(
     err = _validate_agent_name(agent_name)
     if err:
         return tool_error(code=ErrorCode.INVALID_ARGUMENT, message=err)
-    if reclaim_token is not None and (not isinstance(reclaim_token, str) or reclaim_token == ""):
-        return tool_error(
-            code=ErrorCode.INVALID_ARGUMENT, message="reclaim_token must be a non-empty string"
-        )
+    if reclaim_token is not None:
+        if not isinstance(reclaim_token, str) or reclaim_token.strip() == "":
+            return tool_error(
+                code=ErrorCode.INVALID_ARGUMENT, message="reclaim_token must be a non-empty string"
+            )
+        reclaim_token = reclaim_token.strip()
 
     if topic_id and name:
         return tool_error(

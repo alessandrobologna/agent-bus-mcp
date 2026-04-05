@@ -243,6 +243,19 @@ def test_reserve_agent_name_requires_reclaim_token_and_does_not_mark_presence(tm
     assert db.get_presence(topic_id=topic.topic_id, window_seconds=300) == []
 
 
+def test_reserve_agent_name_rejects_blank_reclaim_token(tmp_path):
+    db = AgentBusDB(path=str(tmp_path / "bus.sqlite"))
+    topic = db.topic_create(name="pink", metadata=None, mode="new")
+    db.reserve_agent_name(topic_id=topic.topic_id, agent_name="codex")
+
+    with pytest.raises(ValueError, match="reclaim_token must be non-empty"):
+        db.reserve_agent_name(
+            topic_id=topic.topic_id,
+            agent_name="codex",
+            reclaim_token="   ",
+        )
+
+
 @pytest.mark.parametrize(
     ("agent_name", "message"),
     [
