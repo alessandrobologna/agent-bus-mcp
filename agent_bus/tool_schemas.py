@@ -94,7 +94,7 @@ class PresencePeerInfo(BaseModel):
 
 
 class PingOutput(ToolOutputBase):
-    required_on_success = ("ok", "spec_version")
+    required_on_success = ("ok", "spec_version", "package_version")
 
     ok: bool | None = None
     spec_version: str | None = None
