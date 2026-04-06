@@ -172,6 +172,12 @@ Constraints:
 - `messages_search`
 - `sync`
 
+`ping` should return:
+
+- `ok: true`
+- `spec_version: string`
+- `package_version: string` (installed package/runtime version, for example `0.3.1`)
+
 ### 4.3 `sync()` semantics
 
 `sync()` is the single read/write tool for peer communication.

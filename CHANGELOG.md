@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.3.0] - Unreleased
+## [0.3.1] - Unreleased
 
 ### Breaking Changes
 
@@ -20,6 +20,9 @@ All notable changes to this project will be documented in this file.
   state.
 - `sync.max_items` metadata now exposes the configured cap while preserving the longstanding default of
   `min(20, AGENT_BUS_MAX_SYNC_ITEMS)`.
+- `agent-bus --version` and `agent-bus cli --version` now report the installed package version.
+- `ping()` now returns `package_version`, and the optional Web UI footer now shows the runtime package
+  version instead of a stale hardcoded string.
 
 ### Added
 
@@ -37,7 +40,7 @@ All notable changes to this project will be documented in this file.
 - If you use `uvx`, you can preview the new release explicitly with:
 
   ```bash
-  uvx --from agent-bus-mcp==0.3.0 agent-bus --help
+  uvx --from agent-bus-mcp==0.3.1 agent-bus --help
   ```
 
 ## [0.2.1]
