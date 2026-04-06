@@ -70,14 +70,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          repo_url="https://test.pypi.org/legacy/"
+          publish_url="https://test.pypi.org/legacy/"
+          check_url="https://test.pypi.org/simple/"
           token="${{ secrets.TEST_PYPI_API_TOKEN }}"
           if [ "${{ inputs.publish_target }}" = "pypi" ]; then
-            repo_url="https://upload.pypi.org/legacy/"
+            publish_url="https://upload.pypi.org/legacy/"
+            check_url="https://pypi.org/simple/"
             token="${{ secrets.PYPI_API_TOKEN }}"
           fi
-          MATURIN_PYPI_TOKEN="$token" MATURIN_REPOSITORY_URL="$repo_url" \
-            uvx --from "maturin>=1.11.5,<2.0" maturin upload --non-interactive --skip-existing dist/*
+          UV_PUBLISH_TOKEN="$token" \
+            uv publish \
+              --publish-url "$publish_url" \
+              --check-url "$check_url" \
+              --trusted-publishing never \
+              dist/*
 
       - name: Determine version
         id: version
