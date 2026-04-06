@@ -7,10 +7,18 @@ from pathlib import Path
 import pytest
 from mcp.client.session import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
+from pydantic import ValidationError
+
+from agent_bus.tool_schemas import PingOutput
 
 
 def _bin(name: str) -> str:
     return str(Path(sys.executable).with_name(name))
+
+
+def test_ping_output_requires_package_version() -> None:
+    with pytest.raises(ValidationError, match="Missing required field: package_version"):
+        PingOutput(ok=True, spec_version="v6.3")
 
 
 @pytest.mark.anyio

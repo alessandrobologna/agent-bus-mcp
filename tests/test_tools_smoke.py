@@ -9,6 +9,8 @@ import pytest
 from mcp.client.session import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
+from agent_bus import __version__
+
 
 def _bin(name: str) -> str:
     return str(Path(sys.executable).with_name(name))
@@ -29,6 +31,8 @@ async def test_two_process_smoke(tmp_path):
         ping = await agent_a.call_tool("ping", {})
         assert ping.isError is False
         assert ping.structuredContent["spec_version"] == "v6.3"
+        assert ping.structuredContent["package_version"] == __version__
+        assert any(__version__ in getattr(c, "text", "") for c in ping.content)
         a_tools = await agent_a.list_tools()
         a_tool_names = {t.name for t in a_tools.tools}
         tools_by_name = {t.name: t for t in a_tools.tools}

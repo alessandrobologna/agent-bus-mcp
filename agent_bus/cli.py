@@ -10,9 +10,11 @@ from typing import Any, Literal, cast
 import click
 
 from agent_bus.db import AgentBusDB
+from agent_bus.version import __version__
 
 
 @click.group()
+@click.version_option(__version__, prog_name="agent-bus cli", message="%(prog)s %(version)s")
 @click.option(
     "--db-path",
     default=None,

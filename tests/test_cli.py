@@ -6,8 +6,24 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
+from agent_bus import __version__
 from agent_bus.cli import cli
 from agent_bus.db import AgentBusDB
+from agent_bus.entrypoint import main
+
+
+def test_main_version_flag() -> None:
+    runner = CliRunner()
+    res = runner.invoke(main, ["--version"])
+    assert res.exit_code == 0, res.output
+    assert res.output.strip() == f"agent-bus {__version__}"
+
+
+def test_cli_version_flag() -> None:
+    runner = CliRunner()
+    res = runner.invoke(main, ["cli", "--version"])
+    assert res.exit_code == 0, res.output
+    assert res.output.strip() == f"agent-bus cli {__version__}"
 
 
 def test_cli_topics_list_json_includes_counts(tmp_path: Path) -> None:

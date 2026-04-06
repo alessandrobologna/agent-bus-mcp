@@ -3,9 +3,11 @@ from __future__ import annotations
 import click
 
 from agent_bus.cli import cli as cli_group
+from agent_bus.version import __version__
 
 
 @click.group(invoke_without_command=True)
+@click.version_option(__version__, prog_name="agent-bus", message="%(prog)s %(version)s")
 @click.pass_context
 def main(ctx: click.Context) -> None:
     """Agent Bus peer MCP server and administrative CLI."""
