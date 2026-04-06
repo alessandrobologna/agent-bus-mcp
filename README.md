@@ -7,9 +7,8 @@ Local SQLite-backed MCP server for peer-to-peer agent communication.
 - Delta-based sync via server-side cursors (no “read everything” polling)
 - Optional web UI for browsing/exporting topics
 
-Upgrading from `0.1.x`? See [`CHANGELOG.md`](CHANGELOG.md) for the `0.2.0` migration steps.
-Installed `0.2.0` and use the optional Web UI? Upgrade to `0.2.1` for the `agent-bus serve`
-template-rendering fix.
+Upgrading from an older release? See [`CHANGELOG.md`](CHANGELOG.md) for migration steps and
+release-specific upgrade notes.
 
 ## Architecture
 
@@ -58,21 +57,23 @@ single-sourced and makes it reusable from other Rust apps (e.g., Tauri) without 
 
 Use [install-mcp](https://github.com/supermemoryai/install-mcp) to add the server to an MCP client.
 It supports clients such as `claude`, `cursor`, `vscode`, `opencode`, `gemini-cli` and `codex`.
+For long-lived MCP client config, prefer pinning a package version instead of relying on an unpinned
+`uvx` cache.
 
 ```bash
-npx install-mcp "uvx --from agent-bus-mcp agent-bus" --name agent-bus --client claude-code
+npx install-mcp "uvx --from agent-bus-mcp==<version> agent-bus" --name agent-bus --client claude-code
 ```
 
-Replace `claude-code` with your client name.
+Replace `claude-code` with your client name and replace `<version>` with the release you want to run.
 
 If you prefer to configure the client directly:
 
 ```bash
 # Codex
-codex mcp add agent-bus -- uvx --from agent-bus-mcp agent-bus
+codex mcp add agent-bus -- uvx --from agent-bus-mcp==<version> agent-bus
 
 # Claude Code
-claude mcp add agent-bus -- uvx --from agent-bus-mcp agent-bus
+claude mcp add agent-bus -- uvx --from agent-bus-mcp==<version> agent-bus
 ```
 
 For OpenCode, see the MCP Client Setup section below for the `opencode.json` snippet.
@@ -114,24 +115,44 @@ Package name is `agent-bus-mcp`; the CLI entrypoint is `agent-bus`.
 
 ### Option A: Run from PyPI with `uvx` (recommended)
 
-Run the MCP server over stdio:
+For ad hoc use, an unpinned command is fine:
 
 ```bash
 uvx --from agent-bus-mcp agent-bus --help
-# (then run the server)
-uvx --from agent-bus-mcp agent-bus
 ```
 
-Run CLI commands with the same `--from` value:
+For a stable setup, pin the release you want:
 
 ```bash
-uvx --from agent-bus-mcp agent-bus cli topics list --status all
+uvx --from "agent-bus-mcp==<version>" agent-bus --help
+# (then run the server)
+uvx --from "agent-bus-mcp==<version>" agent-bus
+```
+
+Run CLI commands with the same pinned `--from` value:
+
+```bash
+uvx --from "agent-bus-mcp==<version>" agent-bus cli topics list --status all
 ```
 
 Optional extras:
 
 ```bash
-uvx --from "agent-bus-mcp[web]" agent-bus serve
+uvx --from "agent-bus-mcp[web]==<version>" agent-bus serve
+```
+
+If you use an unpinned `uvx --from agent-bus-mcp ...` command and want to refresh it to the latest
+published release:
+
+```bash
+uvx --refresh-package agent-bus-mcp --from agent-bus-mcp agent-bus
+```
+
+Until `agent-bus --version` exists, use the package metadata directly to see which version an
+unpinned `uvx` command currently resolves on your machine:
+
+```bash
+uvx --from agent-bus-mcp python -c "import importlib.metadata as m; print(m.version('agent-bus-mcp'))"
 ```
 
 ### Option B: Clone and run locally (recommended for development)
@@ -159,12 +180,14 @@ export AGENT_BUS_DB="$HOME/.agent_bus/agent_bus.sqlite"
 ## MCP Client Setup
 
 Agent Bus runs as a local process.
-Use `uvx --from agent-bus-mcp agent-bus` as the server command. See also the Quickstart section above for `install-mcp` tool usage.
+For long-lived MCP client config, prefer a pinned package version so the resolved server version is
+explicit. Replace `<version>` below with the release you want to run. See also the Quickstart
+section above for `install-mcp` tool usage.
 
 ### Codex
 
 ```bash
-codex mcp add agent-bus -- uvx --from agent-bus-mcp agent-bus
+codex mcp add agent-bus -- uvx --from agent-bus-mcp==<version> agent-bus
 ```
 
 Equivalent `~/.codex/config.toml` entry:
@@ -172,13 +195,13 @@ Equivalent `~/.codex/config.toml` entry:
 ```toml
 [mcp_servers.agent-bus]
 command = "uvx"
-args = ["--from", "agent-bus-mcp", "agent-bus"]
+args = ["--from", "agent-bus-mcp==<version>", "agent-bus"]
 ```
 
 ### Claude Code
 
 ```bash
-claude mcp add agent-bus -- uvx --from agent-bus-mcp agent-bus
+claude mcp add agent-bus -- uvx --from agent-bus-mcp==<version> agent-bus
 ```
 
 Equivalent project-scoped `.mcp.json` entry:
@@ -188,7 +211,7 @@ Equivalent project-scoped `.mcp.json` entry:
   "mcpServers": {
     "agent-bus": {
       "command": "uvx",
-      "args": ["--from", "agent-bus-mcp", "agent-bus"],
+      "args": ["--from", "agent-bus-mcp==<version>", "agent-bus"],
       "env": {}
     }
   }
@@ -205,7 +228,7 @@ OpenCode supports interactive MCP setup via `opencode mcp add`, but the explicit
   "mcp": {
     "agent-bus": {
       "type": "local",
-      "command": ["uvx", "--from", "agent-bus-mcp", "agent-bus"],
+      "command": ["uvx", "--from", "agent-bus-mcp==<version>", "agent-bus"],
       "enabled": true
     }
   }
@@ -215,7 +238,7 @@ OpenCode supports interactive MCP setup via `opencode mcp add`, but the explicit
 ### Gemini CLI
 
 ```bash
-gemini mcp add agent-bus uvx -- --from agent-bus-mcp agent-bus
+gemini mcp add agent-bus uvx -- --from agent-bus-mcp==<version> agent-bus
 ```
 
 ## Usage (MCP tools)
@@ -285,13 +308,14 @@ uv run agent-bus serve
 From PyPI (no checkout):
 
 ```bash
-uvx --from "agent-bus-mcp[web]" agent-bus serve
+uvx --from "agent-bus-mcp[web]==<version>" agent-bus serve
 ```
 
-If you already cached `0.2.0` via `uvx` and want to force the patch upgrade explicitly:
+If you use an unpinned `uvx --from "agent-bus-mcp[web]" ...` command and want to refresh it to the
+latest published release:
 
 ```bash
-uvx --refresh-package agent-bus-mcp --from "agent-bus-mcp[web]==0.2.1" agent-bus serve
+uvx --refresh-package agent-bus-mcp --from "agent-bus-mcp[web]" agent-bus serve
 ```
 
 From GitHub (no checkout, builds from source):
