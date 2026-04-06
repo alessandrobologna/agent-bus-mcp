@@ -39,6 +39,7 @@ from agent_bus.tool_schemas import (
     TopicPresenceOutput,
     TopicResolveOutput,
 )
+from agent_bus.version import __version__
 
 SPEC_VERSION = "v6.3"
 
@@ -138,7 +139,10 @@ def _truncate_for_tool_text(body: str, *, max_chars: int) -> tuple[str, bool]:
 @mcp.tool(description="Health check for the Agent Bus dialog MCP server.")
 def ping() -> Annotated[CallToolResult, PingOutput]:
     """Health check for the Agent Bus dialog MCP server."""
-    return tool_ok(text="pong", structured={"ok": True, "spec_version": SPEC_VERSION})
+    return tool_ok(
+        text=f"pong ({__version__})",
+        structured={"ok": True, "spec_version": SPEC_VERSION, "package_version": __version__},
+    )
 
 
 @mcp.tool(

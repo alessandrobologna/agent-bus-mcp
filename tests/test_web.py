@@ -4,6 +4,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from agent_bus import __version__
 from agent_bus.web import server as web_server
 
 
@@ -17,6 +18,7 @@ def test_web_topics_list_renders(tmp_path: Path) -> None:
 
     assert res.status_code == 200
     assert "pink" in res.text
+    assert f"agent-bus v{__version__}" in res.text
 
 
 def test_web_topic_detail_renders(tmp_path: Path) -> None:

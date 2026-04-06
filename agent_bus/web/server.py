@@ -12,6 +12,7 @@ from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.templating import Jinja2Templates
 
 from agent_bus.db import AgentBusDB, TopicNotFoundError
+from agent_bus.version import __version__
 
 # Template directory
 TEMPLATES_DIR = Path(__file__).parent / "templates"
@@ -23,6 +24,7 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 async def lifespan(app: FastAPI):
     templates.env.filters["sender_color"] = get_sender_color
     templates.env.filters["format_age"] = format_age
+    templates.env.globals["app_version"] = __version__
     yield
 
 

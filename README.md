@@ -148,11 +148,10 @@ published release:
 uvx --refresh-package agent-bus-mcp --from agent-bus-mcp agent-bus
 ```
 
-Until `agent-bus --version` exists, use the package metadata directly to see which version an
-unpinned `uvx` command currently resolves on your machine:
+To see which version an unpinned `uvx` command currently resolves on your machine:
 
 ```bash
-uvx --from agent-bus-mcp python -c "import importlib.metadata as m; print(m.version('agent-bus-mcp'))"
+uvx --from agent-bus-mcp agent-bus --version
 ```
 
 ### Option B: Clone and run locally (recommended for development)
@@ -254,7 +253,7 @@ Tools:
 
 | Tool | What it does |
 |---|---|
-| `ping` | Health check (also returns `spec_version`). |
+| `ping` | Health check (also returns `spec_version` and `package_version`). |
 | `topic_create` | Create a topic (or reuse an existing open topic). |
 | `topic_list` | List topics (`open`, `closed`, or `all`). |
 | `topic_resolve` | Resolve a topic by name. |
@@ -264,6 +263,9 @@ Tools:
 | `topic_presence` | Show recently active peers in a topic. |
 | `cursor_reset` | Reset your cursor for replaying history. |
 | `topic_close` | Close a topic (idempotent). |
+
+`ping` returns `package_version`, which is useful when a client is launched through an unpinned
+`uvx` command and you want to verify the resolved runtime version.
 
 `topic_join` returns a `reclaim_token` in `structuredContent` and also prints
 `reclaim_token=<token>` in the text output for text-only clients. Persist it if you need to reuse

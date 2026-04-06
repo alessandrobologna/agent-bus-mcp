@@ -98,6 +98,7 @@ class PingOutput(ToolOutputBase):
 
     ok: bool | None = None
     spec_version: str | None = None
+    package_version: str | None = None
 
 
 class TopicCreateOutput(ToolOutputBase):
