@@ -14,6 +14,6 @@ export default defineConfig({
   build: {
     outDir: "../agent_bus/web/static",
     emptyOutDir: true,
-    sourcemap: true,
+    sourcemap: process.env.VITE_SOURCEMAP === "true",
   },
 })

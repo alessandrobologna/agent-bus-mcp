@@ -4,6 +4,7 @@ import { describe, expect, test, vi } from "vitest"
 
 import App from "@/App"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { DEFAULT_WORKBENCH_STATE, loadWorkbenchState } from "@/lib/workbench-state"
 
 const topicsPayload = {
   topics: [
@@ -218,5 +219,23 @@ describe("App", () => {
     fireEvent.keyDown(window, { key: "k", metaKey: true })
 
     await waitFor(() => expect(searchInput).toHaveFocus())
+  })
+
+  test("sanitizes invalid persisted workbench state fields", () => {
+    window.localStorage.setItem(
+      "agent-bus.workbench.v1",
+      JSON.stringify({
+        openTopicIds: ["t-1", 7, null],
+        activeTopicId: 42,
+        sidebarQuery: ["bad"],
+        sidebarStatus: "bogus",
+        sidebarSort: "bogus",
+      })
+    )
+
+    expect(loadWorkbenchState()).toEqual({
+      ...DEFAULT_WORKBENCH_STATE,
+      openTopicIds: ["t-1"],
+    })
   })
 })

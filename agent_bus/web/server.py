@@ -6,6 +6,7 @@ import asyncio
 import json
 import time
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any, Literal, cast
 
@@ -173,10 +174,11 @@ def get_topic_summary(db: AgentBusDB, *, topic_id: str) -> dict[str, Any]:
 
 
 def serialize_topic_messages(
+    db: AgentBusDB,
     messages: list[Message],
 ) -> tuple[list[dict[str, Any]], int | None, int | None]:
     reply_to_ids = [message.reply_to for message in messages if message.reply_to]
-    sender_lookup = get_db().get_senders_by_message_ids(reply_to_ids) if reply_to_ids else {}
+    sender_lookup = db.get_senders_by_message_ids(reply_to_ids) if reply_to_ids else {}
     payload = [serialize_message(message, sender_lookup) for message in messages]
     first_seq = messages[0].seq if messages else None
     last_seq = messages[-1].seq if messages else None
@@ -233,6 +235,10 @@ def topics_signature(db: AgentBusDB) -> list[tuple[str, int, float, str, float |
     ]
 
 
+def format_export_timestamp(timestamp: float) -> str:
+    return datetime.fromtimestamp(timestamp, UTC).isoformat().replace("+00:00", "Z")
+
+
 def topic_stream_state(db: AgentBusDB, *, topic_id: str) -> dict[str, Any]:
     summary = get_topic_summary(db, topic_id=topic_id)
     presence = db.get_presence(topic_id=topic_id, window_seconds=PRESENCE_WINDOW_SECONDS)
@@ -283,7 +289,7 @@ async def api_topic_detail(topic_id: str, focus: str | None = None) -> dict[str,
     else:
         messages = db.get_latest_messages(topic_id=topic_id, limit=DEFAULT_PAGE_SIZE)
 
-    payload, first_seq, last_seq = serialize_topic_messages(messages)
+    payload, first_seq, last_seq = serialize_topic_messages(db, messages)
     presence = db.get_presence(topic_id=topic_id, window_seconds=PRESENCE_WINDOW_SECONDS)
 
     return {
@@ -319,7 +325,7 @@ async def api_topic_messages(
         before_seq=before_seq,
         limit=limit,
     )
-    payload, first_seq, last_seq = serialize_topic_messages(messages)
+    payload, first_seq, last_seq = serialize_topic_messages(db, messages)
     return {
         "messages": payload,
         "first_seq": first_seq,
@@ -383,7 +389,7 @@ async def api_topic_export(topic_id: str) -> PlainTextResponse:
     ]
     for message in messages:
         lines.append(f"### [{message.seq}] {message.sender}")
-        lines.append(f"*{message.created_at}*")
+        lines.append(f"*{format_export_timestamp(message.created_at)}*")
         if message.reply_to:
             lines.append(f"*Reply to: {message.reply_to}*")
         lines.append("")

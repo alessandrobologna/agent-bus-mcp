@@ -1264,7 +1264,9 @@ impl CoreDb {
         let order_sql = match sort.as_str() {
             "created_asc" => "t.created_at ASC",
             "created_desc" => "t.created_at DESC",
-            "last_updated_desc" => "COALESCE(MAX(m.created_at), t.created_at) DESC, t.created_at DESC",
+            "last_updated_desc" => {
+                "COALESCE(MAX(m.created_at), t.created_at) DESC, t.created_at DESC"
+            }
             _ => {
                 return Err(PyValueError::new_err(
                     "sort must be one of: created_asc, created_desc, last_updated_desc",
@@ -2834,8 +2836,10 @@ fn topic_count_to_dict(py: Python<'_>, row: &TopicCountRow) -> Py<PyAny> {
     counts.set_item("messages", row.message_count).unwrap();
     counts.set_item("last_seq", row.last_seq).unwrap();
     dict.set_item("counts", counts).unwrap();
-    dict.set_item("last_message_at", row.last_message_at).unwrap();
-    dict.set_item("last_updated_at", row.last_updated_at).unwrap();
+    dict.set_item("last_message_at", row.last_message_at)
+        .unwrap();
+    dict.set_item("last_updated_at", row.last_updated_at)
+        .unwrap();
     dict.into()
 }
 

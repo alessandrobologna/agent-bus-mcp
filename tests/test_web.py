@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import asyncio
-import time
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from agent_bus import db as db_module
 from agent_bus import search as search_module
 from agent_bus.web import server as web_server
 
@@ -41,8 +42,19 @@ def seed_topic_message(db, topic_id: str, sender: str, content: str) -> None:
     )
 
 
+def install_fake_now(monkeypatch, *, start: float = 1_700_000_000.0, step: float = 1.0) -> None:
+    current = {"value": start - step}
+
+    def fake_now() -> float:
+        current["value"] += step
+        return current["value"]
+
+    monkeypatch.setattr(db_module, "now", fake_now)
+
+
 def test_spa_shell_routes_serve_index(tmp_path: Path, monkeypatch) -> None:
     prepare_static_bundle(tmp_path, monkeypatch)
+    install_fake_now(monkeypatch)
     web_server.init_db(str(tmp_path / "bus.sqlite"))
     db = web_server.get_db()
     topic = db.topic_create(name="pink", metadata=None, mode="new")
@@ -59,12 +71,11 @@ def test_spa_shell_routes_serve_index(tmp_path: Path, monkeypatch) -> None:
 
 def test_api_topics_returns_last_updated_sorting(tmp_path: Path, monkeypatch) -> None:
     prepare_static_bundle(tmp_path, monkeypatch)
+    install_fake_now(monkeypatch)
     web_server.init_db(str(tmp_path / "bus.sqlite"))
     db = web_server.get_db()
     first = db.topic_create(name="first", metadata=None, mode="new")
-    time.sleep(0.01)
     db.topic_create(name="second", metadata=None, mode="new")
-    time.sleep(0.02)
     seed_topic_message(db, first.topic_id, "alice", "latest note")
 
     with TestClient(web_server.app) as client:
@@ -80,12 +91,11 @@ def test_api_topics_last_updated_sort_includes_older_recently_updated_topic(
     tmp_path: Path, monkeypatch
 ) -> None:
     prepare_static_bundle(tmp_path, monkeypatch)
+    install_fake_now(monkeypatch)
     web_server.init_db(str(tmp_path / "bus.sqlite"))
     db = web_server.get_db()
     oldest = db.topic_create(name="oldest", metadata=None, mode="new")
-    time.sleep(0.01)
     db.topic_create(name="middle", metadata=None, mode="new")
-    time.sleep(0.01)
     newest = db.topic_create(name="newest", metadata=None, mode="new")
     seed_topic_message(db, oldest.topic_id, "alice", "fresh update")
 
@@ -99,6 +109,7 @@ def test_api_topics_last_updated_sort_includes_older_recently_updated_topic(
 
 def test_api_topic_detail_with_focus_returns_context_window(tmp_path: Path, monkeypatch) -> None:
     prepare_static_bundle(tmp_path, monkeypatch)
+    install_fake_now(monkeypatch)
     web_server.init_db(str(tmp_path / "bus.sqlite"))
     db = web_server.get_db()
     topic = db.topic_create(name="pink", metadata=None, mode="new")
@@ -119,6 +130,7 @@ def test_api_topic_detail_with_focus_returns_context_window(tmp_path: Path, monk
 
 def test_api_global_search_returns_json(tmp_path: Path, monkeypatch) -> None:
     prepare_static_bundle(tmp_path, monkeypatch)
+    install_fake_now(monkeypatch)
     web_server.init_db(str(tmp_path / "bus.sqlite"))
     db = web_server.get_db()
     topic = db.topic_create(name="violet", metadata=None, mode="new")
@@ -157,6 +169,7 @@ def test_api_global_search_returns_json(tmp_path: Path, monkeypatch) -> None:
 
 def test_api_delete_routes_remove_messages_and_topics(tmp_path: Path, monkeypatch) -> None:
     prepare_static_bundle(tmp_path, monkeypatch)
+    install_fake_now(monkeypatch)
     web_server.init_db(str(tmp_path / "bus.sqlite"))
     db = web_server.get_db()
     topic = db.topic_create(name="pink", metadata=None, mode="new")
@@ -180,6 +193,7 @@ def test_api_delete_routes_remove_messages_and_topics(tmp_path: Path, monkeypatc
 
 def test_api_topics_stream_uses_sse_framing(tmp_path: Path, monkeypatch) -> None:
     prepare_static_bundle(tmp_path, monkeypatch)
+    install_fake_now(monkeypatch)
     web_server.init_db(str(tmp_path / "bus.sqlite"))
     db = web_server.get_db()
     db.topic_create(name="pink", metadata=None, mode="new")
@@ -198,6 +212,7 @@ def test_api_topics_stream_uses_sse_framing(tmp_path: Path, monkeypatch) -> None
 
 def test_topic_stream_state_changes_after_non_tail_message_delete(tmp_path: Path, monkeypatch) -> None:
     prepare_static_bundle(tmp_path, monkeypatch)
+    install_fake_now(monkeypatch)
     web_server.init_db(str(tmp_path / "bus.sqlite"))
     db = web_server.get_db()
     topic = db.topic_create(name="pink", metadata=None, mode="new")
@@ -213,3 +228,19 @@ def test_topic_stream_state_changes_after_non_tail_message_delete(tmp_path: Path
     assert before["message_count"] == 2
     assert after["message_count"] == 1
     assert before != after
+
+
+def test_api_topic_export_uses_iso_timestamps(tmp_path: Path, monkeypatch) -> None:
+    prepare_static_bundle(tmp_path, monkeypatch)
+    install_fake_now(monkeypatch)
+    web_server.init_db(str(tmp_path / "bus.sqlite"))
+    db = web_server.get_db()
+    topic = db.topic_create(name="alpha", metadata=None, mode="new")
+    seed_topic_message(db, topic.topic_id, "alice", "hello")
+
+    with TestClient(web_server.app) as client:
+        res = client.get(f"/api/topics/{topic.topic_id}/export")
+
+    assert res.status_code == 200
+    expected = datetime.fromtimestamp(1_700_000_001, UTC).isoformat().replace("+00:00", "Z")
+    assert expected in res.text

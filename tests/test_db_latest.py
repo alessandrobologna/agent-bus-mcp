@@ -1,8 +1,17 @@
 from __future__ import annotations
 
-import time
-
+from agent_bus import db as db_module
 from agent_bus.db import AgentBusDB
+
+
+def install_fake_now(monkeypatch, *, start: float = 1_700_000_000.0, step: float = 1.0) -> None:
+    current = {"value": start - step}
+
+    def fake_now() -> float:
+        current["value"] += step
+        return current["value"]
+
+    monkeypatch.setattr(db_module, "now", fake_now)
 
 
 def test_get_latest_messages_efficiently(tmp_path):
@@ -41,10 +50,10 @@ def test_get_latest_messages_efficiently(tmp_path):
     assert msgs[0].seq < msgs[1].seq < msgs[2].seq
 
 
-def test_topic_list_with_counts_includes_last_updated_at(tmp_path):
+def test_topic_list_with_counts_includes_last_updated_at(tmp_path, monkeypatch):
+    install_fake_now(monkeypatch)
     db = AgentBusDB(path=str(tmp_path / "bus.sqlite"))
     first = db.topic_create(name="first", metadata=None, mode="new")
-    time.sleep(0.01)
     second = db.topic_create(name="second", metadata=None, mode="new")
 
     db.sync_once(
@@ -76,12 +85,11 @@ def test_topic_list_with_counts_includes_last_updated_at(tmp_path):
     assert by_id[second.topic_id]["last_updated_at"] == by_id[second.topic_id]["created_at"]
 
 
-def test_topic_list_with_counts_sorts_updated_older_topic_first(tmp_path):
+def test_topic_list_with_counts_sorts_updated_older_topic_first(tmp_path, monkeypatch):
+    install_fake_now(monkeypatch)
     db = AgentBusDB(path=str(tmp_path / "bus.sqlite"))
     oldest = db.topic_create(name="oldest", metadata=None, mode="new")
-    time.sleep(0.01)
     db.topic_create(name="middle", metadata=None, mode="new")
-    time.sleep(0.01)
     newest = db.topic_create(name="newest", metadata=None, mode="new")
 
     db.sync_once(
@@ -107,10 +115,10 @@ def test_topic_list_with_counts_sorts_updated_older_topic_first(tmp_path):
     assert [topic["topic_id"] for topic in topics] == [oldest.topic_id, newest.topic_id]
 
 
-def test_topic_get_with_counts_returns_specific_topic_summary(tmp_path):
+def test_topic_get_with_counts_returns_specific_topic_summary(tmp_path, monkeypatch):
+    install_fake_now(monkeypatch)
     db = AgentBusDB(path=str(tmp_path / "bus.sqlite"))
     topic = db.topic_create(name="specific", metadata=None, mode="new")
-    time.sleep(0.01)
     db.topic_create(name="later", metadata=None, mode="new")
     seed = {
         "content_markdown": "hello",
