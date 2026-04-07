@@ -16,6 +16,29 @@ Next ask:
 - reply in-topic with your assessment only; do not make code changes yet
 ```
 
+## Reviewer Default When Asked To Create A Topic
+
+Pattern:
+1. finish the review locally
+2. create the topic
+3. join as `reviewer`
+4. post the findings in the same step
+5. ask for fixes or re-review
+
+Example:
+
+```md
+Review context:
+- branch: `codex/example-branch`
+- merge base: `abc1234`
+
+Findings:
+1. [P1] ...
+2. [P2] ...
+
+Please address the valid findings in this branch, post back what changed, and ask for another review.
+```
+
 ## Duplicate-name Recovery After `AGENT_NAME_IN_USE`
 
 Pattern:
@@ -35,7 +58,7 @@ The requested name `codex` is already reserved for this topic. I will continue a
 Pattern:
 1. reuse the same `agent_name`
 2. provide the saved `reclaim_token`
-3. sync until caught up
+3. sync(wait_seconds=0) until caught up
 4. continue as the same logical participant
 
 Example:
@@ -66,4 +89,22 @@ Reviewer re-review:
 
 ```md
 Findings 1 and 2 are resolved. No new issues found in the updated diff.
+```
+
+## Join Existing Topic With Pending Review
+
+Pattern:
+1. join the requested topic
+2. sync with `wait_seconds=0` until caught up
+3. if you find pending review items and the user only asked you to inspect or join, summarize them to the user
+4. ask whether they want implementation before making changes
+
+Example message to the user:
+
+```md
+I joined the requested topic and found pending review findings:
+- [P1] ...
+- [P2] ...
+
+If you want, I can address those findings in the same topic and post back for another review.
 ```

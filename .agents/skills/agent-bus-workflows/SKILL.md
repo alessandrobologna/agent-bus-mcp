@@ -27,12 +27,14 @@ Read [references/examples.md](references/examples.md) when you need concrete mes
   - choose a meaningful fallback name from the suggestions.
 - Prefer joining by `topic_id` when available. Use `name` only when a topic id is not available yet.
 - Keep `sync.max_items <= 20`.
-- Loop `sync()` until `has_more=false` when catching up on topic history.
+- When catching up on topic history, call `sync(wait_seconds=0)` repeatedly until `has_more=false`.
 - Keep polling bounded by default:
   - 3 rounds
   - `wait_seconds=5`
   - `max_items=20`
 - Persist or remember the last successful `agent_name` plus `reclaim_token` for reconnects.
+- If the user asks you to create a topic after you already have review findings, assume the intent includes joining as a reviewer and posting those findings in the new topic.
+- If the user asks you to join or check an existing topic and you discover pending review findings, summarize them to the user and ask whether they want them addressed unless they already explicitly asked for implementation.
 
 ## Workflow: Start Or Join A Topic
 
@@ -42,8 +44,9 @@ Use this when the user did not provide an established topic.
 
 1. Create a topic unless the user clearly asked to reuse an existing one.
 2. Join it with a semantic role name.
-3. Post an opening message with enough context for the next participant to act without guessing.
-4. Poll briefly after posting.
+3. If you already have review findings, post them immediately in a reviewer role instead of creating an empty placeholder topic.
+4. Otherwise post an opening message with enough context for the next participant to act without guessing.
+5. Poll briefly after posting.
 
 Opening messages should include:
 - the purpose of the topic
@@ -57,15 +60,16 @@ Use this when the user provides a topic id, topic name, or says a thread already
 
 1. Join the topic first.
 2. If only a topic name is available, resolve or join by name and prefer the returned `topic_id` afterward.
-3. Call `sync()` until fully caught up.
-4. Only then post your reply or start implementing.
+3. Call `sync(wait_seconds=0)` until fully caught up.
+4. If the topic contains pending review findings and the user only asked you to join or inspect the topic, summarize those findings to the user and ask whether they want them addressed.
+5. Stop there until the user answers. Only post a reply in-topic or start implementing after the user confirms what they want next.
 
 ## Workflow: Generic Discussion Or Handoff
 
 Use this for lightweight coordination, brainstorming, or passing work between agents.
 
 1. Create or join the topic.
-2. Sync until caught up.
+2. Sync with `wait_seconds=0` until caught up.
 3. Post a message that makes the next step obvious.
 4. Poll up to 3 times for responses.
 5. Stop and report back if nothing new arrives.
@@ -82,6 +86,8 @@ Do not leave vague messages like "take a look" or "thoughts?" without context.
 ## Workflow: Code Review Reviewer
 
 Use this when you are reviewing changes and publishing findings through Agent Bus.
+
+If the user asks you to create a topic after you already have findings, assume they want the full reviewer handoff: create the topic, join it as a reviewer, post the findings, and ask for fixes or re-review. Do not stop after topic creation alone.
 
 1. Create a review topic unless one is already established.
 2. Join with a reviewer-style name.
@@ -103,8 +109,10 @@ Reviewer messages should separate:
 
 Use this when the user says there is review feedback in an Agent Bus topic and wants you to address it.
 
+If the user only asked you to join or inspect a topic and you find pending review items there, do not assume implementation. First summarize the findings to the user and ask whether they want you to address them.
+
 1. Join the provided topic.
-2. Sync until fully caught up.
+2. Sync with `wait_seconds=0` until fully caught up.
 3. Summarize the findings into:
   - valid and will fix
   - unclear and needs user confirmation
@@ -124,7 +132,7 @@ Do not silently dismiss findings. If a finding is not valid, explain why in-topi
 Use this after the implementer posts a fix and asks for validation.
 
 1. Stay in the same topic.
-2. Sync until caught up.
+2. Sync with `wait_seconds=0` until caught up.
 3. Validate the claimed fixes.
 4. Post one of:
   - all reviewed findings resolved
@@ -153,8 +161,9 @@ Keep re-review messages short and decisive. Avoid re-triaging the entire history
 
 ### No visible messages after posting
 
-- Reset the cursor and sync again before assuming nothing happened.
-- Be careful with same-sender history and `include_self=false`.
+- Check `sync().sent` first. With the default `include_self=false`, a successful post may still leave `received` empty.
+- Use `include_self=true` only when you specifically need a self-echo.
+- Reserve `cursor_reset(topic_id=..., last_seq=0)` for real replay or cursor-recovery needs, not routine confirmation of your own post.
 
 ### Polling discipline
 
