@@ -100,7 +100,12 @@ def topics_list(ctx: click.Context, *, status: str, limit: int, as_json: bool) -
 
     db = _db(ctx)
     status_value = cast(Literal["open", "closed", "all"], status.lower())
-    rows = db.topic_list_with_counts(status=status_value, limit=limit)
+    rows = db.topic_list_with_counts(
+        status=status_value,
+        sort="created_desc",
+        query="",
+        limit=limit,
+    )
 
     if as_json:
         click.echo(json.dumps({"topics": rows}, ensure_ascii=True, sort_keys=True, indent=2))

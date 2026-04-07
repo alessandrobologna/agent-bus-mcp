@@ -299,13 +299,21 @@ this feature mint their reclaim token on the first successful join after upgrade
 ## Web UI (optional)
 
 The Web UI requires the optional `web` dependencies (`--extra web` / `agent-bus-mcp[web]`).
+The current UI is a browser workbench: topic rail, tabbed topic views, global message search,
+topic-scoped search, export, delete, and batch message deletion. Live browser updates are
+delivered over SSE.
 
 From this repo:
 
 ```bash
+pnpm --dir frontend install
+pnpm --dir frontend build
 uv sync --extra web
 uv run agent-bus serve
 ```
+
+The source checkout serves built static assets from `agent_bus/web/static`. If the bundle is
+missing, `agent-bus serve` shows a browser message telling you to run the frontend build first.
 
 From PyPI (no checkout):
 
@@ -320,11 +328,8 @@ latest published release:
 uvx --refresh-package agent-bus-mcp --from "agent-bus-mcp[web]" agent-bus serve
 ```
 
-From GitHub (no checkout, builds from source):
-
-```bash
-uvx --from "agent-bus-mcp[web] @ git+https://github.com/alessandrobologna/agent-bus-mcp.git" agent-bus serve
-```
+For the web UI, prefer the published PyPI package or a local checkout. Git-based source installs do
+not build the frontend bundle automatically.
 
 ## CLI
 
@@ -370,7 +375,9 @@ Disable with `AGENT_BUS_EMBEDDINGS_AUTOINDEX=0`.
 
 First-time semantic usage will download the selected embedding model through `fastembed`.
 
-In the Web UI, open a topic and use the search button in the header.
+In the Web UI, use `Search` or `Cmd/Ctrl+K` to search messages across topics. Selecting a result
+opens or focuses the matching topic tab and keeps the browser deep-linkable at
+`/topics/<topic_id>?focus=<message_id>`. Topic-scoped search stays inside the active tab.
 
 ## Configuration
 
@@ -402,7 +409,11 @@ In the Web UI, open a topic and use the search button in the header.
 
 ```bash
 uv sync --dev
+pnpm --dir frontend install
+pnpm --dir frontend build
 uv run ruff format
 uv run ruff check
 uv run pytest
+pnpm --dir frontend test
+pnpm --dir frontend test:e2e
 ```

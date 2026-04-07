@@ -140,6 +140,8 @@ struct TopicCountRow {
     metadata_json: Option<String>,
     message_count: i64,
     last_seq: i64,
+    last_message_at: Option<f64>,
+    last_updated_at: f64,
 }
 
 #[derive(Debug)]
@@ -1238,15 +1240,39 @@ impl CoreDb {
         &self,
         py: Python<'_>,
         status: String,
+        sort: String,
+        query: Option<String>,
         limit: usize,
     ) -> PyResult<Py<PyAny>> {
         let conn = self.connect()?;
-        let mut where_sql = String::new();
+        let mut where_clauses: Vec<&str> = vec![];
         let mut params: Vec<Value> = vec![];
         if status == "open" || status == "closed" {
-            where_sql = "WHERE t.status = ?".to_string();
+            where_clauses.push("t.status = ?");
             params.push(Value::from(status));
         }
+        let query = query.unwrap_or_default().trim().to_string();
+        if !query.is_empty() {
+            where_clauses.push("LOWER(t.name) LIKE ?");
+            params.push(Value::from(format!("%{}%", query.to_lowercase())));
+        }
+        let where_sql = if where_clauses.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {}", where_clauses.join(" AND "))
+        };
+        let order_sql = match sort.as_str() {
+            "created_asc" => "t.created_at ASC",
+            "created_desc" => "t.created_at DESC",
+            "last_updated_desc" => {
+                "COALESCE(MAX(m.created_at), t.created_at) DESC, t.created_at DESC"
+            }
+            _ => {
+                return Err(PyValueError::new_err(
+                    "sort must be one of: created_asc, created_desc, last_updated_desc",
+                ))
+            }
+        };
         params.push(Value::from(limit as i64));
 
         let sql = format!(
@@ -1260,12 +1286,14 @@ impl CoreDb {
               t.close_reason,
               t.metadata_json,
               COUNT(m.message_id) AS message_count,
-              COALESCE(MAX(m.seq), 0) AS last_seq
+              COALESCE(MAX(m.seq), 0) AS last_seq,
+              MAX(m.created_at) AS last_message_at,
+              COALESCE(MAX(m.created_at), t.created_at) AS last_updated_at
             FROM topics t
             LEFT JOIN messages m ON m.topic_id = t.topic_id
             {where_sql}
             GROUP BY t.topic_id
-            ORDER BY t.created_at DESC
+            ORDER BY {order_sql}
             LIMIT ?
             "
         );
@@ -1283,6 +1311,8 @@ impl CoreDb {
                     metadata_json: row.get("metadata_json")?,
                     message_count: row.get("message_count")?,
                     last_seq: row.get("last_seq")?,
+                    last_message_at: row.get("last_message_at")?,
+                    last_updated_at: row.get("last_updated_at")?,
                 })
             })
             .map_err(map_db_error)?
@@ -1291,21 +1321,55 @@ impl CoreDb {
 
         let out = PyList::empty(py);
         for row in rows {
-            let dict = PyDict::new(py);
-            dict.set_item("topic_id", row.topic_id)?;
-            dict.set_item("name", row.name)?;
-            dict.set_item("status", row.status)?;
-            dict.set_item("created_at", row.created_at)?;
-            dict.set_item("closed_at", row.closed_at)?;
-            dict.set_item("close_reason", row.close_reason)?;
-            dict.set_item("metadata_json", row.metadata_json)?;
-            let counts = PyDict::new(py);
-            counts.set_item("messages", row.message_count)?;
-            counts.set_item("last_seq", row.last_seq)?;
-            dict.set_item("counts", counts)?;
-            out.append(dict)?;
+            out.append(topic_count_to_dict(py, &row)?)?;
         }
         Ok(out.into())
+    }
+
+    fn topic_get_with_counts(&self, py: Python<'_>, topic_id: String) -> PyResult<Py<PyAny>> {
+        let conn = self.connect()?;
+        let row = conn
+            .query_row(
+                "
+                SELECT
+                  t.topic_id,
+                  t.name,
+                  t.status,
+                  t.created_at,
+                  t.closed_at,
+                  t.close_reason,
+                  t.metadata_json,
+                  COUNT(m.message_id) AS message_count,
+                  COALESCE(MAX(m.seq), 0) AS last_seq,
+                  MAX(m.created_at) AS last_message_at,
+                  COALESCE(MAX(m.created_at), t.created_at) AS last_updated_at
+                FROM topics t
+                LEFT JOIN messages m ON m.topic_id = t.topic_id
+                WHERE t.topic_id = ?
+                GROUP BY t.topic_id
+                ",
+                params![topic_id],
+                |row| {
+                    Ok(TopicCountRow {
+                        topic_id: row.get("topic_id")?,
+                        name: row.get("name")?,
+                        status: row.get("status")?,
+                        created_at: row.get("created_at")?,
+                        closed_at: row.get("closed_at")?,
+                        close_reason: row.get("close_reason")?,
+                        metadata_json: row.get("metadata_json")?,
+                        message_count: row.get("message_count")?,
+                        last_seq: row.get("last_seq")?,
+                        last_message_at: row.get("last_message_at")?,
+                        last_updated_at: row.get("last_updated_at")?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(map_db_error)?;
+        let row = row.ok_or_else(|| TopicNotFoundError::new_err(topic_id))?;
+
+        topic_count_to_dict(py, &row)
     }
 
     fn topic_close(
@@ -2757,6 +2821,24 @@ fn topic_to_dict(py: Python<'_>, topic: &TopicRow) -> Py<PyAny> {
     dict.set_item("metadata_json", &topic.metadata_json)
         .unwrap();
     dict.into()
+}
+
+fn topic_count_to_dict(py: Python<'_>, row: &TopicCountRow) -> PyResult<Py<PyAny>> {
+    let dict = PyDict::new(py);
+    dict.set_item("topic_id", &row.topic_id)?;
+    dict.set_item("name", &row.name)?;
+    dict.set_item("status", &row.status)?;
+    dict.set_item("created_at", row.created_at)?;
+    dict.set_item("closed_at", row.closed_at)?;
+    dict.set_item("close_reason", &row.close_reason)?;
+    dict.set_item("metadata_json", &row.metadata_json)?;
+    let counts = PyDict::new(py);
+    counts.set_item("messages", row.message_count)?;
+    counts.set_item("last_seq", row.last_seq)?;
+    dict.set_item("counts", counts)?;
+    dict.set_item("last_message_at", row.last_message_at)?;
+    dict.set_item("last_updated_at", row.last_updated_at)?;
+    Ok(dict.into())
 }
 
 fn message_to_dict(py: Python<'_>, msg: &MessageRow) -> Py<PyAny> {

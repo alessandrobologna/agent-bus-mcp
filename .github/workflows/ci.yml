@@ -15,8 +15,55 @@ on:
 
 env:
   ORT_VERSION: "1.23.2"
+  NODE_VERSION: "24"
 
 jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Sync deps
+        run: uv sync --dev
+
+      - name: Build extension
+        run: uv run maturin develop
+
+      - name: Install frontend dependencies
+        run: pnpm --dir frontend install --frozen-lockfile
+
+      - name: Frontend unit tests
+        run: pnpm --dir frontend test
+
+      - name: Frontend build
+        run: pnpm --dir frontend build
+
+      - name: Install Playwright browser
+        run: pnpm --dir frontend exec playwright install --with-deps chromium
+
+      - name: Frontend e2e smoke
+        run: pnpm --dir frontend test:e2e
+
   build:
     runs-on: ${{ matrix.os }}
     strategy:
@@ -42,6 +89,16 @@ jobs:
         with:
           enable-cache: true
 
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
       - name: Download ONNX Runtime (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -56,6 +113,12 @@ jobs:
 
       - name: Sync deps
         run: uv sync --dev
+
+      - name: Install frontend dependencies
+        run: pnpm --dir frontend install --frozen-lockfile
+
+      - name: Build frontend bundle
+        run: pnpm --dir frontend build
 
       - name: Build wheel
         run: uv run maturin build --release -o dist
