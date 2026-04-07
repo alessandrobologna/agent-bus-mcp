@@ -127,6 +127,25 @@ function snippetLabel(result: SearchResult): string {
   return result.message_type
 }
 
+function renderSnippet(snippet: string) {
+  const parts = snippet.split(/(\[[^\]]+\])/g).filter(Boolean)
+  return parts.map((part, index) => {
+    const isHighlight = part.startsWith("[") && part.endsWith("]")
+    const content = isHighlight ? part.slice(1, -1) : part
+    if (isHighlight) {
+      return (
+        <mark
+          key={`snippet-${index}`}
+          className="rounded-sm bg-primary/15 px-0.5 text-zinc-200"
+        >
+          {content}
+        </mark>
+      )
+    }
+    return <span key={`snippet-${index}`}>{content}</span>
+  })
+}
+
 function fallbackTopic(topicId: string): TopicSummary {
   const timestamp = Date.now() / 1000
   return {
@@ -757,10 +776,9 @@ function AppSidebar(props: {
                                     {snippetLabel(result)}
                                   </Badge>
                                 </div>
-                                <div
-                                  className="line-clamp-3 break-words text-[12px] leading-5 text-zinc-400"
-                                  dangerouslySetInnerHTML={{ __html: result.snippet }}
-                                />
+                                <div className="line-clamp-3 break-words text-[12px] leading-5 text-zinc-400">
+                                  {renderSnippet(result.snippet)}
+                                </div>
                               </button>
                             ))}
                           </div>

@@ -111,7 +111,7 @@ function installFetchMock() {
             seq: 7,
             sender: "architect",
             message_type: "message",
-            snippet: "handoff summary",
+            snippet: '<img src=x onerror=alert(1)> [handoff] summary',
             semantic_score: 0.81,
           },
         ],
@@ -179,6 +179,20 @@ describe("App", () => {
     fireEvent.click(result)
 
     await waitFor(() => expect(screen.getByText("beta context")).toBeInTheDocument())
+  })
+
+  test("renders search snippets as text instead of attacker-controlled HTML", async () => {
+    installFetchMock()
+
+    const { container } = renderApp(["/"])
+
+    fireEvent.change(await screen.findByPlaceholderText(/^Search$/i), {
+      target: { value: "handoff" },
+    })
+
+    expect(await screen.findByText("handoff")).toBeInTheDocument()
+    expect(container.querySelector("img[src='x']")).toBeNull()
+    expect(screen.getByText(/<img src=x onerror=alert\(1\)>/i)).toBeInTheDocument()
   })
 
   test("opens local find with the keyboard shortcut inside the active topic", async () => {
