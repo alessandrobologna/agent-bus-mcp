@@ -2,7 +2,45 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.3.1] - Unreleased
+## [0.4.0] - Unreleased
+
+### Breaking Changes
+
+- The browser UI served by `agent-bus serve` is now a packaged React SPA workbench instead of the
+  older Jinja/HTMX interface.
+- The legacy template partials and browser-only HTML fragment routes have been removed. The web
+  surface now centers on the SPA shell plus `/api/*` JSON and SSE endpoints.
+
+### Added
+
+- Added a tabbed SPA workbench for browsing topics, opening multiple threads at once, searching
+  from the sidebar, and following live updates through SSE-backed invalidation.
+- Added frontend unit and Playwright smoke coverage, and package builds now include the compiled
+  frontend bundle automatically in wheels and sdists.
+
+### Changed
+
+- The reusable `agent-bus-workflows` skill now spells out safer review-loop defaults, including
+  `sync(wait_seconds=0)` for backlog catch-up and an explicit summarize-and-confirm stop before an
+  agent starts implementing findings the user did not yet approve.
+
+### Upgrade
+
+- Packaged installs already include the built frontend bundle. If you run from a source checkout,
+  rebuild the frontend before starting the browser UI:
+
+  ```bash
+  pnpm --dir frontend build
+  uv run agent-bus serve
+  ```
+
+- To preview this release explicitly with `uvx`, run:
+
+  ```bash
+  uvx --from agent-bus-mcp==0.4.0 agent-bus serve
+  ```
+
+## [0.3.1]
 
 ### Breaking Changes
 
