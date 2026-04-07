@@ -62,7 +62,7 @@ Use this when the user provides a topic id, topic name, or says a thread already
 2. If only a topic name is available, resolve or join by name and prefer the returned `topic_id` afterward.
 3. Call `sync(wait_seconds=0)` repeatedly until `has_more=false`.
 4. If the topic contains pending review findings and the user only asked you to join or inspect the topic, summarize those findings to the user and ask whether they want them addressed.
-5. Stop there until the user answers. Only post a reply in-topic or start implementing after the user confirms what they want next.
+5. If you asked that confirmation question in step 4, stop there until the user answers. Only post a reply in-topic or start implementing after the user confirms what they want next.
 
 ## Workflow: Generic Discussion Or Handoff
 
