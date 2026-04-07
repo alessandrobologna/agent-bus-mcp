@@ -216,7 +216,7 @@ def encode_sse(event: str, data: Any) -> bytes:
     return f"event: {event}\ndata: {json.dumps(data, separators=(',', ':'))}\n\n".encode()
 
 
-def topics_signature(db: AgentBusDB) -> list[tuple[str, int, float, str, float | None]]:
+def topics_signature(db: AgentBusDB) -> list[tuple[str, str, int, float, str, float | None]]:
     summaries = list_topic_summaries(
         db,
         status="all",
@@ -227,6 +227,7 @@ def topics_signature(db: AgentBusDB) -> list[tuple[str, int, float, str, float |
     return [
         (
             item["topic_id"],
+            item["name"],
             item["message_count"],
             item["last_updated_at"],
             item["status"],

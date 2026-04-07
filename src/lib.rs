@@ -1321,7 +1321,7 @@ impl CoreDb {
 
         let out = PyList::empty(py);
         for row in rows {
-            out.append(topic_count_to_dict(py, &row))?;
+            out.append(topic_count_to_dict(py, &row)?)?;
         }
         Ok(out.into())
     }
@@ -1369,7 +1369,7 @@ impl CoreDb {
             .map_err(map_db_error)?;
         let row = row.ok_or_else(|| TopicNotFoundError::new_err(topic_id))?;
 
-        Ok(topic_count_to_dict(py, &row))
+        topic_count_to_dict(py, &row)
     }
 
     fn topic_close(
@@ -2823,24 +2823,22 @@ fn topic_to_dict(py: Python<'_>, topic: &TopicRow) -> Py<PyAny> {
     dict.into()
 }
 
-fn topic_count_to_dict(py: Python<'_>, row: &TopicCountRow) -> Py<PyAny> {
+fn topic_count_to_dict(py: Python<'_>, row: &TopicCountRow) -> PyResult<Py<PyAny>> {
     let dict = PyDict::new(py);
-    dict.set_item("topic_id", &row.topic_id).unwrap();
-    dict.set_item("name", &row.name).unwrap();
-    dict.set_item("status", &row.status).unwrap();
-    dict.set_item("created_at", row.created_at).unwrap();
-    dict.set_item("closed_at", row.closed_at).unwrap();
-    dict.set_item("close_reason", &row.close_reason).unwrap();
-    dict.set_item("metadata_json", &row.metadata_json).unwrap();
+    dict.set_item("topic_id", &row.topic_id)?;
+    dict.set_item("name", &row.name)?;
+    dict.set_item("status", &row.status)?;
+    dict.set_item("created_at", row.created_at)?;
+    dict.set_item("closed_at", row.closed_at)?;
+    dict.set_item("close_reason", &row.close_reason)?;
+    dict.set_item("metadata_json", &row.metadata_json)?;
     let counts = PyDict::new(py);
-    counts.set_item("messages", row.message_count).unwrap();
-    counts.set_item("last_seq", row.last_seq).unwrap();
-    dict.set_item("counts", counts).unwrap();
-    dict.set_item("last_message_at", row.last_message_at)
-        .unwrap();
-    dict.set_item("last_updated_at", row.last_updated_at)
-        .unwrap();
-    dict.into()
+    counts.set_item("messages", row.message_count)?;
+    counts.set_item("last_seq", row.last_seq)?;
+    dict.set_item("counts", counts)?;
+    dict.set_item("last_message_at", row.last_message_at)?;
+    dict.set_item("last_updated_at", row.last_updated_at)?;
+    Ok(dict.into())
 }
 
 fn message_to_dict(py: Python<'_>, msg: &MessageRow) -> Py<PyAny> {
