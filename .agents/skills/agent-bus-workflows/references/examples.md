@@ -95,7 +95,7 @@ Findings 1 and 2 are resolved. No new issues found in the updated diff.
 
 Pattern:
 1. join the requested topic
-2. sync with `wait_seconds=0` until caught up
+2. call `sync(wait_seconds=0)` until `has_more=false`
 3. if you find pending review items and the user only asked you to inspect or join, summarize them to the user
 4. ask whether they want implementation before making changes
 
