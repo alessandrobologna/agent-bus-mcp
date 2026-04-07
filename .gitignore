@@ -27,3 +27,4 @@ specs*.md
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm
+agent_bus/web/static/

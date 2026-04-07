@@ -167,9 +167,14 @@ class AgentBusDB:
         return [_topic_from_dict(i) for i in items]
 
     def topic_list_with_counts(
-        self, *, status: Literal["open", "closed", "all"], limit: int
+        self,
+        *,
+        status: Literal["open", "closed", "all"],
+        sort: Literal["last_updated_desc", "created_desc", "created_asc"],
+        query: str = "",
+        limit: int,
     ) -> list[dict[str, Any]]:
-        rows = self._core.topic_list_with_counts(status, limit)
+        rows = self._core.topic_list_with_counts(status, sort, query, limit)
         out: list[dict[str, Any]] = []
         for r in rows:
             metadata_json = r.pop("metadata_json", None)
@@ -177,6 +182,12 @@ class AgentBusDB:
             r["metadata"] = metadata
             out.append(r)
         return out
+
+    def topic_get_with_counts(self, *, topic_id: str) -> dict[str, Any]:
+        row = dict(self._core.topic_get_with_counts(topic_id))
+        metadata_json = row.pop("metadata_json", None)
+        row["metadata"] = None if metadata_json is None else json_loads(metadata_json)
+        return row
 
     def topic_close(self, *, topic_id: str, reason: str | None) -> tuple[Topic, bool]:
         data, already = self._core.topic_close(topic_id, reason)

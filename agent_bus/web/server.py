@@ -1,392 +1,422 @@
-"""FastAPI web server for Agent Bus UI."""
+"""FastAPI web server for the Agent Bus SPA and browser APIs."""
 
 from __future__ import annotations
 
+import asyncio
+import json
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import Annotated, Any, Literal, cast
 
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, PlainTextResponse
-from fastapi.templating import Jinja2Templates
+from fastapi import Body, FastAPI, HTTPException, Query, Request
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    PlainTextResponse,
+    Response,
+    StreamingResponse,
+)
 
 from agent_bus.db import AgentBusDB, TopicNotFoundError
-from agent_bus.version import __version__
+from agent_bus.models import Cursor, Message
 
-# Template directory
-TEMPLATES_DIR = Path(__file__).parent / "templates"
+STATIC_DIR = Path(__file__).parent / "static"
+SPA_INDEX = STATIC_DIR / "index.html"
+DEFAULT_PAGE_SIZE = 50
+TOPICS_STREAM_INTERVAL_SECONDS = 2.0
+TOPIC_STREAM_INTERVAL_SECONDS = 2.0
+STREAM_HEARTBEAT_SECONDS = 15.0
+PRESENCE_WINDOW_SECONDS = 300
 
-templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+SearchMode = Literal["fts", "semantic", "hybrid"]
+TopicStatusFilter = Literal["open", "closed", "all"]
+TopicSort = Literal["last_updated_desc", "created_desc", "created_asc"]
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    templates.env.filters["sender_color"] = get_sender_color
-    templates.env.filters["format_age"] = format_age
-    templates.env.globals["app_version"] = __version__
     yield
 
 
 app = FastAPI(title="Agent Bus", docs_url=None, redoc_url=None, lifespan=lifespan)
 
-# Global DB instance (initialized on startup)
 _db: AgentBusDB | None = None
 
 
 def get_db() -> AgentBusDB:
-    """Get the database instance."""
     if _db is None:
         raise RuntimeError("Database not initialized")
     return _db
 
 
 def init_db(db_path: str | None = None) -> None:
-    """Initialize the database."""
     global _db
     _db = AgentBusDB(path=db_path)
 
 
-# Sender colors for consistent coloring
-SENDER_COLORS = ["cyan", "magenta", "amber", "emerald", "blue", "rose"]
-_sender_color_map: dict[str, str] = {}
+def now() -> float:
+    return time.time()
 
 
-def get_sender_color(sender: str) -> str:
-    """Get a consistent Tailwind color for a sender."""
-    if sender not in _sender_color_map:
-        _sender_color_map[sender] = SENDER_COLORS[len(_sender_color_map) % len(SENDER_COLORS)]
-    return _sender_color_map[sender]
-
-
-def format_age(timestamp: float) -> str:
-    """Format a timestamp as a human-readable age."""
-    age = time.time() - timestamp
-    if age < 60:
-        return f"{int(age)}s ago"
-    if age < 3600:
-        return f"{int(age / 60)}m ago"
-    if age < 86400:
-        return f"{int(age / 3600)}h ago"
-    return f"{int(age / 86400)}d ago"
-
-
-def sidebar_topics(db: AgentBusDB) -> list[dict[str, Any]]:
-    topics = db.topic_list_with_counts(status="all", limit=100)
-    for topic in topics:
-        if topic.get("created_at"):
-            topic["age"] = format_age(topic["created_at"])
-    return topics
-
-
-@app.get("/", response_class=HTMLResponse)
-async def topics_list(request: Request) -> Any:
-    """Show list of topics."""
-    db = get_db()
-    topics = sidebar_topics(db)
-
-    return templates.TemplateResponse(
-        request,
-        "topics/list.html",
-        {
-            "topics": topics,
-            "active_topic_id": None,
-            "now": time.time(),
-        },
+def format_missing_bundle_response() -> Response:
+    return HTMLResponse(
+        """
+        <!doctype html>
+        <html lang="en">
+          <head>
+            <meta charset="utf-8" />
+            <title>Agent Bus Web UI</title>
+            <style>
+              body {
+                margin: 0;
+                min-height: 100vh;
+                display: grid;
+                place-items: center;
+                background: #f6f1e9;
+                color: #211b16;
+                font-family: "Geist Variable", system-ui, sans-serif;
+              }
+              main {
+                max-width: 42rem;
+                padding: 2rem;
+                border-radius: 1rem;
+                background: white;
+                box-shadow: 0 20px 60px rgba(33, 27, 22, 0.12);
+              }
+              code {
+                background: #f1e8da;
+                border-radius: 0.375rem;
+                padding: 0.15rem 0.4rem;
+              }
+            </style>
+          </head>
+          <body>
+            <main>
+              <h1>Frontend bundle not found</h1>
+              <p>
+                This checkout does not have built web assets yet. Run
+                <code>pnpm --dir frontend install</code> and
+                <code>pnpm --dir frontend build</code>, then restart
+                <code>agent-bus serve</code>.
+              </p>
+            </main>
+          </body>
+        </html>
+        """,
+        status_code=503,
     )
 
 
-DEFAULT_PAGE_SIZE = 50
+def spa_index_response() -> Response:
+    if not SPA_INDEX.exists():
+        return format_missing_bundle_response()
+    return FileResponse(SPA_INDEX)
 
 
-@app.get("/topics/{topic_id}", response_class=HTMLResponse)
-async def topic_detail(request: Request, topic_id: str, focus: str | None = None) -> Any:
-    """Show messages in a topic."""
+def serialize_cursor(cursor: Cursor) -> dict[str, Any]:
+    return {
+        "topic_id": cursor.topic_id,
+        "agent_name": cursor.agent_name,
+        "last_seq": cursor.last_seq,
+        "updated_at": cursor.updated_at,
+    }
+
+
+def serialize_message(message: Message, sender_by_msg_id: dict[str, str]) -> dict[str, Any]:
+    return {
+        "message_id": message.message_id,
+        "topic_id": message.topic_id,
+        "seq": message.seq,
+        "sender": message.sender,
+        "message_type": message.message_type,
+        "reply_to": message.reply_to,
+        "reply_to_sender": sender_by_msg_id.get(message.reply_to) if message.reply_to else None,
+        "content_markdown": message.content_markdown,
+        "metadata": message.metadata,
+        "client_message_id": message.client_message_id,
+        "created_at": message.created_at,
+    }
+
+
+def normalize_topic_summary(row: dict[str, Any]) -> dict[str, Any]:
+    counts = cast(dict[str, int], row["counts"])
+    return {
+        "topic_id": row["topic_id"],
+        "name": row["name"],
+        "status": row["status"],
+        "created_at": row["created_at"],
+        "closed_at": row["closed_at"],
+        "close_reason": row["close_reason"],
+        "metadata": row["metadata"],
+        "message_count": counts["messages"],
+        "last_seq": counts["last_seq"],
+        "last_message_at": row.get("last_message_at"),
+        "last_updated_at": row.get("last_updated_at", row["created_at"]),
+    }
+
+
+def list_topic_summaries(
+    db: AgentBusDB,
+    *,
+    status: TopicStatusFilter,
+    sort: TopicSort,
+    query: str,
+    limit: int,
+) -> list[dict[str, Any]]:
+    rows = db.topic_list_with_counts(status=status, sort=sort, query=query, limit=limit)
+    return [normalize_topic_summary(row) for row in rows]
+
+
+def get_topic_summary(db: AgentBusDB, *, topic_id: str) -> dict[str, Any]:
+    return normalize_topic_summary(db.topic_get_with_counts(topic_id=topic_id))
+
+
+def serialize_topic_messages(
+    messages: list[Message],
+) -> tuple[list[dict[str, Any]], int | None, int | None]:
+    reply_to_ids = [message.reply_to for message in messages if message.reply_to]
+    sender_lookup = get_db().get_senders_by_message_ids(reply_to_ids) if reply_to_ids else {}
+    payload = [serialize_message(message, sender_lookup) for message in messages]
+    first_seq = messages[0].seq if messages else None
+    last_seq = messages[-1].seq if messages else None
+    return payload, first_seq, last_seq
+
+
+def run_search(
+    *,
+    db: AgentBusDB,
+    query: str,
+    mode: str,
+    limit: int,
+    topic_id: str | None = None,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    from agent_bus.search import DEFAULT_EMBEDDING_MODEL, search_messages
+
+    query = query.strip()
+    if not query:
+        return [], []
+
+    mode_value = cast(SearchMode, mode.lower())
+    results, warnings = search_messages(
+        db,
+        query=query,
+        mode=mode_value,
+        topic_id=topic_id,
+        limit=max(1, min(limit, 50)),
+        model=DEFAULT_EMBEDDING_MODEL,
+    )
+    return list(results), list(warnings)
+
+
+def encode_sse(event: str, data: Any) -> bytes:
+    return f"event: {event}\ndata: {json.dumps(data, separators=(',', ':'))}\n\n".encode()
+
+
+def topics_signature(db: AgentBusDB) -> list[tuple[str, int, float, str, float | None]]:
+    summaries = list_topic_summaries(
+        db,
+        status="all",
+        sort="last_updated_desc",
+        query="",
+        limit=1_000,
+    )
+    return [
+        (
+            item["topic_id"],
+            item["message_count"],
+            item["last_updated_at"],
+            item["status"],
+            item["closed_at"],
+        )
+        for item in summaries
+    ]
+
+
+def topic_stream_state(db: AgentBusDB, *, topic_id: str) -> dict[str, Any]:
+    summary = get_topic_summary(db, topic_id=topic_id)
+    presence = db.get_presence(topic_id=topic_id, window_seconds=PRESENCE_WINDOW_SECONDS)
+    return {
+        "topic_id": topic_id,
+        "last_seq": summary["last_seq"],
+        "message_count": summary["message_count"],
+        "presence": [serialize_cursor(item) for item in presence],
+    }
+
+
+@app.get("/api/topics")
+async def api_topics(
+    status: TopicStatusFilter = "all",
+    sort: TopicSort = "last_updated_desc",
+    q: str = "",
+    limit: int = Query(200, ge=1, le=1000),
+) -> dict[str, Any]:
     db = get_db()
+    topics = list_topic_summaries(db, status=status, sort=sort, query=q, limit=limit)
+    return {"topics": topics}
 
-    try:
-        topic = db.get_topic(topic_id=topic_id)
-    except TopicNotFoundError:
-        raise HTTPException(status_code=404, detail="Topic not found") from None
 
-    topics = sidebar_topics(db)
+@app.get("/api/topics/{topic_id}")
+async def api_topic_detail(topic_id: str, focus: str | None = None) -> dict[str, Any]:
+    db = get_db()
+    summary = get_topic_summary(db, topic_id=topic_id)
     context_mode = False
     focus_message_id: str | None = None
 
     if focus:
-        # Load a window around a specific message (for deep links from search results).
         try:
-            msg = db.get_message_by_id(message_id=focus)
+            focused = db.get_message_by_id(message_id=focus)
         except ValueError:
             raise HTTPException(status_code=404, detail="Message not found") from None
-        if msg.topic_id != topic_id:
+        if focused.topic_id != topic_id:
             raise HTTPException(status_code=404, detail="Message not found") from None
 
         window = 25
-        after_seq = max(0, msg.seq - window - 1)
-        before_seq = msg.seq + window + 1
         messages = db.get_messages(
             topic_id=topic_id,
-            after_seq=after_seq,
-            before_seq=before_seq,
+            after_seq=max(0, focused.seq - window - 1),
+            before_seq=focused.seq + window + 1,
             limit=(window * 2) + 1,
         )
         context_mode = True
         focus_message_id = focus
     else:
-        # Load only the latest N messages initially for faster rendering.
         messages = db.get_latest_messages(topic_id=topic_id, limit=DEFAULT_PAGE_SIZE)
-    presence = db.get_presence(topic_id=topic_id, window_seconds=300)
 
-    # Build sender lookup for reply_to references
-    sender_by_msg_id: dict[str, str] = {msg.message_id: msg.sender for msg in messages}
+    payload, first_seq, last_seq = serialize_topic_messages(messages)
+    presence = db.get_presence(topic_id=topic_id, window_seconds=PRESENCE_WINDOW_SECONDS)
 
-    # Flat message list with metadata
-    all_messages = [
-        {
-            "message": msg,
-            "color": get_sender_color(msg.sender),
-            "age": format_age(msg.created_at),
-            "reply_to_sender": sender_by_msg_id.get(msg.reply_to) if msg.reply_to else None,
-        }
-        for msg in messages
-    ]
-
-    first_seq = messages[0].seq if messages else 0
-    last_seq = messages[-1].seq if messages else 0
-    # There are earlier messages if first message isn't seq 1
-    has_earlier = first_seq > 1
-    # Prefer the full topic message count (not just the loaded page size).
-    message_count = next(
-        (t["counts"]["messages"] for t in topics if t["topic_id"] == topic_id),
-        len(messages),
-    )
-
-    return templates.TemplateResponse(
-        request,
-        "topics/detail.html",
-        {
-            "topics": topics,
-            "active_topic_id": topic_id,
-            "topic": topic,
-            "all_messages": all_messages,
-            "message_count": message_count,
-            "first_seq": first_seq,
-            "last_seq": last_seq,
-            "has_earlier": has_earlier,
-            "presence": presence,
-            "context_mode": context_mode,
-            "focus_message_id": focus_message_id,
-            "now": time.time(),
-        },
-    )
+    return {
+        "topic": summary,
+        "messages": payload,
+        "message_count": summary["message_count"],
+        "first_seq": first_seq,
+        "last_seq": last_seq,
+        "has_earlier": bool(first_seq and first_seq > 1),
+        "context_mode": context_mode,
+        "focus_message_id": focus_message_id,
+        "presence": [serialize_cursor(item) for item in presence],
+    }
 
 
-@app.get("/topics/{topic_id}/messages", response_class=HTMLResponse)
-async def topic_messages_partial(
-    request: Request,
+@app.get("/api/topics/{topic_id}/messages")
+async def api_topic_messages(
     topic_id: str,
-    after_seq: int = 0,
-    before_seq: int | None = None,
-    limit: int = 50,
-) -> Any:
-    """HTMX partial: get messages with pagination support.
-
-    Args:
-        after_seq: Get messages after this sequence (for polling new messages).
-        before_seq: Get messages before this sequence (for "load earlier").
-        limit: Maximum number of messages to return (default 50).
-    """
+    after_seq: int = Query(0, ge=0),
+    before_seq: int | None = Query(None, ge=0),
+    limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=200),
+) -> dict[str, Any]:
     db = get_db()
 
     try:
         db.get_topic(topic_id=topic_id)
     except TopicNotFoundError:
         raise HTTPException(status_code=404, detail="Topic not found") from None
-
-    after_seq = max(0, after_seq)
-    if before_seq is not None:
-        before_seq = max(0, before_seq)
-    limit = max(1, min(limit, 200))
 
     messages = db.get_messages(
-        topic_id=topic_id, after_seq=after_seq, before_seq=before_seq, limit=limit
+        topic_id=topic_id,
+        after_seq=after_seq,
+        before_seq=before_seq,
+        limit=limit,
     )
-
-    # Build sender lookup only for reply_to IDs we need (not all messages)
-    reply_to_ids = [msg.reply_to for msg in messages if msg.reply_to]
-    sender_by_msg_id: dict[str, str] = {}
-    if reply_to_ids:
-        sender_by_msg_id = db.get_senders_by_message_ids(reply_to_ids)
-
-    first_seq = messages[0].seq if messages else None
-    last_seq = messages[-1].seq if messages else None
-
-    return templates.TemplateResponse(
-        request,
-        "components/messages.html",
-        {
-            "messages": [
-                {
-                    "message": msg,
-                    "color": get_sender_color(msg.sender),
-                    "age": format_age(msg.created_at),
-                    "reply_to_sender": sender_by_msg_id.get(msg.reply_to) if msg.reply_to else None,
-                }
-                for msg in messages
-            ],
-            "first_seq": first_seq,
-            "last_seq": last_seq,
-            "topic_id": topic_id,
-            "update_last_seq": before_seq is None,
-            "update_load_earlier": before_seq is not None and after_seq == 0,
-        },
-    )
+    payload, first_seq, last_seq = serialize_topic_messages(messages)
+    return {
+        "messages": payload,
+        "first_seq": first_seq,
+        "last_seq": last_seq,
+        "has_earlier": bool(first_seq and first_seq > 1),
+    }
 
 
-@app.get("/topics/{topic_id}/presence", response_class=HTMLResponse)
-async def topic_presence_partial(request: Request, topic_id: str) -> Any:
-    """HTMX partial: get presence indicators."""
+@app.get("/api/search")
+async def api_global_search(
+    q: str = "",
+    mode: SearchMode = "hybrid",
+    limit: int = Query(20, ge=1, le=50),
+) -> dict[str, Any]:
     db = get_db()
+    results, warnings = run_search(db=db, query=q, mode=mode, limit=limit)
+    return {"query": q.strip(), "mode": mode, "warnings": warnings, "results": results}
 
+
+@app.get("/api/topics/{topic_id}/search")
+async def api_topic_search(
+    topic_id: str,
+    q: str = "",
+    mode: SearchMode = "hybrid",
+    limit: int = Query(20, ge=1, le=50),
+) -> dict[str, Any]:
+    db = get_db()
     try:
         db.get_topic(topic_id=topic_id)
     except TopicNotFoundError:
         raise HTTPException(status_code=404, detail="Topic not found") from None
 
-    presence = db.get_presence(topic_id=topic_id, window_seconds=300)
-
-    return templates.TemplateResponse(
-        request,
-        "components/presence.html",
-        {
-            "presence": presence,
-            "now": time.time(),
-        },
-    )
+    results, warnings = run_search(db=db, query=q, mode=mode, limit=limit, topic_id=topic_id)
+    return {
+        "topic_id": topic_id,
+        "query": q.strip(),
+        "mode": mode,
+        "warnings": warnings,
+        "results": results,
+    }
 
 
-@app.get("/topics/{topic_id}/export", response_class=PlainTextResponse)
-async def topic_export(topic_id: str) -> Any:
-    """Export topic messages as Markdown."""
+@app.get("/api/topics/{topic_id}/export", response_class=PlainTextResponse)
+async def api_topic_export(topic_id: str) -> PlainTextResponse:
     db = get_db()
-
     try:
-        topic = db.get_topic(topic_id=topic_id)
+        summary = get_topic_summary(db, topic_id=topic_id)
     except TopicNotFoundError:
         raise HTTPException(status_code=404, detail="Topic not found") from None
 
-    messages = db.get_messages(topic_id=topic_id, after_seq=0, limit=10000)
-
+    messages = db.get_messages(topic_id=topic_id, after_seq=0, limit=10_000)
     lines = [
-        f"# {topic.name}",
+        f"# {summary['name']}",
         "",
-        f"**Topic ID:** {topic.topic_id}",
-        f"**Status:** {topic.status}",
-        f"**Messages:** {len(messages)}",
+        f"**Topic ID:** {summary['topic_id']}",
+        f"**Status:** {summary['status']}",
+        f"**Messages:** {summary['message_count']}",
         "",
         "---",
         "",
     ]
-
-    for msg in messages:
-        lines.append(f"### [{msg.seq}] {msg.sender}")
-        lines.append(f"*{format_age(msg.created_at)}*")
-        if msg.reply_to:
-            lines.append(f"*Reply to: {msg.reply_to}*")
+    for message in messages:
+        lines.append(f"### [{message.seq}] {message.sender}")
+        lines.append(f"*{message.created_at}*")
+        if message.reply_to:
+            lines.append(f"*Reply to: {message.reply_to}*")
         lines.append("")
-        lines.append(msg.content_markdown)
+        lines.append(message.content_markdown)
         lines.append("")
         lines.append("---")
         lines.append("")
 
+    safe_name = "".join(
+        char if char.isalnum() or char in ("-", "_") else "-" for char in summary["name"]
+    )
     return PlainTextResponse(
         content="\n".join(lines),
         media_type="text/markdown",
-        headers={"Content-Disposition": f'attachment; filename="{topic.name}.md"'},
+        headers={"Content-Disposition": f'attachment; filename="{safe_name or "topic"}.md"'},
     )
 
 
-@app.get("/topics/{topic_id}/search", response_class=HTMLResponse)
-async def topic_search(
-    request: Request,
-    topic_id: str,
-    q: str | None = None,
-    mode: str = "hybrid",
-    limit: int = 20,
-) -> Any:
-    """HTMX partial: search within a topic."""
-    db = get_db()
-
-    try:
-        db.get_topic(topic_id=topic_id)
-    except TopicNotFoundError:
-        raise HTTPException(status_code=404, detail="Topic not found") from None
-
-    query = (q or "").strip()
-    if not query:
-        return templates.TemplateResponse(
-            request,
-            "components/search_results.html",
-            {"topic_id": topic_id, "query": "", "results": [], "warnings": []},
-        )
-
-    try:
-        from agent_bus.search import DEFAULT_EMBEDDING_MODEL, search_messages
-
-        mode_value = cast(Literal["fts", "semantic", "hybrid"], mode.lower())
-        results, warnings = search_messages(
-            db,
-            query=query,
-            mode=mode_value,
-            topic_id=topic_id,
-            limit=max(1, min(limit, 50)),
-            model=DEFAULT_EMBEDDING_MODEL,
-        )
-    except Exception as e:
-        return templates.TemplateResponse(
-            request,
-            "components/search_results.html",
-            {
-                "topic_id": topic_id,
-                "query": query,
-                "results": [],
-                "warnings": [str(e)],
-            },
-        )
-
-    return templates.TemplateResponse(
-        request,
-        "components/search_results.html",
-        {
-            "topic_id": topic_id,
-            "query": query,
-            "results": results,
-            "warnings": warnings,
-        },
-    )
-
-
-@app.delete("/topics/{topic_id}")
-async def delete_topic(request: Request, topic_id: str) -> Any:
-    """Delete a topic and all its messages."""
+@app.delete("/api/topics/{topic_id}")
+async def api_delete_topic(topic_id: str) -> dict[str, Any]:
     db = get_db()
     deleted = db.delete_topic(topic_id=topic_id)
-
     if not deleted:
         raise HTTPException(status_code=404, detail="Topic not found") from None
-
-    if request.headers.get("hx-request") == "true":
-        return HTMLResponse("")
-
     return {"status": "ok", "topic_id": topic_id, "deleted": True}
 
 
-@app.delete("/topics/{topic_id}/messages")
-async def delete_messages(topic_id: str, message_ids: list[str]) -> dict[str, Any]:
-    """Delete selected messages and their reply chains."""
+@app.delete("/api/topics/{topic_id}/messages")
+async def api_delete_messages(
+    topic_id: str,
+    message_ids: Annotated[list[str], Body(embed=True)],
+) -> dict[str, Any]:
     db = get_db()
-
     try:
         db.get_topic(topic_id=topic_id)
     except TopicNotFoundError:
@@ -400,8 +430,101 @@ async def delete_messages(topic_id: str, message_ids: list[str]) -> dict[str, An
     }
 
 
+@app.get("/api/stream/topics")
+async def api_topics_stream(request: Request) -> StreamingResponse:
+    db = get_db()
+
+    async def event_stream():
+        previous_signature: list[tuple[str, int, float, str, float | None]] | None = None
+        last_heartbeat = 0.0
+        while True:
+            if await request.is_disconnected():
+                return
+
+            signature = topics_signature(db)
+            if signature != previous_signature:
+                previous_signature = signature
+                last_heartbeat = now()
+                yield encode_sse("topics.invalidate", {"timestamp": last_heartbeat})
+            elif now() - last_heartbeat >= STREAM_HEARTBEAT_SECONDS:
+                last_heartbeat = now()
+                yield encode_sse("heartbeat", {"timestamp": last_heartbeat})
+
+            await asyncio.sleep(TOPICS_STREAM_INTERVAL_SECONDS)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.get("/api/stream/topics/{topic_id}")
+async def api_topic_stream(topic_id: str, request: Request) -> StreamingResponse:
+    db = get_db()
+
+    async def event_stream():
+        previous_state: dict[str, Any] | None = None
+        last_heartbeat = 0.0
+        while True:
+            if await request.is_disconnected():
+                return
+
+            try:
+                state = topic_stream_state(db, topic_id=topic_id)
+            except TopicNotFoundError:
+                yield encode_sse("topic.deleted", {"topic_id": topic_id})
+                return
+
+            if state != previous_state:
+                previous_state = state
+                last_heartbeat = now()
+                yield encode_sse("topic.update", state)
+            elif now() - last_heartbeat >= STREAM_HEARTBEAT_SECONDS:
+                last_heartbeat = now()
+                yield encode_sse("heartbeat", {"timestamp": last_heartbeat})
+
+            await asyncio.sleep(TOPIC_STREAM_INTERVAL_SECONDS)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.get("/", response_class=HTMLResponse)
+async def spa_root() -> Response:
+    return spa_index_response()
+
+
+@app.get("/topics/{topic_id}", response_class=HTMLResponse)
+async def spa_topic_page(topic_id: str) -> Response:
+    _ = topic_id
+    return spa_index_response()
+
+
+@app.get("/{path:path}")
+async def spa_assets(path: str) -> Response:
+    if not path:
+        return spa_index_response()
+
+    candidate = (STATIC_DIR / path).resolve()
+    try:
+        candidate.relative_to(STATIC_DIR.resolve())
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Not found") from None
+
+    if candidate.is_file():
+        return FileResponse(candidate)
+
+    if "." in Path(path).name:
+        raise HTTPException(status_code=404, detail="Not found") from None
+
+    return spa_index_response()
+
+
 def run_server(host: str = "127.0.0.1", port: int = 8080, db_path: str | None = None) -> None:
-    """Run the web server."""
     import uvicorn
 
     init_db(db_path)
