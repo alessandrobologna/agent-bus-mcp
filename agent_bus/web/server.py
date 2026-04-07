@@ -216,7 +216,10 @@ def encode_sse(event: str, data: Any) -> bytes:
     return f"event: {event}\ndata: {json.dumps(data, separators=(',', ':'))}\n\n".encode()
 
 
-def topics_signature(db: AgentBusDB) -> list[tuple[str, str, int, float, str, float | None]]:
+type TopicSignature = tuple[str, str, int, float, str, float | None]
+
+
+def topics_signature(db: AgentBusDB) -> list[TopicSignature]:
     summaries = list_topic_summaries(
         db,
         status="all",
@@ -443,7 +446,7 @@ async def api_topics_stream(request: Request) -> StreamingResponse:
     db = get_db()
 
     async def event_stream():
-        previous_signature: list[tuple[str, int, float, str, float | None]] | None = None
+        previous_signature: list[TopicSignature] | None = None
         last_heartbeat = 0.0
         while True:
             if await request.is_disconnected():
