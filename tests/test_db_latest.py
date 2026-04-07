@@ -142,3 +142,14 @@ def test_topic_get_with_counts_returns_specific_topic_summary(tmp_path, monkeypa
     assert summary["topic_id"] == topic.topic_id
     assert summary["counts"]["messages"] == 1
     assert summary["counts"]["last_seq"] == 1
+
+
+def test_topic_list_with_counts_defaults_to_created_desc_sort(tmp_path, monkeypatch):
+    install_fake_now(monkeypatch)
+    db = AgentBusDB(path=str(tmp_path / "bus.sqlite"))
+    first = db.topic_create(name="first", metadata=None, mode="new")
+    second = db.topic_create(name="second", metadata=None, mode="new")
+
+    topics = db.topic_list_with_counts(status="all", limit=10)
+
+    assert [topic["topic_id"] for topic in topics[:2]] == [second.topic_id, first.topic_id]

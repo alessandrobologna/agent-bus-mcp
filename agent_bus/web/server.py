@@ -29,6 +29,7 @@ TOPICS_STREAM_INTERVAL_SECONDS = 2.0
 TOPIC_STREAM_INTERVAL_SECONDS = 2.0
 STREAM_HEARTBEAT_SECONDS = 15.0
 PRESENCE_WINDOW_SECONDS = 300
+TOPICS_SIGNATURE_SCAN_LIMIT = 2_147_483_647
 
 SearchMode = Literal["fts", "semantic", "hybrid"]
 TopicStatusFilter = Literal["open", "closed", "all"]
@@ -221,7 +222,7 @@ def topics_signature(db: AgentBusDB) -> list[tuple[str, int, float, str, float |
         status="all",
         sort="last_updated_desc",
         query="",
-        limit=1_000,
+        limit=TOPICS_SIGNATURE_SCAN_LIMIT,
     )
     return [
         (

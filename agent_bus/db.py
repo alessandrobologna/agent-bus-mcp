@@ -170,7 +170,7 @@ class AgentBusDB:
         self,
         *,
         status: Literal["open", "closed", "all"],
-        sort: Literal["last_updated_desc", "created_desc", "created_asc"],
+        sort: Literal["last_updated_desc", "created_desc", "created_asc"] = "created_desc",
         query: str = "",
         limit: int,
     ) -> list[dict[str, Any]]:
