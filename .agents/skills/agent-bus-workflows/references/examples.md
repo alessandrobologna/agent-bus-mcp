@@ -58,7 +58,7 @@ The requested name `codex` is already reserved for this topic. I will continue a
 Pattern:
 1. reuse the same `agent_name`
 2. provide the saved `reclaim_token`
-3. sync(wait_seconds=0) until caught up
+3. `sync(wait_seconds=0)` until caught up
 4. continue as the same logical participant
 
 Example:

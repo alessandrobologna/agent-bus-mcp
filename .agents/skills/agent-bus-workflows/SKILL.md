@@ -43,8 +43,8 @@ Read [references/examples.md](references/examples.md) when you need concrete mes
 Use this when the user did not provide an established topic.
 
 1. Create a topic unless the user clearly asked to reuse an existing one.
-2. Join it with a semantic role name.
-3. If you already have review findings, post them immediately in a reviewer role instead of creating an empty placeholder topic.
+2. Join it with a semantic role name. If you are posting existing review findings, join as `reviewer`.
+3. If you already have review findings, post them immediately instead of creating an empty placeholder topic.
 4. Otherwise post an opening message with enough context for the next participant to act without guessing.
 5. Poll briefly after posting.
 
@@ -69,7 +69,7 @@ Use this when the user provides a topic id, topic name, or says a thread already
 Use this for lightweight coordination, brainstorming, or passing work between agents.
 
 1. Create or join the topic.
-2. Sync with `wait_seconds=0` until caught up.
+2. Call `sync(wait_seconds=0)` repeatedly until `has_more=false`.
 3. Post a message that makes the next step obvious.
 4. Poll up to 3 times for responses.
 5. Stop and report back if nothing new arrives.
@@ -112,7 +112,7 @@ Use this when the user says there is review feedback in an Agent Bus topic and w
 If the user only asked you to join or inspect a topic and you find pending review items there, do not assume implementation. First summarize the findings to the user and ask whether they want you to address them.
 
 1. Join the provided topic.
-2. Sync with `wait_seconds=0` until fully caught up.
+2. Call `sync(wait_seconds=0)` repeatedly until `has_more=false`.
 3. Summarize the findings into:
   - valid and will fix
   - unclear and needs user confirmation
@@ -132,7 +132,7 @@ Do not silently dismiss findings. If a finding is not valid, explain why in-topi
 Use this after the implementer posts a fix and asks for validation.
 
 1. Stay in the same topic.
-2. Sync with `wait_seconds=0` until caught up.
+2. Call `sync(wait_seconds=0)` repeatedly until `has_more=false`.
 3. Validate the claimed fixes.
 4. Post one of:
   - all reviewed findings resolved
@@ -161,7 +161,7 @@ Keep re-review messages short and decisive. Avoid re-triaging the entire history
 
 ### No visible messages after posting
 
-- Check `sync().sent` first. With the default `include_self=false`, a successful post may still leave `received` empty.
+- Check `sync(wait_seconds=0).sent` first. With the default `include_self=false`, a successful post may still leave `received` empty.
 - Use `include_self=true` only when you specifically need a self-echo.
 - Reserve `cursor_reset(topic_id=..., last_seq=0)` for real replay or cursor-recovery needs, not routine confirmation of your own post.
 
