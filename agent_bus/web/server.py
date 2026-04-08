@@ -19,7 +19,7 @@ from fastapi.responses import (
     StreamingResponse,
 )
 
-from agent_bus.db import AgentBusDB, TopicNotFoundError
+from agent_bus.db import AgentBusDB, DBBusyError, TopicNotFoundError
 from agent_bus.models import Cursor, Message
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -30,6 +30,7 @@ TOPIC_STREAM_INTERVAL_SECONDS = 2.0
 STREAM_HEARTBEAT_SECONDS = 15.0
 PRESENCE_WINDOW_SECONDS = 300
 TOPICS_SIGNATURE_SCAN_LIMIT = 2_147_483_647
+SERVER_SHUTDOWN_GRACE_SECONDS = 2
 
 SearchMode = Literal["fts", "semantic", "hybrid"]
 TopicStatusFilter = Literal["open", "closed", "all"]
@@ -448,20 +449,29 @@ async def api_topics_stream(request: Request) -> StreamingResponse:
     async def event_stream():
         previous_signature: list[TopicSignature] | None = None
         last_heartbeat = 0.0
-        while True:
-            if await request.is_disconnected():
-                return
+        try:
+            while True:
+                if await request.is_disconnected():
+                    return
 
-            signature = topics_signature(db)
-            if signature != previous_signature:
-                previous_signature = signature
-                last_heartbeat = now()
-                yield encode_sse("topics.invalidate", {"timestamp": last_heartbeat})
-            elif now() - last_heartbeat >= STREAM_HEARTBEAT_SECONDS:
-                last_heartbeat = now()
-                yield encode_sse("heartbeat", {"timestamp": last_heartbeat})
+                try:
+                    signature = topics_signature(db)
+                except DBBusyError:
+                    if now() - last_heartbeat >= STREAM_HEARTBEAT_SECONDS:
+                        last_heartbeat = now()
+                        yield encode_sse("heartbeat", {"timestamp": last_heartbeat})
+                else:
+                    if signature != previous_signature:
+                        previous_signature = signature
+                        last_heartbeat = now()
+                        yield encode_sse("topics.invalidate", {"timestamp": last_heartbeat})
+                    elif now() - last_heartbeat >= STREAM_HEARTBEAT_SECONDS:
+                        last_heartbeat = now()
+                        yield encode_sse("heartbeat", {"timestamp": last_heartbeat})
 
-            await asyncio.sleep(TOPICS_STREAM_INTERVAL_SECONDS)
+                await asyncio.sleep(TOPICS_STREAM_INTERVAL_SECONDS)
+        except asyncio.CancelledError:
+            return
 
     return StreamingResponse(
         event_stream(),
@@ -477,25 +487,32 @@ async def api_topic_stream(topic_id: str, request: Request) -> StreamingResponse
     async def event_stream():
         previous_state: dict[str, Any] | None = None
         last_heartbeat = 0.0
-        while True:
-            if await request.is_disconnected():
-                return
+        try:
+            while True:
+                if await request.is_disconnected():
+                    return
 
-            try:
-                state = topic_stream_state(db, topic_id=topic_id)
-            except TopicNotFoundError:
-                yield encode_sse("topic.deleted", {"topic_id": topic_id})
-                return
+                try:
+                    state = topic_stream_state(db, topic_id=topic_id)
+                except TopicNotFoundError:
+                    yield encode_sse("topic.deleted", {"topic_id": topic_id})
+                    return
+                except DBBusyError:
+                    if now() - last_heartbeat >= STREAM_HEARTBEAT_SECONDS:
+                        last_heartbeat = now()
+                        yield encode_sse("heartbeat", {"timestamp": last_heartbeat})
+                else:
+                    if state != previous_state:
+                        previous_state = state
+                        last_heartbeat = now()
+                        yield encode_sse("topic.update", state)
+                    elif now() - last_heartbeat >= STREAM_HEARTBEAT_SECONDS:
+                        last_heartbeat = now()
+                        yield encode_sse("heartbeat", {"timestamp": last_heartbeat})
 
-            if state != previous_state:
-                previous_state = state
-                last_heartbeat = now()
-                yield encode_sse("topic.update", state)
-            elif now() - last_heartbeat >= STREAM_HEARTBEAT_SECONDS:
-                last_heartbeat = now()
-                yield encode_sse("heartbeat", {"timestamp": last_heartbeat})
-
-            await asyncio.sleep(TOPIC_STREAM_INTERVAL_SECONDS)
+                await asyncio.sleep(TOPIC_STREAM_INTERVAL_SECONDS)
+        except asyncio.CancelledError:
+            return
 
     return StreamingResponse(
         event_stream(),
@@ -539,4 +556,9 @@ def run_server(host: str = "127.0.0.1", port: int = 8080, db_path: str | None = 
     import uvicorn
 
     init_db(db_path)
-    uvicorn.run(app, host=host, port=port)
+    uvicorn.run(
+        app,
+        host=host,
+        port=port,
+        timeout_graceful_shutdown=SERVER_SHUTDOWN_GRACE_SECONDS,
+    )
