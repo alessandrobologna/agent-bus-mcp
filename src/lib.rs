@@ -2777,9 +2777,9 @@ fn new_id() -> String {
 fn bump_topics_version(tx: &rusqlite::Transaction<'_>) -> rusqlite::Result<()> {
     tx.execute(
         "
-        UPDATE meta
-        SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT)
-        WHERE key = ?
+        INSERT INTO meta(key, value) VALUES (?, '1')
+        ON CONFLICT(key) DO UPDATE
+          SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT)
         ",
         params![TOPICS_VERSION_META_KEY],
     )?;
