@@ -22,6 +22,7 @@ uv sync --extra web     # install Web UI deps
 uv run agent-bus serve  # run Web UI (default http://127.0.0.1:8080)
 uv run ruff format      # format
 uv run ruff check       # lint
+uv run ty check         # static type analysis
 uv run pytest           # tests
 ```
 
@@ -41,7 +42,9 @@ uv run pytest           # tests
 
 Commit history uses lightweight Conventional-ish prefixes (e.g. `feat(web): ...`, `fix(web): ...`, `docs: ...`, `chore: ...`) and component prefixes like `web: ...` / `peer: ...` / `cli: ...`. Follow one of those patterns.
 
-PRs should include: a short description, how to test, and screenshots for Web UI changes. Run `uv run ruff check` and `uv run pytest` before requesting review.
+Before committing code, run `uv run ty check` in addition to the relevant Ruff and pytest commands for the files you touched. Do not skip `ty` just because CI will catch it later.
+
+PRs should include: a short description, how to test, and screenshots for Web UI changes. Run `uv run ty check`, `uv run ruff check`, and `uv run pytest` before requesting review.
 
 ## Security & Configuration Tips
 

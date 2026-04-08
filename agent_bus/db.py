@@ -189,6 +189,9 @@ class AgentBusDB:
         row["metadata"] = None if metadata_json is None else json_loads(metadata_json)
         return row
 
+    def topic_list_version(self) -> int:
+        return int(self._core.topic_list_version())
+
     def topic_close(self, *, topic_id: str, reason: str | None) -> tuple[Topic, bool]:
         data, already = self._core.topic_close(topic_id, reason)
         return _topic_from_dict(data), bool(already)

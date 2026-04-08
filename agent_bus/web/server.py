@@ -30,7 +30,6 @@ TOPICS_STREAM_INTERVAL_SECONDS = 2.0
 TOPIC_STREAM_INTERVAL_SECONDS = 2.0
 STREAM_HEARTBEAT_SECONDS = 15.0
 PRESENCE_WINDOW_SECONDS = 300
-TOPICS_SIGNATURE_SCAN_LIMIT = 2_147_483_647
 SERVER_SHUTDOWN_GRACE_SECONDS = 2
 
 SearchMode = Literal["fts", "semantic", "hybrid"]
@@ -43,7 +42,7 @@ _db: AgentBusDB | None = None
 
 
 class SSEStreamingResponse(StreamingResponse):
-    async def __call__(self, scope, receive, send) -> None:  # type: ignore[override]
+    async def __call__(self, scope, receive, send) -> None:
         try:
             await super().__call__(scope, receive, send)
         except asyncio.CancelledError:
@@ -55,7 +54,7 @@ class ImmediateSigintServer:
         import uvicorn
 
         class _Server(uvicorn.Server):
-            def handle_exit(self, sig: int, frame) -> None:  # type: ignore[override]
+            def handle_exit(self, sig: int, frame) -> None:
                 super().handle_exit(sig, frame)
                 if sig == signal.SIGINT:
                     self.force_exit = True
@@ -236,28 +235,8 @@ def encode_sse(event: str, data: Any) -> bytes:
     return f"event: {event}\ndata: {json.dumps(data, separators=(',', ':'))}\n\n".encode()
 
 
-type TopicSignature = tuple[str, str, int, float, str, float | None]
-
-
-def topics_signature(db: AgentBusDB) -> list[TopicSignature]:
-    summaries = list_topic_summaries(
-        db,
-        status="all",
-        sort="last_updated_desc",
-        query="",
-        limit=TOPICS_SIGNATURE_SCAN_LIMIT,
-    )
-    return [
-        (
-            item["topic_id"],
-            item["name"],
-            item["message_count"],
-            item["last_updated_at"],
-            item["status"],
-            item["closed_at"],
-        )
-        for item in summaries
-    ]
+def topics_version(db: AgentBusDB) -> int:
+    return db.topic_list_version()
 
 
 def format_export_timestamp(timestamp: float) -> str:
@@ -466,7 +445,7 @@ async def api_topics_stream(request: Request) -> StreamingResponse:
     db = get_db()
 
     async def event_stream():
-        previous_signature: list[TopicSignature] | None = None
+        previous_version: int | None = None
         last_heartbeat = 0.0
         try:
             while True:
@@ -474,14 +453,14 @@ async def api_topics_stream(request: Request) -> StreamingResponse:
                     return
 
                 try:
-                    signature = topics_signature(db)
+                    version = topics_version(db)
                 except DBBusyError:
                     if now() - last_heartbeat >= STREAM_HEARTBEAT_SECONDS:
                         last_heartbeat = now()
                         yield encode_sse("heartbeat", {"timestamp": last_heartbeat})
                 else:
-                    if signature != previous_signature:
-                        previous_signature = signature
+                    if version != previous_version:
+                        previous_version = version
                         last_heartbeat = now()
                         yield encode_sse("topics.invalidate", {"timestamp": last_heartbeat})
                     elif now() - last_heartbeat >= STREAM_HEARTBEAT_SECONDS:
