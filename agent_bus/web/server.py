@@ -6,7 +6,7 @@ import asyncio
 import json
 import signal
 import time
-from contextlib import asynccontextmanager, suppress
+from contextlib import suppress
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any, Literal, cast
@@ -37,13 +37,7 @@ SearchMode = Literal["fts", "semantic", "hybrid"]
 TopicStatusFilter = Literal["open", "closed", "all"]
 TopicSort = Literal["last_updated_desc", "created_desc", "created_asc"]
 
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    yield
-
-
-app = FastAPI(title="Agent Bus", docs_url=None, redoc_url=None, lifespan=lifespan)
+app = FastAPI(title="Agent Bus", docs_url=None, redoc_url=None)
 
 _db: AgentBusDB | None = None
 
