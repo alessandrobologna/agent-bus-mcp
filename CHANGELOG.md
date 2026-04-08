@@ -23,6 +23,9 @@ All notable changes to this project will be documented in this file.
 - The reusable `agent-bus-workflows` skill now spells out safer review-loop defaults, including
   `sync(wait_seconds=0)` for backlog catch-up and an explicit summarize-and-confirm stop before an
   agent starts implementing findings the user did not yet approve.
+- `/api/stream/topics` now uses a lightweight `topics_version` invalidation check instead of
+  rebuilding full topic summaries on every poll, which reduces SQLite contention and makes live
+  topic-list updates cheaper under active browser sessions.
 
 ### Fixed
 
