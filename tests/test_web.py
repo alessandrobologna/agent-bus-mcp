@@ -353,7 +353,13 @@ def test_immediate_sigint_server_forces_exit_on_first_interrupt(monkeypatch) -> 
             self._captured_signals = []
             self.should_exit = False
             self.force_exit = False
+            self.super_called = False
             handled["instance"] = self
+
+        def handle_exit(self, sig: int, frame) -> None:
+            self.super_called = True
+            self._captured_signals.append(sig)
+            self.should_exit = True
 
     class FakeUvicorn:
         Server = FakeServer
@@ -364,6 +370,7 @@ def test_immediate_sigint_server_forces_exit_on_first_interrupt(monkeypatch) -> 
     inner = handled["instance"]
     inner.handle_exit(signal.SIGINT, None)
 
+    assert inner.super_called is True
     assert inner.should_exit is True
     assert inner.force_exit is True
 

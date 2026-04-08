@@ -56,8 +56,7 @@ class ImmediateSigintServer:
 
         class _Server(uvicorn.Server):
             def handle_exit(self, sig: int, frame) -> None:  # type: ignore[override]
-                self._captured_signals.append(sig)
-                self.should_exit = True
+                super().handle_exit(sig, frame)
                 if sig == signal.SIGINT:
                     self.force_exit = True
 
