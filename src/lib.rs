@@ -2518,7 +2518,7 @@ impl CoreDb {
             }
         }
 
-        conn.execute_batch(&format!(
+        conn.execute_batch(
             "
             CREATE TABLE IF NOT EXISTS topics (
               topic_id TEXT PRIMARY KEY,
@@ -2581,12 +2581,17 @@ impl CoreDb {
             CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_topic_sender_client_id_unique
               ON messages(topic_id, sender, client_message_id)
               WHERE client_message_id IS NOT NULL;
-            
-            INSERT INTO meta(key, value)
-            VALUES ('{TOPICS_VERSION_META_KEY}', '0')
-            ON CONFLICT(key) DO NOTHING;
             "
-        ))
+        )
+        .map_err(map_db_error)?;
+        conn.execute(
+            "
+            INSERT INTO meta(key, value)
+            VALUES (?, '0')
+            ON CONFLICT(key) DO NOTHING
+            ",
+            params![TOPICS_VERSION_META_KEY],
+        )
         .map_err(map_db_error)?;
 
         self.ensure_search_schema(conn)?;
