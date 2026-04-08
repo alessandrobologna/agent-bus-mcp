@@ -2482,6 +2482,8 @@ impl CoreDb {
             .collect::<Result<Vec<_>, _>>()
             .map_err(map_db_error)?;
 
+        let mut needs_topics_version_backfill = false;
+
         if !rows.iter().any(|n| n == "meta") {
             if !rows.is_empty() {
                 return Err(SchemaMismatchError::new_err(
@@ -2516,6 +2518,16 @@ impl CoreDb {
                     "Database schema version mismatch. Wipe it with `agent-bus cli db wipe --yes` or delete the file at $AGENT_BUS_DB.",
                 ));
             }
+
+            needs_topics_version_backfill = conn
+                .query_row(
+                    "SELECT 1 FROM meta WHERE key = ? LIMIT 1",
+                    params![TOPICS_VERSION_META_KEY],
+                    |_| Ok(()),
+                )
+                .optional()
+                .map_err(map_db_error)?
+                .is_none();
         }
 
         conn.execute_batch(
@@ -2584,15 +2596,16 @@ impl CoreDb {
             ",
         )
         .map_err(map_db_error)?;
-        conn.execute(
-            "
-            INSERT INTO meta(key, value)
-            VALUES (?, '0')
-            ON CONFLICT(key) DO NOTHING
-            ",
-            params![TOPICS_VERSION_META_KEY],
-        )
-        .map_err(map_db_error)?;
+        if needs_topics_version_backfill {
+            conn.execute(
+                "
+                INSERT INTO meta(key, value)
+                VALUES (?, '0')
+                ",
+                params![TOPICS_VERSION_META_KEY],
+            )
+            .map_err(map_db_error)?;
+        }
 
         self.ensure_search_schema(conn)?;
         self.ensure_embeddings_schema(conn)?;
