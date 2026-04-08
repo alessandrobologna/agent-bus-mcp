@@ -2599,7 +2599,7 @@ impl CoreDb {
         if needs_topics_version_backfill {
             conn.execute(
                 "
-                INSERT INTO meta(key, value)
+                INSERT OR IGNORE INTO meta(key, value)
                 VALUES (?, '0')
                 ",
                 params![TOPICS_VERSION_META_KEY],
