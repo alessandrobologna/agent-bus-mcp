@@ -2581,7 +2581,7 @@ impl CoreDb {
             CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_topic_sender_client_id_unique
               ON messages(topic_id, sender, client_message_id)
               WHERE client_message_id IS NOT NULL;
-            "
+            ",
         )
         .map_err(map_db_error)?;
         conn.execute(
