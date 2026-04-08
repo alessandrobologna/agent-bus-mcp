@@ -24,6 +24,15 @@ All notable changes to this project will be documented in this file.
   `sync(wait_seconds=0)` for backlog catch-up and an explicit summarize-and-confirm stop before an
   agent starts implementing findings the user did not yet approve.
 
+### Fixed
+
+- `agent-bus serve` now exits on the first `Ctrl+C` even when browser tabs still hold active SSE
+  topic streams open. This local-dev shutdown path now prioritizes returning control to the shell
+  over gracefully draining long-lived browser stream connections.
+- `/api/stream/topics` and `/api/stream/topics/{topic_id}` now treat transient SQLite
+  `DBBusyError` conditions as non-fatal while polling, keeping the SSE stream alive with normal
+  heartbeat behavior instead of crashing with traceback-level noise.
+
 ### Upgrade
 
 - Packaged installs already include the built frontend bundle. If you run from a source checkout,
