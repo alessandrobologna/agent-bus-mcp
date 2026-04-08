@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import signal
 import time
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any, Literal, cast
@@ -45,6 +46,31 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Agent Bus", docs_url=None, redoc_url=None, lifespan=lifespan)
 
 _db: AgentBusDB | None = None
+
+
+class SSEStreamingResponse(StreamingResponse):
+    async def __call__(self, scope, receive, send) -> None:  # type: ignore[override]
+        try:
+            await super().__call__(scope, receive, send)
+        except asyncio.CancelledError:
+            return
+
+
+class ImmediateSigintServer:
+    def __init__(self, config) -> None:
+        import uvicorn
+
+        class _Server(uvicorn.Server):
+            def handle_exit(self, sig: int, frame) -> None:  # type: ignore[override]
+                self._captured_signals.append(sig)
+                self.should_exit = True
+                if sig == signal.SIGINT:
+                    self.force_exit = True
+
+        self._server = _Server(config=config)
+
+    def run(self) -> None:
+        self._server.run()
 
 
 def get_db() -> AgentBusDB:
@@ -473,7 +499,7 @@ async def api_topics_stream(request: Request) -> StreamingResponse:
         except asyncio.CancelledError:
             return
 
-    return StreamingResponse(
+    return SSEStreamingResponse(
         event_stream(),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
@@ -514,7 +540,7 @@ async def api_topic_stream(topic_id: str, request: Request) -> StreamingResponse
         except asyncio.CancelledError:
             return
 
-    return StreamingResponse(
+    return SSEStreamingResponse(
         event_stream(),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
@@ -556,9 +582,12 @@ def run_server(host: str = "127.0.0.1", port: int = 8080, db_path: str | None = 
     import uvicorn
 
     init_db(db_path)
-    uvicorn.run(
+    config = uvicorn.Config(
         app,
         host=host,
         port=port,
+        lifespan="off",
         timeout_graceful_shutdown=SERVER_SHUTDOWN_GRACE_SECONDS,
     )
+    with suppress(KeyboardInterrupt):
+        ImmediateSigintServer(config).run()

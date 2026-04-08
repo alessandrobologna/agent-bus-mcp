@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import signal
 from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+from starlette.responses import StreamingResponse
 
 from agent_bus import db as db_module
 from agent_bus import search as search_module
@@ -312,17 +314,23 @@ def test_run_server_sets_graceful_shutdown_timeout(monkeypatch) -> None:
     def fake_init_db(db_path: str | None = None) -> None:
         calls["db_path"] = db_path
 
-    def fake_uvicorn_run(app, **kwargs) -> None:
-        calls["app"] = app
-        calls["kwargs"] = kwargs
+    class FakeConfig:
+        def __init__(self, app, **kwargs) -> None:
+            calls["app"] = app
+            calls["kwargs"] = kwargs
+            self.app = app
+            self.kwargs = kwargs
 
     class FakeUvicorn:
-        @staticmethod
-        def run(app, **kwargs) -> None:
-            fake_uvicorn_run(app, **kwargs)
+        Config = FakeConfig
 
     monkeypatch.setattr(web_server, "init_db", fake_init_db)
     monkeypatch.setitem(__import__("sys").modules, "uvicorn", FakeUvicorn)
+    monkeypatch.setattr(
+        web_server,
+        "ImmediateSigintServer",
+        lambda config: type("Runner", (), {"run": lambda self: calls.setdefault("ran", config)})(),
+    )
 
     web_server.run_server(host="0.0.0.0", port=9999, db_path="/tmp/test.sqlite")
 
@@ -331,5 +339,47 @@ def test_run_server_sets_graceful_shutdown_timeout(monkeypatch) -> None:
     assert calls["kwargs"] == {
         "host": "0.0.0.0",
         "port": 9999,
+        "lifespan": "off",
         "timeout_graceful_shutdown": web_server.SERVER_SHUTDOWN_GRACE_SECONDS,
     }
+    assert calls["ran"].kwargs == calls["kwargs"]
+
+
+def test_immediate_sigint_server_forces_exit_on_first_interrupt(monkeypatch) -> None:
+    handled: dict[str, object] = {}
+
+    class FakeServer:
+        def __init__(self, config) -> None:
+            self._captured_signals = []
+            self.should_exit = False
+            self.force_exit = False
+            handled["instance"] = self
+
+    class FakeUvicorn:
+        Server = FakeServer
+
+    monkeypatch.setitem(__import__("sys").modules, "uvicorn", FakeUvicorn)
+
+    web_server.ImmediateSigintServer(config=object())
+    inner = handled["instance"]
+    inner.handle_exit(signal.SIGINT, None)
+
+    assert inner.should_exit is True
+    assert inner.force_exit is True
+
+
+def test_sse_streaming_response_swallows_cancelled_error(monkeypatch) -> None:
+    async def fake_super_call(self, scope, receive, send) -> None:
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(StreamingResponse, "__call__", fake_super_call)
+
+    response = web_server.SSEStreamingResponse(iter(()), media_type="text/event-stream")
+
+    async def receive():
+        return {"type": "http.request"}
+
+    async def send(_message):
+        return None
+
+    asyncio.run(response({"type": "http"}, receive, send))
