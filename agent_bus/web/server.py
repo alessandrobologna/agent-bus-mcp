@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import signal
 import time
-from contextlib import asynccontextmanager
+from contextlib import suppress
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any, Literal, cast
@@ -19,7 +20,7 @@ from fastapi.responses import (
     StreamingResponse,
 )
 
-from agent_bus.db import AgentBusDB, TopicNotFoundError
+from agent_bus.db import AgentBusDB, DBBusyError, TopicNotFoundError
 from agent_bus.models import Cursor, Message
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -30,20 +31,39 @@ TOPIC_STREAM_INTERVAL_SECONDS = 2.0
 STREAM_HEARTBEAT_SECONDS = 15.0
 PRESENCE_WINDOW_SECONDS = 300
 TOPICS_SIGNATURE_SCAN_LIMIT = 2_147_483_647
+SERVER_SHUTDOWN_GRACE_SECONDS = 2
 
 SearchMode = Literal["fts", "semantic", "hybrid"]
 TopicStatusFilter = Literal["open", "closed", "all"]
 TopicSort = Literal["last_updated_desc", "created_desc", "created_asc"]
 
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    yield
-
-
-app = FastAPI(title="Agent Bus", docs_url=None, redoc_url=None, lifespan=lifespan)
+app = FastAPI(title="Agent Bus", docs_url=None, redoc_url=None)
 
 _db: AgentBusDB | None = None
+
+
+class SSEStreamingResponse(StreamingResponse):
+    async def __call__(self, scope, receive, send) -> None:  # type: ignore[override]
+        try:
+            await super().__call__(scope, receive, send)
+        except asyncio.CancelledError:
+            return
+
+
+class ImmediateSigintServer:
+    def __init__(self, config) -> None:
+        import uvicorn
+
+        class _Server(uvicorn.Server):
+            def handle_exit(self, sig: int, frame) -> None:  # type: ignore[override]
+                super().handle_exit(sig, frame)
+                if sig == signal.SIGINT:
+                    self.force_exit = True
+
+        self._server = _Server(config=config)
+
+    def run(self) -> None:
+        self._server.run()
 
 
 def get_db() -> AgentBusDB:
@@ -448,22 +468,31 @@ async def api_topics_stream(request: Request) -> StreamingResponse:
     async def event_stream():
         previous_signature: list[TopicSignature] | None = None
         last_heartbeat = 0.0
-        while True:
-            if await request.is_disconnected():
-                return
+        try:
+            while True:
+                if await request.is_disconnected():
+                    return
 
-            signature = topics_signature(db)
-            if signature != previous_signature:
-                previous_signature = signature
-                last_heartbeat = now()
-                yield encode_sse("topics.invalidate", {"timestamp": last_heartbeat})
-            elif now() - last_heartbeat >= STREAM_HEARTBEAT_SECONDS:
-                last_heartbeat = now()
-                yield encode_sse("heartbeat", {"timestamp": last_heartbeat})
+                try:
+                    signature = topics_signature(db)
+                except DBBusyError:
+                    if now() - last_heartbeat >= STREAM_HEARTBEAT_SECONDS:
+                        last_heartbeat = now()
+                        yield encode_sse("heartbeat", {"timestamp": last_heartbeat})
+                else:
+                    if signature != previous_signature:
+                        previous_signature = signature
+                        last_heartbeat = now()
+                        yield encode_sse("topics.invalidate", {"timestamp": last_heartbeat})
+                    elif now() - last_heartbeat >= STREAM_HEARTBEAT_SECONDS:
+                        last_heartbeat = now()
+                        yield encode_sse("heartbeat", {"timestamp": last_heartbeat})
 
-            await asyncio.sleep(TOPICS_STREAM_INTERVAL_SECONDS)
+                await asyncio.sleep(TOPICS_STREAM_INTERVAL_SECONDS)
+        except asyncio.CancelledError:
+            return
 
-    return StreamingResponse(
+    return SSEStreamingResponse(
         event_stream(),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
@@ -477,27 +506,34 @@ async def api_topic_stream(topic_id: str, request: Request) -> StreamingResponse
     async def event_stream():
         previous_state: dict[str, Any] | None = None
         last_heartbeat = 0.0
-        while True:
-            if await request.is_disconnected():
-                return
+        try:
+            while True:
+                if await request.is_disconnected():
+                    return
 
-            try:
-                state = topic_stream_state(db, topic_id=topic_id)
-            except TopicNotFoundError:
-                yield encode_sse("topic.deleted", {"topic_id": topic_id})
-                return
+                try:
+                    state = topic_stream_state(db, topic_id=topic_id)
+                except TopicNotFoundError:
+                    yield encode_sse("topic.deleted", {"topic_id": topic_id})
+                    return
+                except DBBusyError:
+                    if now() - last_heartbeat >= STREAM_HEARTBEAT_SECONDS:
+                        last_heartbeat = now()
+                        yield encode_sse("heartbeat", {"timestamp": last_heartbeat})
+                else:
+                    if state != previous_state:
+                        previous_state = state
+                        last_heartbeat = now()
+                        yield encode_sse("topic.update", state)
+                    elif now() - last_heartbeat >= STREAM_HEARTBEAT_SECONDS:
+                        last_heartbeat = now()
+                        yield encode_sse("heartbeat", {"timestamp": last_heartbeat})
 
-            if state != previous_state:
-                previous_state = state
-                last_heartbeat = now()
-                yield encode_sse("topic.update", state)
-            elif now() - last_heartbeat >= STREAM_HEARTBEAT_SECONDS:
-                last_heartbeat = now()
-                yield encode_sse("heartbeat", {"timestamp": last_heartbeat})
+                await asyncio.sleep(TOPIC_STREAM_INTERVAL_SECONDS)
+        except asyncio.CancelledError:
+            return
 
-            await asyncio.sleep(TOPIC_STREAM_INTERVAL_SECONDS)
-
-    return StreamingResponse(
+    return SSEStreamingResponse(
         event_stream(),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
@@ -539,4 +575,12 @@ def run_server(host: str = "127.0.0.1", port: int = 8080, db_path: str | None = 
     import uvicorn
 
     init_db(db_path)
-    uvicorn.run(app, host=host, port=port)
+    config = uvicorn.Config(
+        app,
+        host=host,
+        port=port,
+        lifespan="off",
+        timeout_graceful_shutdown=SERVER_SHUTDOWN_GRACE_SECONDS,
+    )
+    with suppress(KeyboardInterrupt):
+        ImmediateSigintServer(config).run()

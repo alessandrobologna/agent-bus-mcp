@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import signal
 from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+from starlette.responses import StreamingResponse
 
 from agent_bus import db as db_module
 from agent_bus import search as search_module
@@ -210,6 +212,26 @@ def test_api_topics_stream_uses_sse_framing(tmp_path: Path, monkeypatch) -> None
     assert "event: topics.invalidate" in first_chunk
 
 
+def test_api_topics_stream_survives_db_busy(tmp_path: Path, monkeypatch) -> None:
+    prepare_static_bundle(tmp_path, monkeypatch)
+    install_fake_now(monkeypatch, start=1_700_000_000.0, step=20.0)
+    web_server.init_db(str(tmp_path / "bus.sqlite"))
+
+    class FakeRequest:
+        async def is_disconnected(self) -> bool:
+            return False
+
+    def fake_topics_signature(_db):
+        raise db_module.DBBusyError("database is locked")
+
+    monkeypatch.setattr(web_server, "topics_signature", fake_topics_signature)
+
+    response = asyncio.run(web_server.api_topics_stream(FakeRequest()))
+    first_chunk = asyncio.run(response.body_iterator.__anext__()).decode("utf-8")
+
+    assert "event: heartbeat" in first_chunk
+
+
 def test_topics_signature_changes_after_topic_rename(tmp_path: Path, monkeypatch) -> None:
     prepare_static_bundle(tmp_path, monkeypatch)
     install_fake_now(monkeypatch)
@@ -247,6 +269,29 @@ def test_topic_stream_state_changes_after_non_tail_message_delete(
     assert before != after
 
 
+def test_api_topic_stream_survives_db_busy(tmp_path: Path, monkeypatch) -> None:
+    prepare_static_bundle(tmp_path, monkeypatch)
+    install_fake_now(monkeypatch, start=1_700_000_000.0, step=20.0)
+    web_server.init_db(str(tmp_path / "bus.sqlite"))
+    db = web_server.get_db()
+    topic = db.topic_create(name="pink", metadata=None, mode="new")
+
+    class FakeRequest:
+        async def is_disconnected(self) -> bool:
+            return False
+
+    def fake_topic_stream_state(_db, *, topic_id: str):
+        assert topic_id == topic.topic_id
+        raise db_module.DBBusyError("database is locked")
+
+    monkeypatch.setattr(web_server, "topic_stream_state", fake_topic_stream_state)
+
+    response = asyncio.run(web_server.api_topic_stream(topic.topic_id, FakeRequest()))
+    first_chunk = asyncio.run(response.body_iterator.__anext__()).decode("utf-8")
+
+    assert "event: heartbeat" in first_chunk
+
+
 def test_api_topic_export_uses_iso_timestamps(tmp_path: Path, monkeypatch) -> None:
     prepare_static_bundle(tmp_path, monkeypatch)
     install_fake_now(monkeypatch)
@@ -261,3 +306,87 @@ def test_api_topic_export_uses_iso_timestamps(tmp_path: Path, monkeypatch) -> No
     assert res.status_code == 200
     expected = datetime.fromtimestamp(1_700_000_001, UTC).isoformat().replace("+00:00", "Z")
     assert expected in res.text
+
+
+def test_run_server_sets_graceful_shutdown_timeout(monkeypatch) -> None:
+    calls: dict[str, object] = {}
+
+    def fake_init_db(db_path: str | None = None) -> None:
+        calls["db_path"] = db_path
+
+    class FakeConfig:
+        def __init__(self, app, **kwargs) -> None:
+            calls["app"] = app
+            calls["kwargs"] = kwargs
+            self.app = app
+            self.kwargs = kwargs
+
+    class FakeUvicorn:
+        Config = FakeConfig
+
+    monkeypatch.setattr(web_server, "init_db", fake_init_db)
+    monkeypatch.setitem(__import__("sys").modules, "uvicorn", FakeUvicorn)
+    monkeypatch.setattr(
+        web_server,
+        "ImmediateSigintServer",
+        lambda config: type("Runner", (), {"run": lambda self: calls.setdefault("ran", config)})(),
+    )
+
+    web_server.run_server(host="0.0.0.0", port=9999, db_path="/tmp/test.sqlite")
+
+    assert calls["db_path"] == "/tmp/test.sqlite"
+    assert calls["app"] is web_server.app
+    assert calls["kwargs"] == {
+        "host": "0.0.0.0",
+        "port": 9999,
+        "lifespan": "off",
+        "timeout_graceful_shutdown": web_server.SERVER_SHUTDOWN_GRACE_SECONDS,
+    }
+    assert calls["ran"].kwargs == calls["kwargs"]
+
+
+def test_immediate_sigint_server_forces_exit_on_first_interrupt(monkeypatch) -> None:
+    handled: dict[str, object] = {}
+
+    class FakeServer:
+        def __init__(self, config) -> None:
+            self._captured_signals = []
+            self.should_exit = False
+            self.force_exit = False
+            self.super_called = False
+            handled["instance"] = self
+
+        def handle_exit(self, sig: int, frame) -> None:
+            self.super_called = True
+            self._captured_signals.append(sig)
+            self.should_exit = True
+
+    class FakeUvicorn:
+        Server = FakeServer
+
+    monkeypatch.setitem(__import__("sys").modules, "uvicorn", FakeUvicorn)
+
+    web_server.ImmediateSigintServer(config=object())
+    inner = handled["instance"]
+    inner.handle_exit(signal.SIGINT, None)
+
+    assert inner.super_called is True
+    assert inner.should_exit is True
+    assert inner.force_exit is True
+
+
+def test_sse_streaming_response_swallows_cancelled_error(monkeypatch) -> None:
+    async def fake_super_call(self, scope, receive, send) -> None:
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(StreamingResponse, "__call__", fake_super_call)
+
+    response = web_server.SSEStreamingResponse(iter(()), media_type="text/event-stream")
+
+    async def receive():
+        return {"type": "http.request"}
+
+    async def send(_message):
+        return None
+
+    asyncio.run(response({"type": "http"}, receive, send))
