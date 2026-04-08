@@ -42,7 +42,7 @@ _db: AgentBusDB | None = None
 
 
 class SSEStreamingResponse(StreamingResponse):
-    async def __call__(self, scope, receive, send) -> None:  # type: ignore[override]
+    async def __call__(self, scope, receive, send) -> None:
         try:
             await super().__call__(scope, receive, send)
         except asyncio.CancelledError:
@@ -54,7 +54,7 @@ class ImmediateSigintServer:
         import uvicorn
 
         class _Server(uvicorn.Server):
-            def handle_exit(self, sig: int, frame) -> None:  # type: ignore[override]
+            def handle_exit(self, sig: int, frame) -> None:
                 super().handle_exit(sig, frame)
                 if sig == signal.SIGINT:
                     self.force_exit = True
