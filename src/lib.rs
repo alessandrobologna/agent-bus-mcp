@@ -24,6 +24,7 @@ create_exception!(agent_bus_core, TopicMismatchError, PyRuntimeError);
 create_exception!(agent_bus_core, AgentNameInUseError, PyRuntimeError);
 
 const SCHEMA_VERSION: &str = "6";
+const TOPICS_VERSION_META_KEY: &str = "topics_version";
 const DEFAULT_EMBEDDING_MODEL: &str = "BAAI/bge-small-en-v1.5";
 const DEFAULT_MAX_TOKENS: usize = 512;
 const MAX_EMBEDDING_MAX_TOKENS: usize = 8192;
@@ -1192,6 +1193,7 @@ impl CoreDb {
             params![topic_id, topic_name, created_at, metadata_json],
         )
         .map_err(map_db_error)?;
+        bump_topics_version(&tx).map_err(map_db_error)?;
         tx.commit().map_err(map_db_error)?;
 
         let topic = TopicRow {
@@ -1326,6 +1328,20 @@ impl CoreDb {
         Ok(out.into())
     }
 
+    fn topic_list_version(&self) -> PyResult<i64> {
+        let conn = self.connect()?;
+        let version = conn
+            .query_row(
+                "SELECT CAST(value AS INTEGER) FROM meta WHERE key = ?",
+                params![TOPICS_VERSION_META_KEY],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(map_db_error)?
+            .unwrap_or(0);
+        Ok(version)
+    }
+
     fn topic_get_with_counts(&self, py: Python<'_>, topic_id: String) -> PyResult<Py<PyAny>> {
         let conn = self.connect()?;
         let row = conn
@@ -1409,6 +1425,7 @@ impl CoreDb {
             params![closed_at, close_reason, existing.topic_id],
         )
         .map_err(map_db_error)?;
+        bump_topics_version(&tx).map_err(map_db_error)?;
         tx.commit().map_err(map_db_error)?;
 
         let updated = TopicRow {
@@ -1457,6 +1474,7 @@ impl CoreDb {
         .map_err(map_db_error)?;
         tx.execute("DELETE FROM topics WHERE topic_id = ?", params![topic_id])
             .map_err(map_db_error)?;
+        bump_topics_version(&tx).map_err(map_db_error)?;
         tx.commit().map_err(map_db_error)?;
         Ok(true)
     }
@@ -1536,6 +1554,7 @@ impl CoreDb {
             }
         }
 
+        bump_topics_version(&tx).map_err(map_db_error)?;
         tx.commit().map_err(map_db_error)?;
         let updated = TopicRow {
             topic_id: existing.topic_id,
@@ -1601,6 +1620,7 @@ impl CoreDb {
         let delete_sql = format!("DELETE FROM messages WHERE message_id IN ({placeholders})");
         tx.execute(&delete_sql, params_from_iter(rows.iter()))
             .map_err(map_db_error)?;
+        bump_topics_version(&tx).map_err(map_db_error)?;
         tx.commit().map_err(map_db_error)?;
         Ok(rows.len() as i64)
     }
@@ -1660,6 +1680,7 @@ impl CoreDb {
             format!("DELETE FROM messages WHERE message_id IN ({delete_placeholders})");
         tx.execute(&delete_sql, params_from_iter(rows.iter()))
             .map_err(map_db_error)?;
+        bump_topics_version(&tx).map_err(map_db_error)?;
         tx.commit().map_err(map_db_error)?;
 
         let out = PyList::empty(py);
@@ -1879,6 +1900,7 @@ impl CoreDb {
         let mut next_seq = next_seq;
 
         let mut sent: Vec<(MessageRow, bool)> = Vec::new();
+        let mut inserted_messages = false;
         for item in outbox {
             if let Some(client_message_id) = item.client_message_id.clone() {
                 let existing = tx
@@ -1969,6 +1991,7 @@ impl CoreDb {
                 },
                 false,
             ));
+            inserted_messages = true;
         }
 
         tx.execute(
@@ -2076,6 +2099,9 @@ impl CoreDb {
             cursor.updated_at = updated_at;
         }
 
+        if inserted_messages {
+            bump_topics_version(&tx).map_err(map_db_error)?;
+        }
         tx.commit().map_err(map_db_error)?;
 
         let sent_py = PyList::empty(py);
@@ -2470,7 +2496,9 @@ impl CoreDb {
                 );
 
                 INSERT INTO meta(key, value)
-                VALUES ('schema_version', '{SCHEMA_VERSION}');
+                VALUES
+                  ('schema_version', '{SCHEMA_VERSION}'),
+                  ('{TOPICS_VERSION_META_KEY}', '0');
                 "
             ))
             .map_err(map_db_error)?;
@@ -2490,7 +2518,7 @@ impl CoreDb {
             }
         }
 
-        conn.execute_batch(
+        conn.execute_batch(&format!(
             "
             CREATE TABLE IF NOT EXISTS topics (
               topic_id TEXT PRIMARY KEY,
@@ -2553,8 +2581,12 @@ impl CoreDb {
             CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_topic_sender_client_id_unique
               ON messages(topic_id, sender, client_message_id)
               WHERE client_message_id IS NOT NULL;
-            ",
-        )
+            
+            INSERT INTO meta(key, value)
+            VALUES ('{TOPICS_VERSION_META_KEY}', '0')
+            ON CONFLICT(key) DO NOTHING;
+            "
+        ))
         .map_err(map_db_error)?;
 
         self.ensure_search_schema(conn)?;
@@ -2740,6 +2772,18 @@ fn new_reclaim_token() -> String {
 
 fn new_id() -> String {
     Uuid::new_v4().simple().to_string()[0..10].to_string()
+}
+
+fn bump_topics_version(tx: &rusqlite::Transaction<'_>) -> rusqlite::Result<()> {
+    tx.execute(
+        "
+        UPDATE meta
+        SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT)
+        WHERE key = ?
+        ",
+        params![TOPICS_VERSION_META_KEY],
+    )?;
+    Ok(())
 }
 
 fn ensure_parent_dir(path: &str) -> std::io::Result<()> {

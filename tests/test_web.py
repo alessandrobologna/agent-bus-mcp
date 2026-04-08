@@ -221,10 +221,10 @@ def test_api_topics_stream_survives_db_busy(tmp_path: Path, monkeypatch) -> None
         async def is_disconnected(self) -> bool:
             return False
 
-    def fake_topics_signature(_db):
+    def fake_topics_version(_db):
         raise db_module.DBBusyError("database is locked")
 
-    monkeypatch.setattr(web_server, "topics_signature", fake_topics_signature)
+    monkeypatch.setattr(web_server, "topics_version", fake_topics_version)
 
     response = asyncio.run(web_server.api_topics_stream(FakeRequest()))
     first_chunk = asyncio.run(response.body_iterator.__anext__()).decode("utf-8")
@@ -232,19 +232,18 @@ def test_api_topics_stream_survives_db_busy(tmp_path: Path, monkeypatch) -> None
     assert "event: heartbeat" in first_chunk
 
 
-def test_topics_signature_changes_after_topic_rename(tmp_path: Path, monkeypatch) -> None:
+def test_topics_version_changes_after_topic_rename(tmp_path: Path, monkeypatch) -> None:
     prepare_static_bundle(tmp_path, monkeypatch)
     install_fake_now(monkeypatch)
     web_server.init_db(str(tmp_path / "bus.sqlite"))
     db = web_server.get_db()
     topic = db.topic_create(name="before", metadata=None, mode="new")
 
-    before = web_server.topics_signature(db)
+    before = web_server.topics_version(db)
     db.topic_rename(topic_id=topic.topic_id, new_name="after", rewrite_messages=False)
-    after = web_server.topics_signature(db)
+    after = web_server.topics_version(db)
 
-    assert before != after
-    assert any(item[0] == topic.topic_id and item[1] == "after" for item in after)
+    assert after == before + 1
 
 
 def test_topic_stream_state_changes_after_non_tail_message_delete(

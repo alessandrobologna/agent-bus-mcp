@@ -153,3 +153,88 @@ def test_topic_list_with_counts_defaults_to_created_desc_sort(tmp_path, monkeypa
     topics = db.topic_list_with_counts(status="all", limit=10)
 
     assert [topic["topic_id"] for topic in topics[:2]] == [second.topic_id, first.topic_id]
+
+
+def test_topic_list_version_bumps_for_topic_list_mutations(tmp_path, monkeypatch):
+    install_fake_now(monkeypatch)
+    db = AgentBusDB(path=str(tmp_path / "bus.sqlite"))
+
+    assert db.topic_list_version() == 0
+
+    topic = db.topic_create(name="alpha", metadata=None, mode="new")
+    assert db.topic_list_version() == 1
+
+    db.topic_rename(topic_id=topic.topic_id, new_name="beta", rewrite_messages=False)
+    assert db.topic_list_version() == 2
+
+    db.sync_once(
+        topic_id=topic.topic_id,
+        agent_name="reviewer",
+        outbox=[
+            {
+                "content_markdown": "hello",
+                "message_type": "message",
+                "reply_to": None,
+                "metadata": None,
+                "client_message_id": None,
+            }
+        ],
+        max_items=20,
+        include_self=True,
+        auto_advance=True,
+        ack_through=None,
+    )
+    assert db.topic_list_version() == 3
+
+    message = db.get_latest_messages(topic_id=topic.topic_id, limit=1)[0]
+    db.delete_message(message_id=message.message_id)
+    assert db.topic_list_version() == 4
+
+    for content in ("one", "two"):
+        db.sync_once(
+            topic_id=topic.topic_id,
+            agent_name="reviewer",
+            outbox=[
+                {
+                    "content_markdown": content,
+                    "message_type": "message",
+                    "reply_to": None,
+                    "metadata": None,
+                    "client_message_id": None,
+                }
+            ],
+            max_items=20,
+            include_self=True,
+            auto_advance=True,
+            ack_through=None,
+        )
+    assert db.topic_list_version() == 6
+
+    messages = db.get_messages(topic_id=topic.topic_id, limit=20)
+    db.delete_messages_batch(topic_id=topic.topic_id, message_ids=[messages[0].message_id])
+    assert db.topic_list_version() == 7
+
+    db.topic_close(topic_id=topic.topic_id, reason="done")
+    assert db.topic_list_version() == 8
+
+    assert db.delete_topic(topic_id=topic.topic_id) is True
+    assert db.topic_list_version() == 9
+
+
+def test_topic_list_version_ignores_cursor_only_sync(tmp_path, monkeypatch):
+    install_fake_now(monkeypatch)
+    db = AgentBusDB(path=str(tmp_path / "bus.sqlite"))
+    topic = db.topic_create(name="alpha", metadata=None, mode="new")
+    starting_version = db.topic_list_version()
+
+    db.sync_once(
+        topic_id=topic.topic_id,
+        agent_name="reviewer",
+        outbox=[],
+        max_items=20,
+        include_self=True,
+        auto_advance=True,
+        ack_through=None,
+    )
+
+    assert db.topic_list_version() == starting_version
