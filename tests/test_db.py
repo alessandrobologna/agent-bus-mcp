@@ -213,6 +213,99 @@ def test_embedding_leader_lock_is_exclusive(tmp_path):
     assert db2.claim_embedding_leader(worker_id="worker-b", ttl_seconds=30) is True
 
 
+def test_embedding_jobs_if_leader_handoff_releases_self_lease(tmp_path):
+    db_path = tmp_path / "bus.sqlite"
+    db1 = AgentBusDB(path=str(db_path))
+    db2 = AgentBusDB(path=str(db_path))
+    topic = db1.topic_create(name="pink", metadata=None, mode="new")
+
+    sent, _, _, _ = db1.sync_once(
+        topic_id=topic.topic_id,
+        agent_name="a",
+        outbox=[{"content_markdown": "hello", "message_type": "message"}],
+        max_items=10,
+        include_self=True,
+        auto_advance=True,
+        ack_through=None,
+    )
+    message_id = sent[0][0].message_id
+    model = "unit-test-model"
+    db1.enqueue_embedding_jobs(jobs=[(message_id, topic.topic_id)], model=model)
+
+    assert (
+        db1.has_ready_embedding_jobs(
+            model=model,
+            limit=10,
+            lock_ttl_seconds=300,
+            error_retry_seconds=0,
+            max_attempts=3,
+        )
+        is True
+    )
+
+    claimed = db1.claim_embedding_jobs_if_leader(
+        model=model,
+        limit=10,
+        lock_ttl_seconds=300,
+        error_retry_seconds=0,
+        max_attempts=3,
+        leader_ttl_seconds=30,
+        leader_heartbeat_seconds=10,
+    )
+    assert [c["message_id"] for c in claimed] == [message_id]
+    assert db1.renew_embedding_leader_self(ttl_seconds=30) is True
+
+    db1.complete_embedding_job(message_id=message_id, model=model)
+
+    assert (
+        db1.has_ready_embedding_jobs(
+            model=model,
+            limit=10,
+            lock_ttl_seconds=300,
+            error_retry_seconds=0,
+            max_attempts=3,
+        )
+        is False
+    )
+    assert db2.claim_embedding_leader(worker_id="worker-b", ttl_seconds=30) is False
+    assert db1.release_embedding_leader_self() is True
+    assert db2.claim_embedding_leader(worker_id="worker-b", ttl_seconds=30) is True
+
+
+def test_has_ready_embedding_jobs_does_not_rewrite_schema_after_init(tmp_path):
+    db = AgentBusDB(path=str(tmp_path / "bus.sqlite"))
+
+    assert (
+        db.has_ready_embedding_jobs(
+            model="unit-test-model",
+            limit=10,
+            lock_ttl_seconds=300,
+            error_retry_seconds=0,
+            max_attempts=3,
+        )
+        is False
+    )
+
+    with sqlite3.connect(db.path) as conn:
+        schema_version_before = conn.execute("PRAGMA schema_version").fetchone()[0]
+
+    assert (
+        db.has_ready_embedding_jobs(
+            model="unit-test-model",
+            limit=10,
+            lock_ttl_seconds=300,
+            error_retry_seconds=0,
+            max_attempts=3,
+        )
+        is False
+    )
+
+    with sqlite3.connect(db.path) as conn:
+        schema_version_after = conn.execute("PRAGMA schema_version").fetchone()[0]
+
+    assert schema_version_after == schema_version_before
+
+
 def test_reserve_agent_name_requires_reclaim_token_and_does_not_mark_presence(tmp_path):
     db = AgentBusDB(path=str(tmp_path / "bus.sqlite"))
     topic = db.topic_create(name="pink", metadata=None, mode="new")

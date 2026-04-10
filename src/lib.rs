@@ -408,6 +408,9 @@ fn embed_texts(
 struct CoreDb {
     path: String,
     fts_available: Mutex<Option<bool>>,
+    schema_initialized: Mutex<bool>,
+    leader_id: String,
+    leader_last_heartbeat: Mutex<Option<f64>>,
 }
 
 #[pymethods]
@@ -418,6 +421,9 @@ impl CoreDb {
         Ok(Self {
             path: resolved,
             fts_available: Mutex::new(None),
+            schema_initialized: Mutex::new(false),
+            leader_id: new_id(),
+            leader_last_heartbeat: Mutex::new(None),
         })
     }
 
@@ -825,120 +831,192 @@ impl CoreDb {
         let conn = self.connect()?;
         conn.execute_batch("BEGIN IMMEDIATE")
             .map_err(map_db_error)?;
-
-        let claimed_at = now();
-        let stale_before = claimed_at - lock_ttl_seconds as f64;
-        let error_ready_before = claimed_at - error_retry_seconds as f64;
-
-        let mut stmt = conn
-            .prepare(
-                "
-                SELECT message_id, topic_id
-                FROM embedding_jobs
-                WHERE model = ?
-                  AND attempts < ?
-                  AND (
-                    status = 'pending'
-                    OR (status = 'error' AND updated_at <= ?)
-                    OR (status = 'processing' AND (locked_at IS NULL OR locked_at <= ?))
-                  )
-                ORDER BY updated_at ASC
-                LIMIT ?
-                ",
-            )
-            .map_err(map_db_error)?;
-
-        let rows: Vec<(String, String)> = stmt
-            .query_map(
-                params![
-                    model,
-                    max_attempts,
-                    error_ready_before,
-                    stale_before,
-                    limit as i64
-                ],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .map_err(map_db_error)?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(map_db_error)?;
-
-        if rows.is_empty() {
-            conn.execute_batch("COMMIT").map_err(map_db_error)?;
-            return Ok(PyList::empty(py).into());
-        }
-
-        let message_ids: Vec<String> = rows.iter().map(|(m, _)| m.clone()).collect();
-        let placeholders = placeholders(message_ids.len());
-
-        let mut params_vec: Vec<Value> = vec![
-            Value::from(worker_id.clone()),
-            Value::from(claimed_at),
-            Value::from(claimed_at),
-            Value::from(model.clone()),
-            Value::from(max_attempts),
-            Value::from(error_ready_before),
-            Value::from(stale_before),
-        ];
-        for mid in &message_ids {
-            params_vec.push(Value::from(mid.clone()));
-        }
-
-        let update_sql = format!(
-            "
-            UPDATE embedding_jobs
-            SET
-              status = 'processing',
-              locked_by = ?,
-              locked_at = ?,
-              updated_at = ?,
-              attempts = attempts + 1
-            WHERE model = ?
-              AND attempts < ?
-              AND (
-                status = 'pending'
-                OR (status = 'error' AND updated_at <= ?)
-                OR (status = 'processing' AND (locked_at IS NULL OR locked_at <= ?))
-              )
-              AND message_id IN ({placeholders})
-            "
-        );
-
-        conn.execute(&update_sql, params_from_iter(params_vec.iter()))
-            .map_err(map_db_error)?;
-
-        let mut stmt = conn
-            .prepare(
-                "
-                SELECT message_id, topic_id, attempts
-                FROM embedding_jobs
-                WHERE model = ? AND locked_by = ? AND locked_at = ?
-                ",
-            )
-            .map_err(map_db_error)?;
-        let claimed_rows = stmt
-            .query_map(params![model, worker_id, claimed_at], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, i64>(2)?,
-                ))
-            })
-            .map_err(map_db_error)?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(map_db_error)?;
-
+        let claimed_rows = claim_embedding_jobs_in_tx(
+            &conn,
+            &model,
+            limit,
+            &worker_id,
+            lock_ttl_seconds,
+            error_retry_seconds,
+            max_attempts,
+        )
+        .map_err(map_db_error)?;
         conn.execute_batch("COMMIT").map_err(map_db_error)?;
+        claimed_rows_to_py(py, claimed_rows)
+    }
 
-        let out = PyList::empty(py);
-        for (mid, tid, attempts) in claimed_rows {
-            let dict = PyDict::new(py);
-            dict.set_item("message_id", mid)?;
-            dict.set_item("topic_id", tid)?;
-            dict.set_item("attempts", attempts)?;
-            out.append(dict)?;
+    #[allow(clippy::too_many_arguments)]
+    fn has_ready_embedding_jobs(
+        &self,
+        model: String,
+        limit: usize,
+        lock_ttl_seconds: i64,
+        error_retry_seconds: i64,
+        max_attempts: i64,
+    ) -> PyResult<bool> {
+        if limit == 0 {
+            return Err(PyValueError::new_err("limit must be > 0"));
         }
-        Ok(out.into())
+        if lock_ttl_seconds <= 0 {
+            return Err(PyValueError::new_err("lock_ttl_seconds must be > 0"));
+        }
+        if error_retry_seconds < 0 {
+            return Err(PyValueError::new_err("error_retry_seconds must be >= 0"));
+        }
+        if max_attempts <= 0 {
+            return Err(PyValueError::new_err("max_attempts must be > 0"));
+        }
+
+        let conn = self.connect()?;
+        has_ready_embedding_jobs_in_tx(
+            &conn,
+            &model,
+            limit,
+            lock_ttl_seconds,
+            error_retry_seconds,
+            max_attempts,
+        )
+        .map_err(map_db_error)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn claim_embedding_jobs_if_leader(
+        &self,
+        py: Python<'_>,
+        model: String,
+        limit: usize,
+        lock_ttl_seconds: i64,
+        error_retry_seconds: i64,
+        max_attempts: i64,
+        leader_ttl_seconds: i64,
+        leader_heartbeat_seconds: i64,
+    ) -> PyResult<Py<PyAny>> {
+        if limit == 0 {
+            return Err(PyValueError::new_err("limit must be > 0"));
+        }
+        if lock_ttl_seconds <= 0 {
+            return Err(PyValueError::new_err("lock_ttl_seconds must be > 0"));
+        }
+        if error_retry_seconds < 0 {
+            return Err(PyValueError::new_err("error_retry_seconds must be >= 0"));
+        }
+        if max_attempts <= 0 {
+            return Err(PyValueError::new_err("max_attempts must be > 0"));
+        }
+        if leader_ttl_seconds <= 0 {
+            return Err(PyValueError::new_err("leader_ttl_seconds must be > 0"));
+        }
+        if leader_heartbeat_seconds <= 0 {
+            return Err(PyValueError::new_err(
+                "leader_heartbeat_seconds must be > 0",
+            ));
+        }
+
+        let conn = self.connect()?;
+        conn.execute_batch("BEGIN IMMEDIATE")
+            .map_err(map_db_error)?;
+
+        let result: PyResult<Py<PyAny>> = (|| {
+            if !self.ensure_embedding_leader_self(
+                &conn,
+                leader_ttl_seconds,
+                leader_heartbeat_seconds,
+            )? {
+                conn.execute_batch("COMMIT").map_err(map_db_error)?;
+                return Ok(PyList::empty(py).into());
+            }
+
+            let claimed_rows = claim_embedding_jobs_in_tx(
+                &conn,
+                &model,
+                limit,
+                &self.leader_id,
+                lock_ttl_seconds,
+                error_retry_seconds,
+                max_attempts,
+            )
+            .map_err(map_db_error)?;
+
+            if claimed_rows.is_empty() {
+                release_embedding_leader_in_tx(&conn, &self.leader_id).map_err(map_db_error)?;
+                // The DB row is authoritative once the transaction succeeds; cache resets are
+                // best-effort so a poisoned local mutex does not turn a committed lease update
+                // into a false failure.
+                if let Ok(mut last_heartbeat) = self.leader_last_heartbeat.lock() {
+                    *last_heartbeat = None;
+                }
+                conn.execute_batch("COMMIT").map_err(map_db_error)?;
+                return Ok(PyList::empty(py).into());
+            }
+
+            conn.execute_batch("COMMIT").map_err(map_db_error)?;
+            claimed_rows_to_py(py, claimed_rows)
+        })();
+
+        if result.is_err() {
+            if let Ok(mut last_heartbeat) = self.leader_last_heartbeat.lock() {
+                *last_heartbeat = None;
+            }
+        }
+        result
+    }
+
+    fn renew_embedding_leader_self(&self, ttl_seconds: i64) -> PyResult<bool> {
+        if ttl_seconds <= 0 {
+            return Err(PyValueError::new_err("ttl_seconds must be > 0"));
+        }
+
+        let conn = self.connect()?;
+        conn.execute_batch("BEGIN IMMEDIATE")
+            .map_err(map_db_error)?;
+
+        let result = (|| {
+            let updated = claim_embedding_leader_in_tx(&conn, &self.leader_id, ttl_seconds)
+                .map_err(map_db_error)?;
+            conn.execute_batch("COMMIT").map_err(map_db_error)?;
+            // This heartbeat is only a process-local skip cache; once the DB write commits,
+            // cache maintenance should not be able to fail the renewal path.
+            if updated {
+                if let Ok(mut last_heartbeat) = self.leader_last_heartbeat.lock() {
+                    *last_heartbeat = Some(now());
+                }
+            } else if let Ok(mut last_heartbeat) = self.leader_last_heartbeat.lock() {
+                *last_heartbeat = None;
+            }
+            Ok(updated)
+        })();
+
+        if result.is_err() {
+            if let Ok(mut last_heartbeat) = self.leader_last_heartbeat.lock() {
+                *last_heartbeat = None;
+            }
+        }
+        result
+    }
+
+    fn release_embedding_leader_self(&self) -> PyResult<bool> {
+        let conn = self.connect()?;
+        conn.execute_batch("BEGIN IMMEDIATE")
+            .map_err(map_db_error)?;
+
+        let result = (|| {
+            let updated =
+                release_embedding_leader_in_tx(&conn, &self.leader_id).map_err(map_db_error)?;
+            conn.execute_batch("COMMIT").map_err(map_db_error)?;
+            // The lease release is already committed in SQLite; clearing the local cache is
+            // best-effort bookkeeping only.
+            if let Ok(mut last_heartbeat) = self.leader_last_heartbeat.lock() {
+                *last_heartbeat = None;
+            }
+            Ok(updated)
+        })();
+
+        if result.is_err() {
+            if let Ok(mut last_heartbeat) = self.leader_last_heartbeat.lock() {
+                *last_heartbeat = None;
+            }
+        }
+        result
     }
 
     fn claim_embedding_leader(&self, worker_id: String, ttl_seconds: i64) -> PyResult<bool> {
@@ -949,52 +1027,19 @@ impl CoreDb {
         let conn = self.connect()?;
         conn.execute_batch("BEGIN IMMEDIATE")
             .map_err(map_db_error)?;
-
-        conn.execute(
-            "
-            INSERT OR IGNORE INTO embedding_worker_leader(id, leader_id, heartbeat_at, expires_at)
-            VALUES (1, '', 0, 0)
-            ",
-            [],
-        )
-        .map_err(map_db_error)?;
-
-        let now_ts = now();
-        let expires_at = now_ts + ttl_seconds as f64;
-        let updated = conn
-            .execute(
-                "
-                UPDATE embedding_worker_leader
-                SET leader_id = ?, heartbeat_at = ?, expires_at = ?
-                WHERE id = 1 AND (leader_id = ? OR expires_at <= ?)
-                ",
-                params![worker_id, now_ts, expires_at, worker_id, now_ts],
-            )
-            .map_err(map_db_error)?;
-
+        let updated =
+            claim_embedding_leader_in_tx(&conn, &worker_id, ttl_seconds).map_err(map_db_error)?;
         conn.execute_batch("COMMIT").map_err(map_db_error)?;
-        Ok(updated == 1)
+        Ok(updated)
     }
 
     fn release_embedding_leader(&self, worker_id: String) -> PyResult<bool> {
         let conn = self.connect()?;
         conn.execute_batch("BEGIN IMMEDIATE")
             .map_err(map_db_error)?;
-
-        let now_ts = now();
-        let updated = conn
-            .execute(
-                "
-                UPDATE embedding_worker_leader
-                SET leader_id = '', heartbeat_at = ?, expires_at = ?
-                WHERE id = 1 AND leader_id = ?
-                ",
-                params![now_ts, now_ts, worker_id],
-            )
-            .map_err(map_db_error)?;
-
+        let updated = release_embedding_leader_in_tx(&conn, &worker_id).map_err(map_db_error)?;
         conn.execute_batch("COMMIT").map_err(map_db_error)?;
-        Ok(updated == 1)
+        Ok(updated)
     }
 
     fn complete_embedding_job(&self, message_id: String, model: String) -> PyResult<()> {
@@ -2468,7 +2513,14 @@ impl CoreDb {
             .map_err(map_db_error)?;
         conn.busy_timeout(Duration::from_millis(2000))
             .map_err(map_db_error)?;
-        self.ensure_schema(&conn)?;
+        let mut schema_initialized = self
+            .schema_initialized
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("schema initialization lock poisoned"))?;
+        if !*schema_initialized {
+            self.ensure_schema(&conn)?;
+            *schema_initialized = true;
+        }
         Ok(conn)
     }
 
@@ -2777,6 +2829,38 @@ impl CoreDb {
     }
 }
 
+impl CoreDb {
+    fn ensure_embedding_leader_self(
+        &self,
+        conn: &Connection,
+        leader_ttl_seconds: i64,
+        leader_heartbeat_seconds: i64,
+    ) -> PyResult<bool> {
+        let now_ts = now();
+        let can_skip = leader_heartbeat_seconds < leader_ttl_seconds;
+        let mut last_heartbeat = self
+            .leader_last_heartbeat
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("leader heartbeat lock poisoned"))?;
+        let should_update = !matches!(
+            *last_heartbeat,
+            Some(last) if can_skip && (now_ts - last) < leader_heartbeat_seconds as f64
+        );
+        if !should_update {
+            return Ok(true);
+        }
+
+        let updated = claim_embedding_leader_in_tx(conn, &self.leader_id, leader_ttl_seconds)
+            .map_err(map_db_error)?;
+        if updated {
+            *last_heartbeat = Some(now_ts);
+            return Ok(true);
+        }
+        *last_heartbeat = None;
+        Ok(false)
+    }
+}
+
 fn now() -> f64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -2790,6 +2874,204 @@ fn new_reclaim_token() -> String {
 
 fn new_id() -> String {
     Uuid::new_v4().simple().to_string()[0..10].to_string()
+}
+
+fn embedding_jobs_claimable_where_clause() -> &'static str {
+    "
+    model = ?
+    AND attempts < ?
+    AND (
+      status = 'pending'
+      OR (status = 'error' AND updated_at <= ?)
+      OR (status = 'processing' AND (locked_at IS NULL OR locked_at <= ?))
+    )
+    "
+}
+
+fn has_ready_embedding_jobs_in_tx(
+    conn: &Connection,
+    model: &str,
+    limit: usize,
+    lock_ttl_seconds: i64,
+    error_retry_seconds: i64,
+    max_attempts: i64,
+) -> rusqlite::Result<bool> {
+    let now_ts = now();
+    let stale_before = now_ts - lock_ttl_seconds as f64;
+    let error_ready_before = now_ts - error_retry_seconds as f64;
+    let sql = format!(
+        "
+        SELECT 1
+        FROM embedding_jobs
+        WHERE {}
+        LIMIT ?
+        ",
+        embedding_jobs_claimable_where_clause()
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let found = stmt
+        .query_row(
+            params![
+                model,
+                max_attempts,
+                error_ready_before,
+                stale_before,
+                limit as i64
+            ],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()?;
+    Ok(found.is_some())
+}
+
+fn claim_embedding_jobs_in_tx(
+    conn: &Connection,
+    model: &str,
+    limit: usize,
+    worker_id: &str,
+    lock_ttl_seconds: i64,
+    error_retry_seconds: i64,
+    max_attempts: i64,
+) -> rusqlite::Result<Vec<(String, String, i64)>> {
+    let claimed_at = now();
+    let stale_before = claimed_at - lock_ttl_seconds as f64;
+    let error_ready_before = claimed_at - error_retry_seconds as f64;
+
+    let select_sql = format!(
+        "
+        SELECT message_id, topic_id
+        FROM embedding_jobs
+        WHERE {}
+        ORDER BY updated_at ASC
+        LIMIT ?
+        ",
+        embedding_jobs_claimable_where_clause()
+    );
+    let mut stmt = conn.prepare(&select_sql)?;
+    let rows: Vec<(String, String)> = stmt
+        .query_map(
+            params![
+                model,
+                max_attempts,
+                error_ready_before,
+                stale_before,
+                limit as i64
+            ],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?
+        .collect::<Result<Vec<_>, _>>()?;
+
+    if rows.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let message_ids: Vec<String> = rows
+        .iter()
+        .map(|(message_id, _)| message_id.clone())
+        .collect();
+    let placeholders = placeholders(message_ids.len());
+    let mut params_vec: Vec<Value> = vec![
+        Value::from(worker_id.to_string()),
+        Value::from(claimed_at),
+        Value::from(claimed_at),
+        Value::from(model.to_string()),
+        Value::from(max_attempts),
+        Value::from(error_ready_before),
+        Value::from(stale_before),
+    ];
+    for message_id in &message_ids {
+        params_vec.push(Value::from(message_id.clone()));
+    }
+
+    let update_sql = format!(
+        "
+        UPDATE embedding_jobs
+        SET
+          status = 'processing',
+          locked_by = ?,
+          locked_at = ?,
+          updated_at = ?,
+          attempts = attempts + 1
+        WHERE {}
+          AND message_id IN ({})
+        ",
+        embedding_jobs_claimable_where_clause(),
+        placeholders
+    );
+    conn.execute(&update_sql, params_from_iter(params_vec.iter()))?;
+
+    let mut stmt = conn.prepare(
+        "
+        SELECT message_id, topic_id, attempts
+        FROM embedding_jobs
+        WHERE model = ? AND locked_by = ? AND locked_at = ?
+        ",
+    )?;
+    let claimed_rows = stmt
+        .query_map(params![model, worker_id, claimed_at], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(claimed_rows)
+}
+
+fn claim_embedding_leader_in_tx(
+    conn: &Connection,
+    worker_id: &str,
+    ttl_seconds: i64,
+) -> rusqlite::Result<bool> {
+    conn.execute(
+        "
+        INSERT OR IGNORE INTO embedding_worker_leader(id, leader_id, heartbeat_at, expires_at)
+        VALUES (1, '', 0, 0)
+        ",
+        [],
+    )?;
+
+    let now_ts = now();
+    let expires_at = now_ts + ttl_seconds as f64;
+    let updated = conn.execute(
+        "
+        UPDATE embedding_worker_leader
+        SET leader_id = ?, heartbeat_at = ?, expires_at = ?
+        WHERE id = 1 AND (leader_id = ? OR expires_at <= ?)
+        ",
+        params![worker_id, now_ts, expires_at, worker_id, now_ts],
+    )?;
+    Ok(updated == 1)
+}
+
+fn release_embedding_leader_in_tx(conn: &Connection, worker_id: &str) -> rusqlite::Result<bool> {
+    let now_ts = now();
+    let updated = conn.execute(
+        "
+        UPDATE embedding_worker_leader
+        SET leader_id = '', heartbeat_at = ?, expires_at = ?
+        WHERE id = 1 AND leader_id = ?
+        ",
+        params![now_ts, now_ts, worker_id],
+    )?;
+    Ok(updated == 1)
+}
+
+fn claimed_rows_to_py(
+    py: Python<'_>,
+    claimed_rows: Vec<(String, String, i64)>,
+) -> PyResult<Py<PyAny>> {
+    let out = PyList::empty(py);
+    for (message_id, topic_id, attempts) in claimed_rows {
+        let dict = PyDict::new(py);
+        dict.set_item("message_id", message_id)?;
+        dict.set_item("topic_id", topic_id)?;
+        dict.set_item("attempts", attempts)?;
+        out.append(dict)?;
+    }
+    Ok(out.into())
 }
 
 fn bump_topics_version(tx: &rusqlite::Transaction<'_>) -> rusqlite::Result<()> {
