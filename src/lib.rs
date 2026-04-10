@@ -408,6 +408,7 @@ fn embed_texts(
 struct CoreDb {
     path: String,
     fts_available: Mutex<Option<bool>>,
+    schema_initialized: Mutex<bool>,
     leader_id: String,
     leader_last_heartbeat: Mutex<Option<f64>>,
 }
@@ -420,6 +421,7 @@ impl CoreDb {
         Ok(Self {
             path: resolved,
             fts_available: Mutex::new(None),
+            schema_initialized: Mutex::new(false),
             leader_id: new_id(),
             leader_last_heartbeat: Mutex::new(None),
         })
@@ -2511,7 +2513,14 @@ impl CoreDb {
             .map_err(map_db_error)?;
         conn.busy_timeout(Duration::from_millis(2000))
             .map_err(map_db_error)?;
-        self.ensure_schema(&conn)?;
+        let mut schema_initialized = self
+            .schema_initialized
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("schema initialization lock poisoned"))?;
+        if !*schema_initialized {
+            self.ensure_schema(&conn)?;
+            *schema_initialized = true;
+        }
         Ok(conn)
     }
 

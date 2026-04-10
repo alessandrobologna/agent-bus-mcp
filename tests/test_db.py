@@ -272,6 +272,40 @@ def test_embedding_jobs_if_leader_handoff_releases_self_lease(tmp_path):
     assert db2.claim_embedding_leader(worker_id="worker-b", ttl_seconds=30) is True
 
 
+def test_has_ready_embedding_jobs_does_not_rewrite_schema_after_init(tmp_path):
+    db = AgentBusDB(path=str(tmp_path / "bus.sqlite"))
+
+    assert (
+        db.has_ready_embedding_jobs(
+            model="unit-test-model",
+            limit=10,
+            lock_ttl_seconds=300,
+            error_retry_seconds=0,
+            max_attempts=3,
+        )
+        is False
+    )
+
+    with sqlite3.connect(db.path) as conn:
+        schema_version_before = conn.execute("PRAGMA schema_version").fetchone()[0]
+
+    assert (
+        db.has_ready_embedding_jobs(
+            model="unit-test-model",
+            limit=10,
+            lock_ttl_seconds=300,
+            error_retry_seconds=0,
+            max_attempts=3,
+        )
+        is False
+    )
+
+    with sqlite3.connect(db.path) as conn:
+        schema_version_after = conn.execute("PRAGMA schema_version").fetchone()[0]
+
+    assert schema_version_after == schema_version_before
+
+
 def test_reserve_agent_name_requires_reclaim_token_and_does_not_mark_presence(tmp_path):
     db = AgentBusDB(path=str(tmp_path / "bus.sqlite"))
     topic = db.topic_create(name="pink", metadata=None, mode="new")
