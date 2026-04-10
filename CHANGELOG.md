@@ -2,7 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.4.1] - Unreleased
+## [0.4.2] - Unreleased
+
+### Changed
+
+- Package metadata is now prepared for the next release train after `0.4.1`, so TestPyPI can
+  verify the trusted-publishing and Node 24 GitHub Actions changes on a fresh version that has not
+  already been uploaded to the package index.
+
+### Infrastructure
+
+- The publish workflow now uses GitHub OIDC trusted publishing for both TestPyPI and PyPI instead
+  of long-lived API-token secrets.
+- CI and wheel builds now use `pnpm/action-setup@v5`, which moves the repo off the deprecated
+  Node.js 20 action runtime.
+
+## [0.4.1]
 
 ### Fixed
 
