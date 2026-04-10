@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import threading
 import time
-import uuid
 from collections.abc import Callable
 from contextlib import suppress
 from typing import Any
@@ -176,7 +175,6 @@ def index_message_rows(
 def _worker_loop(
     *,
     db: AgentBusDB,
-    worker_id: str,
     model: str,
     chunk_size: int,
     chunk_overlap: int,
@@ -352,12 +350,10 @@ def start_background_embedding_worker(db: AgentBusDB) -> None:
         poll_seconds = poll_ms / 1000.0
 
         stop_event = threading.Event()
-        worker_id = uuid.uuid4().hex[:8]
         t = threading.Thread(
             target=_worker_loop,
             kwargs={
                 "db": db,
-                "worker_id": worker_id,
                 "model": model,
                 "chunk_size": chunk_size,
                 "chunk_overlap": chunk_overlap,

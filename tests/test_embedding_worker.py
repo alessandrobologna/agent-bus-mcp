@@ -149,7 +149,6 @@ def test_idle_worker_peeks_read_only_without_releasing_when_it_has_no_lease() ->
 
     _worker_loop(
         db=db,
-        worker_id="worker-1",
         model="unit-test-model",
         chunk_size=100,
         chunk_overlap=0,
@@ -194,7 +193,6 @@ def test_worker_renews_self_lease_while_processing_and_releases_when_drained(
 
     _worker_loop(
         db=db,
-        worker_id="worker-1",
         model="unit-test-model",
         chunk_size=100,
         chunk_overlap=0,
@@ -222,7 +220,6 @@ def test_worker_idle_backoff_never_drops_below_configured_poll_interval() -> Non
 
     _worker_loop(
         db=db,
-        worker_id="worker-1",
         model="unit-test-model",
         chunk_size=100,
         chunk_overlap=0,
@@ -254,7 +251,6 @@ def test_worker_does_not_release_again_when_claim_returns_empty(
 
     _worker_loop(
         db=db,
-        worker_id="worker-1",
         model="unit-test-model",
         chunk_size=100,
         chunk_overlap=0,
