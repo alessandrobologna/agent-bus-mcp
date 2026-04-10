@@ -2,7 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.4.0] - Unreleased
+## [0.4.1] - Unreleased
+
+### Fixed
+
+- The background embedding worker now uses a read-only readiness probe while idle and only enters
+  the Rust-side write transaction when embedding work is actually pending, which removes the
+  repeated idle SQLite writer churn that could cascade into `fseventsd` spikes on macOS.
+- Lease claiming and job claiming now stay coordinated inside the Rust core, while idle workers
+  release their self-held lease promptly so `agent-bus cli embeddings index` can still take the
+  exclusive path without getting blocked behind a sticky idle background worker.
+- Repeated embedding readiness probes no longer rewrite SQLite schema objects on every connect.
+  The DB now initializes schema once per `CoreDb` instance so the supposedly read-only peek path
+  stays low-churn in practice as well as in design.
+
+### Upgrade
+
+- If you run long-lived background workers together with manual `agent-bus cli embeddings index`
+  runs, upgrade to `0.4.1` to pick up the lease handoff and idle-churn fixes.
+- To preview this release explicitly with `uvx`, run:
+
+  ```bash
+  uvx --from agent-bus-mcp==0.4.1 agent-bus --help
+  ```
+
+## [0.4.0]
 
 ### Breaking Changes
 
