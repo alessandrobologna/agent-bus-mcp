@@ -67,7 +67,9 @@ class _WorkerDB:
         self.claim_calls += 1
         if not self.claim_sequence:
             return []
-        return self.claim_sequence.pop(0)
+        batch = self.claim_sequence.pop(0)
+        assert len(batch) <= limit
+        return batch
 
     def renew_embedding_leader_self(self, *, ttl_seconds: int) -> bool:
         assert ttl_seconds > 0
