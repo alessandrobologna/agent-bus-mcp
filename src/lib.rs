@@ -945,7 +945,7 @@ impl CoreDb {
             }
 
             conn.execute_batch("COMMIT").map_err(map_db_error)?;
-            Ok(claimed_rows_to_py(py, claimed_rows)?)
+            claimed_rows_to_py(py, claimed_rows)
         })();
 
         if result.is_err() {
@@ -2826,10 +2826,10 @@ impl CoreDb {
             .leader_last_heartbeat
             .lock()
             .map_err(|_| PyRuntimeError::new_err("leader heartbeat lock poisoned"))?;
-        let should_update = match *last_heartbeat {
-            Some(last) if can_skip && (now_ts - last) < leader_heartbeat_seconds as f64 => false,
-            _ => true,
-        };
+        let should_update = !matches!(
+            *last_heartbeat,
+            Some(last) if can_skip && (now_ts - last) < leader_heartbeat_seconds as f64
+        );
         if !should_update {
             return Ok(true);
         }
