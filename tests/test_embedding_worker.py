@@ -14,9 +14,11 @@ class _WorkerDB:
         *,
         ready_sequence: list[bool],
         claim_sequence: list[list[dict[str, object]]] | None = None,
+        expected_limit: int = 1,
     ) -> None:
         self.ready_sequence = list(ready_sequence)
         self.claim_sequence = list(claim_sequence or [])
+        self.expected_limit = expected_limit
         self.peek_calls = 0
         self.claim_calls = 0
         self.renew_calls = 0
@@ -35,7 +37,7 @@ class _WorkerDB:
         max_attempts: int,
     ) -> bool:
         assert model == "unit-test-model"
-        assert limit == 1
+        assert limit == self.expected_limit
         assert lock_ttl_seconds > 0
         assert error_retry_seconds >= 0
         assert max_attempts > 0
@@ -56,7 +58,7 @@ class _WorkerDB:
         leader_heartbeat_seconds: int,
     ) -> list[dict[str, object]]:
         assert model == "unit-test-model"
-        assert limit == 1
+        assert limit == self.expected_limit
         assert lock_ttl_seconds > 0
         assert error_retry_seconds >= 0
         assert max_attempts > 0
@@ -178,6 +180,7 @@ def test_worker_renews_self_lease_while_processing_and_releases_when_drained(
                 {"message_id": "msg-2", "topic_id": "topic-1", "attempts": 1},
             ]
         ],
+        expected_limit=2,
     )
     stop_event = _StopAfterWaits(stop_after=2)
     monkeypatch.setattr(
@@ -195,7 +198,7 @@ def test_worker_renews_self_lease_while_processing_and_releases_when_drained(
         model="unit-test-model",
         chunk_size=100,
         chunk_overlap=0,
-        batch_size=1,
+        batch_size=2,
         lock_ttl_seconds=30,
         error_retry_seconds=0,
         max_attempts=3,
@@ -211,6 +214,29 @@ def test_worker_renews_self_lease_while_processing_and_releases_when_drained(
     assert db.release_calls == 1
     assert db.completed == ["msg-1", "msg-2"]
     assert db.failed == []
+
+
+def test_worker_idle_backoff_never_drops_below_configured_poll_interval() -> None:
+    db = _WorkerDB(ready_sequence=[False, False])
+    stop_event = _StopAfterWaits(stop_after=2)
+
+    _worker_loop(
+        db=db,
+        worker_id="worker-1",
+        model="unit-test-model",
+        chunk_size=100,
+        chunk_overlap=0,
+        batch_size=1,
+        lock_ttl_seconds=30,
+        error_retry_seconds=0,
+        max_attempts=3,
+        poll_seconds=5.0,
+        leader_ttl_seconds=30,
+        leader_heartbeat_seconds=10,
+        stop_event=stop_event,  # type: ignore[arg-type]
+    )
+
+    assert stop_event.waits == [5.0, 5.0]
 
 
 def test_worker_does_not_release_again_when_claim_returns_empty(

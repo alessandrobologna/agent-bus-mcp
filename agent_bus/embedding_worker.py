@@ -197,11 +197,12 @@ def _worker_loop(
     next_heartbeat_at = 0.0
     has_self_lease = False
     idle_sleep_seconds = poll_seconds
+    idle_sleep_cap = max(poll_seconds, 1.0)
 
     def _sleep_with_backoff() -> None:
         nonlocal idle_sleep_seconds
         stop_event.wait(idle_sleep_seconds)
-        idle_sleep_seconds = min(idle_sleep_seconds * 2, 1.0)
+        idle_sleep_seconds = min(idle_sleep_seconds * 2, idle_sleep_cap)
 
     def _reset_backoff() -> None:
         nonlocal idle_sleep_seconds
