@@ -195,58 +195,86 @@ def _worker_loop(
         return _core.embed_texts(texts, model=selected_model)
 
     next_heartbeat_at = 0.0
-    has_leader = False
+    has_self_lease = False
+    idle_sleep_seconds = poll_seconds
 
-    def _heartbeat() -> bool:
-        nonlocal next_heartbeat_at, has_leader
-        claimed = db.claim_embedding_leader(worker_id=worker_id, ttl_seconds=leader_ttl_seconds)
-        has_leader = claimed
-        if claimed:
-            next_heartbeat_at = time.monotonic() + leader_heartbeat_seconds
-        return claimed
+    def _sleep_with_backoff() -> None:
+        nonlocal idle_sleep_seconds
+        stop_event.wait(idle_sleep_seconds)
+        idle_sleep_seconds = min(idle_sleep_seconds * 2, 1.0)
+
+    def _reset_backoff() -> None:
+        nonlocal idle_sleep_seconds
+        idle_sleep_seconds = poll_seconds
+
+    def _release_self_lease() -> None:
+        nonlocal has_self_lease, next_heartbeat_at
+        if not has_self_lease:
+            return
+        with suppress(Exception):
+            db.release_embedding_leader_self()
+        has_self_lease = False
+        next_heartbeat_at = 0.0
+
+    def _maybe_heartbeat() -> bool:
+        nonlocal next_heartbeat_at
+        if time.monotonic() < next_heartbeat_at:
+            return True
+        if not db.renew_embedding_leader_self(ttl_seconds=leader_ttl_seconds):
+            return False
+        next_heartbeat_at = time.monotonic() + leader_heartbeat_seconds
+        return True
 
     try:
         while not stop_event.is_set():
             try:
-                if not has_leader:
-                    if not _heartbeat():
-                        stop_event.wait(poll_seconds)
-                        continue
-                elif time.monotonic() >= next_heartbeat_at and not _heartbeat():
-                    stop_event.wait(poll_seconds)
-                    continue
-
-                jobs = db.claim_embedding_jobs(
+                if not db.has_ready_embedding_jobs(
                     model=model,
                     limit=batch_size,
-                    worker_id=worker_id,
                     lock_ttl_seconds=lock_ttl_seconds,
                     error_retry_seconds=error_retry_seconds,
                     max_attempts=max_attempts,
+                ):
+                    # Only release after we have actually held the self-lease.
+                    _release_self_lease()
+                    _sleep_with_backoff()
+                    continue
+
+                jobs = db.claim_embedding_jobs_if_leader(
+                    model=model,
+                    limit=batch_size,
+                    lock_ttl_seconds=lock_ttl_seconds,
+                    error_retry_seconds=error_retry_seconds,
+                    max_attempts=max_attempts,
+                    leader_ttl_seconds=leader_ttl_seconds,
+                    leader_heartbeat_seconds=leader_heartbeat_seconds,
                 )
             except (SchemaMismatchError, ValueError):
                 return
             except DBBusyError:
-                stop_event.wait(poll_seconds)
+                _sleep_with_backoff()
                 continue
             except Exception:  # pragma: no cover
-                stop_event.wait(poll_seconds)
+                _sleep_with_backoff()
                 continue
 
             if not jobs:
-                if has_leader:
-                    with suppress(Exception):
-                        db.release_embedding_leader(worker_id=worker_id)
-                    has_leader = False
-                    next_heartbeat_at = 0.0
-                stop_event.wait(poll_seconds)
+                # The Rust helper already handled any required cleanup for the empty batch.
+                has_self_lease = False
+                next_heartbeat_at = 0.0
+                _sleep_with_backoff()
                 continue
+
+            has_self_lease = True
+            _reset_backoff()
+            next_heartbeat_at = time.monotonic() + leader_heartbeat_seconds
 
             for job in jobs:
                 if stop_event.is_set():
                     return
-                if time.monotonic() >= next_heartbeat_at and not _heartbeat():
-                    stop_event.wait(poll_seconds)
+                if not _maybe_heartbeat():
+                    _release_self_lease()
+                    _sleep_with_backoff()
                     break
 
                 message_id = str(job["message_id"])
@@ -283,8 +311,7 @@ def _worker_loop(
             # Avoid a tight loop when there is always work (and allow other DB users to make progress).
             stop_event.wait(0.01)
     finally:
-        with suppress(Exception):
-            db.release_embedding_leader(worker_id=worker_id)
+        _release_self_lease()
 
 
 _worker_lock = threading.Lock()

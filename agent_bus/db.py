@@ -126,11 +126,57 @@ class AgentBusDB:
             max_attempts,
         )
 
+    def has_ready_embedding_jobs(
+        self,
+        *,
+        model: str,
+        limit: int,
+        lock_ttl_seconds: int,
+        error_retry_seconds: int,
+        max_attempts: int,
+    ) -> bool:
+        return bool(
+            self._core.has_ready_embedding_jobs(
+                model,
+                int(limit),
+                int(lock_ttl_seconds),
+                int(error_retry_seconds),
+                int(max_attempts),
+            )
+        )
+
+    def claim_embedding_jobs_if_leader(
+        self,
+        *,
+        model: str,
+        limit: int,
+        lock_ttl_seconds: int,
+        error_retry_seconds: int,
+        max_attempts: int,
+        leader_ttl_seconds: int,
+        leader_heartbeat_seconds: int,
+    ) -> list[dict[str, Any]]:
+        return self._core.claim_embedding_jobs_if_leader(
+            model,
+            int(limit),
+            int(lock_ttl_seconds),
+            int(error_retry_seconds),
+            int(max_attempts),
+            int(leader_ttl_seconds),
+            int(leader_heartbeat_seconds),
+        )
+
     def claim_embedding_leader(self, *, worker_id: str, ttl_seconds: int) -> bool:
         return bool(self._core.claim_embedding_leader(worker_id, int(ttl_seconds)))
 
+    def renew_embedding_leader_self(self, *, ttl_seconds: int) -> bool:
+        return bool(self._core.renew_embedding_leader_self(int(ttl_seconds)))
+
     def release_embedding_leader(self, *, worker_id: str) -> bool:
         return bool(self._core.release_embedding_leader(worker_id))
+
+    def release_embedding_leader_self(self) -> bool:
+        return bool(self._core.release_embedding_leader_self())
 
     def complete_embedding_job(self, *, message_id: str, model: str) -> None:
         self._core.complete_embedding_job(message_id, model)
