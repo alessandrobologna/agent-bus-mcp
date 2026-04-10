@@ -12,8 +12,7 @@ on:
           - testpypi
           - pypi
 
-permissions:
-  contents: write
+permissions: {}
 
 jobs:
   pypi-readme:
@@ -36,6 +35,8 @@ jobs:
   build:
     needs: pypi-readme
     uses: ./.github/workflows/build-wheels.yml
+    permissions:
+      contents: read
     with:
       upload_artifacts: true
       use_pypi_readme: true
@@ -44,6 +45,12 @@ jobs:
   upload:
     needs: build
     runs-on: ubuntu-latest
+    # Configure matching trusted publishers on PyPI and TestPyPI for this
+    # workflow path and the corresponding GitHub environment name.
+    environment: ${{ inputs.publish_target }}
+    permissions:
+      contents: read
+      id-token: write
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
@@ -66,24 +73,21 @@ jobs:
         with:
           enable-cache: false
 
-      - name: Upload to TestPyPI
+      - name: Upload distributions with trusted publishing
         shell: bash
         run: |
           set -euo pipefail
           publish_url="https://test.pypi.org/legacy/"
           check_url="https://test.pypi.org/simple/"
-          token="${{ secrets.TEST_PYPI_API_TOKEN }}"
           if [ "${{ inputs.publish_target }}" = "pypi" ]; then
             publish_url="https://upload.pypi.org/legacy/"
             check_url="https://pypi.org/simple/"
-            token="${{ secrets.PYPI_API_TOKEN }}"
           fi
-          UV_PUBLISH_TOKEN="$token" \
-            uv publish \
-              --publish-url "$publish_url" \
-              --check-url "$check_url" \
-              --trusted-publishing never \
-              dist/*
+          uv publish \
+            --publish-url "$publish_url" \
+            --check-url "$check_url" \
+            --trusted-publishing always \
+            dist/*
 
       - name: Determine version
         id: version
@@ -147,6 +151,8 @@ jobs:
     needs: upload
     if: ${{ inputs.publish_target == 'pypi' }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v5
         with:
