@@ -937,6 +937,9 @@ impl CoreDb {
 
             if claimed_rows.is_empty() {
                 release_embedding_leader_in_tx(&conn, &self.leader_id).map_err(map_db_error)?;
+                // The DB row is authoritative once the transaction succeeds; cache resets are
+                // best-effort so a poisoned local mutex does not turn a committed lease update
+                // into a false failure.
                 if let Ok(mut last_heartbeat) = self.leader_last_heartbeat.lock() {
                     *last_heartbeat = None;
                 }
@@ -969,6 +972,8 @@ impl CoreDb {
             let updated = claim_embedding_leader_in_tx(&conn, &self.leader_id, ttl_seconds)
                 .map_err(map_db_error)?;
             conn.execute_batch("COMMIT").map_err(map_db_error)?;
+            // This heartbeat is only a process-local skip cache; once the DB write commits,
+            // cache maintenance should not be able to fail the renewal path.
             if updated {
                 if let Ok(mut last_heartbeat) = self.leader_last_heartbeat.lock() {
                     *last_heartbeat = Some(now());
@@ -996,6 +1001,8 @@ impl CoreDb {
             let updated =
                 release_embedding_leader_in_tx(&conn, &self.leader_id).map_err(map_db_error)?;
             conn.execute_batch("COMMIT").map_err(map_db_error)?;
+            // The lease release is already committed in SQLite; clearing the local cache is
+            // best-effort bookkeeping only.
             if let Ok(mut last_heartbeat) = self.leader_last_heartbeat.lock() {
                 *last_heartbeat = None;
             }
