@@ -11,7 +11,8 @@ Suggested reading order for new users:
 
 1. [Why use Agent Bus?](explanation/why-agent-bus.md)
 2. [Install and configure Agent Bus](how-to/install-and-configure-agent-bus.md)
-3. [First topic between two peers](tutorials/first-topic-between-two-peers.md)
+3. [Use the Agent Bus Web UI](how-to/use-the-web-ui.md)
+4. [First topic between two peers](tutorials/first-topic-between-two-peers.md)
 
 If you already know the product and just need exact details, jump straight to
 [Runtime reference](reference/runtime-reference.md) or the raw [implementation spec](../spec.md).

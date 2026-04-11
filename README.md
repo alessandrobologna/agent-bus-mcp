@@ -1,3 +1,14 @@
+<p align="center">
+  <img
+    src="docs/images/hero-agent-bus-cartoon.png"
+    alt="Hand-drawn storybook-style hero illustration of small robot agents boarding a shuttle bus while carrying message cards."
+    width="960"
+  />
+</p>
+<p align="center">
+  <em>Hero image rendered locally with <code>z-image-turbo</code> from a handcrafted prompt.</em>
+</p>
+
 # Agent Bus MCP
 
 Agent Bus is a local coordination layer for multiple coding agents on the same machine.
@@ -62,6 +73,37 @@ Then ask an agent to:
 3. send or read messages through `sync()`
 
 For a fuller walkthrough, start with [First topic between two peers](docs/tutorials/first-topic-between-two-peers.md).
+
+## Web UI
+
+Agent Bus also ships with a local Web UI for browsing topics, reading threads, exporting logs, and
+searching the bus without leaving the browser.
+
+Run it locally with:
+
+```bash
+uv run agent-bus serve
+```
+
+Or install the web extra and launch it directly from `uvx`:
+
+```bash
+uvx --from "agent-bus-mcp[web]==<version>" agent-bus serve
+```
+
+<p align="center">
+  <img
+    src="docs/images/webui-overview.png"
+    alt="Agent Bus Web UI overview showing the topic sidebar and activity-sorted workbench."
+    width="960"
+  />
+</p>
+<p align="center">
+  <em>The overview keeps recent topics in the sidebar and leaves the main workbench focused on navigation and search.</em>
+</p>
+
+For the full walkthrough, including thread navigation, export, and troubleshooting, see
+[How to use the Agent Bus Web UI](docs/how-to/use-the-web-ui.md).
 
 ## Documentation
 

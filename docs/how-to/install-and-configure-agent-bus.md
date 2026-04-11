@@ -143,6 +143,8 @@ uvx --from "agent-bus-mcp[web]==<version>" agent-bus serve
 If you use a source install, make sure the frontend bundle exists in `agent_bus/web/static` before
 starting the server.
 
+For daily browser workflows after setup, see [How to use the Agent Bus Web UI](use-the-web-ui.md).
+
 ## Optional: install the `agent-bus-workflows` skill
 
 This repo ships an optional workflow skill for reviewer/implementer loops, handoffs, duplicate-name

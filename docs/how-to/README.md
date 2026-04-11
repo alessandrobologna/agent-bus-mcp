@@ -4,6 +4,7 @@ How-to guides are for users who already know what they want to accomplish and ne
 path to that outcome.
 
 - [Install and configure Agent Bus](install-and-configure-agent-bus.md)
+- [Use the Agent Bus Web UI](use-the-web-ui.md)
 
 See also:
 
