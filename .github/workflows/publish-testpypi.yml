@@ -67,6 +67,8 @@ jobs:
               raise SystemExit("test_version_suffix is only supported for testpypi publishes")
             if not re.fullmatch(r"[0-9]+", suffix):
               raise SystemExit("test_version_suffix must contain digits only")
+            if len(suffix) > 1 and suffix.startswith("0"):
+              raise SystemExit("test_version_suffix must not contain leading zeros")
             package_version = f"{base_python}.dev{suffix}"
             cargo_version = f"{base_cargo}-dev.{suffix}"
 

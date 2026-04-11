@@ -54,40 +54,7 @@ jobs:
           CARGO_VERSION: ${{ inputs.version_override_cargo }}
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          import os
-          import tomllib
-          from pathlib import Path
-
-          py_version = os.environ["PY_VERSION"].strip()
-          cargo_version = os.environ["CARGO_VERSION"].strip()
-          if not py_version or not cargo_version:
-            raise SystemExit("Expected both version overrides to be set together")
-
-          pyproject_path = Path("pyproject.toml")
-          pyproject_text = pyproject_path.read_text(encoding="utf-8")
-          current_py_version = tomllib.loads(pyproject_text)["project"]["version"]
-          updated_pyproject = pyproject_text.replace(
-            f'version = "{current_py_version}"',
-            f'version = "{py_version}"',
-            1,
-          )
-          if updated_pyproject == pyproject_text:
-            raise SystemExit("Failed to update pyproject.toml version")
-          pyproject_path.write_text(updated_pyproject, encoding="utf-8")
-
-          cargo_path = Path("Cargo.toml")
-          cargo_text = cargo_path.read_text(encoding="utf-8")
-          current_cargo_version = tomllib.loads(cargo_text)["package"]["version"]
-          updated_cargo = cargo_text.replace(
-            f'version = "{current_cargo_version}"',
-            f'version = "{cargo_version}"',
-            1,
-          )
-          if updated_cargo == cargo_text:
-            raise SystemExit("Failed to update Cargo.toml version")
-          cargo_path.write_text(updated_cargo, encoding="utf-8")
-          PY
+          python3 .github/scripts/apply_version_overrides.py "$PY_VERSION" "$CARGO_VERSION"
 
       - uses: pnpm/action-setup@v5
         with:
@@ -201,40 +168,7 @@ jobs:
           CARGO_VERSION: ${{ inputs.version_override_cargo }}
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          import os
-          import tomllib
-          from pathlib import Path
-
-          py_version = os.environ["PY_VERSION"].strip()
-          cargo_version = os.environ["CARGO_VERSION"].strip()
-          if not py_version or not cargo_version:
-            raise SystemExit("Expected both version overrides to be set together")
-
-          pyproject_path = Path("pyproject.toml")
-          pyproject_text = pyproject_path.read_text(encoding="utf-8")
-          current_py_version = tomllib.loads(pyproject_text)["project"]["version"]
-          updated_pyproject = pyproject_text.replace(
-            f'version = "{current_py_version}"',
-            f'version = "{py_version}"',
-            1,
-          )
-          if updated_pyproject == pyproject_text:
-            raise SystemExit("Failed to update pyproject.toml version")
-          pyproject_path.write_text(updated_pyproject, encoding="utf-8")
-
-          cargo_path = Path("Cargo.toml")
-          cargo_text = cargo_path.read_text(encoding="utf-8")
-          current_cargo_version = tomllib.loads(cargo_text)["package"]["version"]
-          updated_cargo = cargo_text.replace(
-            f'version = "{current_cargo_version}"',
-            f'version = "{cargo_version}"',
-            1,
-          )
-          if updated_cargo == cargo_text:
-            raise SystemExit("Failed to update Cargo.toml version")
-          cargo_path.write_text(updated_cargo, encoding="utf-8")
-          PY
+          python3 .github/scripts/apply_version_overrides.py "$PY_VERSION" "$CARGO_VERSION"
 
       - uses: pnpm/action-setup@v5
         with:
