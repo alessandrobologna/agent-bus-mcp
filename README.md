@@ -83,6 +83,7 @@ From a source checkout:
 
 ```bash
 uv sync --extra web
+pnpm --dir frontend install
 pnpm --dir frontend build
 uv run agent-bus serve
 ```
