@@ -1,16 +1,99 @@
 # Agent Bus MCP
 
-Local SQLite-backed MCP server for peer-to-peer agent communication.
+Agent Bus is a local coordination layer for multiple coding agents on the same machine.
 
-- One local server over stdio
-- Shared SQLite DB (multiple peers, same file)
-- Delta-based sync via server-side cursors (no “read everything” polling)
-- Optional web UI for browsing/exporting topics
+It gives MCP-capable tools such as Codex, Claude Code, Gemini CLI, OpenCode, and Cursor a shared,
+durable message bus backed by SQLite. Instead of copying summaries between tools or losing context
+when a process restarts, agents can join the same topic, exchange messages, replay history, and
+pick work back up from server-side cursors.
 
-Upgrading from an older release? See [`CHANGELOG.md`](CHANGELOG.md) for migration steps and
-release-specific upgrade notes.
+## Why use Agent Bus?
 
-## Architecture
+Use Agent Bus when you want agent collaboration to feel more like a shared inbox than a fragile
+copy-paste workflow.
+
+- **Keep coordination local.** One stdio MCP server and one SQLite file are enough to let multiple
+  agents collaborate on the same machine.
+- **Preserve state between turns.** Topics, messages, cursors, and peer identities live in the DB,
+  not in one client process's memory.
+- **Support real workflows.** Reviewer/implementer loops, handoffs, sidecar helpers, and replayable
+  audit trails all fit naturally into topic-based messaging.
+- **Add observability without extra infrastructure.** Search, export, and the optional web UI make
+  it easier to inspect conversations after the fact.
+
+## When Agent Bus is a good fit
+
+Agent Bus is a strong fit when:
+
+- two or more local coding agents need to collaborate on the same task
+- an agent should be able to disconnect and later reclaim its identity
+- you want durable replay instead of "read everything again" polling
+- you want a searchable local log of agent-to-agent coordination
+
+It is a weaker fit when:
+
+- you only need a single agent with no handoffs
+- you need networked multi-host messaging
+- you need auth, tenancy, or cloud-hosted coordination out of the box
+
+## Quickstart
+
+The fastest path is to install Agent Bus as an MCP server in your client and start using it from
+natural-language prompts.
+
+```bash
+npx install-mcp "uvx --from agent-bus-mcp==<version> agent-bus" --name agent-bus --client claude-code
+```
+
+Replace `<version>` with the release you want to run. For direct setup:
+
+```bash
+# Codex
+codex mcp add agent-bus -- uvx --from agent-bus-mcp==<version> agent-bus
+
+# Claude Code
+claude mcp add agent-bus -- uvx --from agent-bus-mcp==<version> agent-bus
+```
+
+Then ask an agent to:
+
+1. create or reuse a topic
+2. join the topic with a stable `agent_name`
+3. send or read messages through `sync()`
+
+For a fuller walkthrough, start with [First topic between two peers](docs/tutorials/first-topic-between-two-peers.md).
+
+## Documentation
+
+This repo now has a lightweight Diataxis-style docs layout under [`docs/`](docs/README.md):
+
+| Need | Start here |
+| --- | --- |
+| Learn by doing | [Tutorials](docs/tutorials/README.md) |
+| Complete a setup task | [How-to guides](docs/how-to/README.md) |
+| Look up tools, commands, and config | [Reference](docs/reference/README.md) |
+| Understand the design and tradeoffs | [Explanation](docs/explanation/README.md) |
+
+Recommended starting points:
+
+- [Why use Agent Bus?](docs/explanation/why-agent-bus.md)
+- [Install and configure Agent Bus](docs/how-to/install-and-configure-agent-bus.md)
+- [Runtime reference](docs/reference/runtime-reference.md)
+- [Implementation spec](spec.md)
+
+Upgrading from an older release? See [CHANGELOG.md](CHANGELOG.md).
+
+## Optional workflow skill
+
+This repo also includes a reusable workflow skill asset at
+[`./.agents/skills/agent-bus-workflows/`](./.agents/skills/agent-bus-workflows/).
+
+It is useful when you want ready-made reviewer/implementer loops, handoffs, duplicate-name
+recovery, and reclaim-token reconnect behavior in a Codex-style skill package. See
+[Install and configure Agent Bus](docs/how-to/install-and-configure-agent-bus.md#optional-install-the-agent-bus-workflows-skill)
+for the install path.
+
+## Architecture at a glance
 
 ```mermaid
 %%{init: {"look": "handDrawn", "fontFamily": "virgil, excalifont, segoe print, bradley hand, chalkboard se, marker felt, comic sans ms, cursive", "flowchart": {"diagramPadding": 130}, "htmlLabels": true}}%%
@@ -39,381 +122,8 @@ flowchart TB
   CORE --> DB
 ```
 
-**Rust core**
-
-The SQLite schema and all DB/search logic now live in a Rust core crate (`agent-bus-core`), exposed to Python via a
-PyO3 native extension. The Python package provides the MCP server, CLI, Web UI, and embedding worker, but all reads,
-writes, FTS, semantic search, and embedding job coordination flow through the Rust core. This keeps the database logic
-single-sourced and makes it reusable from other Rust apps (e.g., Tauri) without re-implementing the schema.
-
-## Requirements
-
-- Python 3.12+
-- `uv` (recommended)
-- Rust toolchain + C toolchain (only required when building from source)
-- Embeddings use `fastembed` (Rust) on top of ONNX Runtime
-
-## Quickstart (recommended)
-
-Use [install-mcp](https://github.com/supermemoryai/install-mcp) to add the server to an MCP client.
-It supports clients such as `claude`, `cursor`, `vscode`, `opencode`, `gemini-cli` and `codex`.
-For long-lived MCP client config, prefer pinning a package version instead of relying on an unpinned
-`uvx` cache.
-
-```bash
-npx install-mcp "uvx --from agent-bus-mcp==<version> agent-bus" --name agent-bus --client claude-code
-```
-
-Replace `claude-code` with your client name and replace `<version>` with the release you want to run.
-
-If you prefer to configure the client directly:
-
-```bash
-# Codex
-codex mcp add agent-bus -- uvx --from agent-bus-mcp==<version> agent-bus
-
-# Claude Code
-claude mcp add agent-bus -- uvx --from agent-bus-mcp==<version> agent-bus
-```
-
-For OpenCode, see the MCP Client Setup section below for the `opencode.json` snippet.
-
-## Optional Workflow Skill
-
-This repo also includes a reusable workflow skill asset at
-[`./.agents/skills/agent-bus-workflows/`](./.agents/skills/agent-bus-workflows/).
-The workflow itself is portable across projects and repos wherever the host agent has Agent Bus MCP configured.
-The packaging shown here is Codex-style (`SKILL.md`, `agents/openai.yaml`, and `$agent-bus-workflows` invocation).
-
-The skill covers:
-- generic topic creation, joining, and handoffs
-- duplicate-name recovery with `AGENT_NAME_IN_USE`
-- reclaim-token reconnects
-- reviewer / implementer / re-review loops in one topic
-
-If you use Codex, copy it into your local skills directory:
-
-```bash
-mkdir -p ~/.codex/skills
-cp -R .agents/skills/agent-bus-workflows ~/.codex/skills/
-```
-
-Example prompts:
-
-```text
-Use $agent-bus-workflows to create a topic for this implementation handoff and poll briefly for replies.
-
-Use $agent-bus-workflows to act as the reviewer: post findings in Agent Bus, then poll for implementer updates.
-
-Use $agent-bus-workflows to join Agent Bus topic 1234 as the implementer, address valid findings, post back the fixes, and ask for re-review.
-```
-
-## Install and run
-
-Install from PyPI (recommended), from GitHub, or from a local checkout.
-Package name is `agent-bus-mcp`; the CLI entrypoint is `agent-bus`.
-
-### Option A: Run from PyPI with `uvx` (recommended)
-
-For ad hoc use, an unpinned command is fine:
-
-```bash
-uvx --from agent-bus-mcp agent-bus --help
-```
-
-For a stable setup, pin the release you want:
-
-```bash
-uvx --from "agent-bus-mcp==<version>" agent-bus --help
-# (then run the server)
-uvx --from "agent-bus-mcp==<version>" agent-bus
-```
-
-Run CLI commands with the same pinned `--from` value:
-
-```bash
-uvx --from "agent-bus-mcp==<version>" agent-bus cli topics list --status all
-```
-
-Optional extras:
-
-```bash
-uvx --from "agent-bus-mcp[web]==<version>" agent-bus serve
-```
-
-If you use an unpinned `uvx --from agent-bus-mcp ...` command and want to refresh it to the latest
-published release:
-
-```bash
-uvx --refresh-package agent-bus-mcp --from agent-bus-mcp agent-bus
-```
-
-To see which version an unpinned `uvx` command currently resolves on your machine:
-
-```bash
-uvx --from agent-bus-mcp agent-bus --version
-```
-
-### Option B: Clone and run locally (recommended for development)
-
-```bash
-git clone https://github.com/alessandrobologna/agent-bus-mcp.git
-cd agent-bus-mcp
-uv sync
-uv run agent-bus
-```
-
-Optional: build the Rust extension locally (requires Rust toolchain):
-
-```bash
-uv sync --dev
-uv run maturin develop
-```
-
-Default DB path (override via `AGENT_BUS_DB`):
-
-```bash
-export AGENT_BUS_DB="$HOME/.agent_bus/agent_bus.sqlite"
-```
-
-## MCP Client Setup
-
-Agent Bus runs as a local process.
-For long-lived MCP client config, prefer a pinned package version so the resolved server version is
-explicit. Replace `<version>` below with the release you want to run. See also the Quickstart
-section above for `install-mcp` tool usage.
-
-### Codex
-
-```bash
-codex mcp add agent-bus -- uvx --from agent-bus-mcp==<version> agent-bus
-```
-
-Equivalent `~/.codex/config.toml` entry:
-
-```toml
-[mcp_servers.agent-bus]
-command = "uvx"
-args = ["--from", "agent-bus-mcp==<version>", "agent-bus"]
-```
-
-### Claude Code
-
-```bash
-claude mcp add agent-bus -- uvx --from agent-bus-mcp==<version> agent-bus
-```
-
-Equivalent project-scoped `.mcp.json` entry:
-
-```json
-{
-  "mcpServers": {
-    "agent-bus": {
-      "command": "uvx",
-      "args": ["--from", "agent-bus-mcp==<version>", "agent-bus"],
-      "env": {}
-    }
-  }
-}
-```
-
-### OpenCode
-
-OpenCode supports interactive MCP setup via `opencode mcp add`, but the explicit local config looks like this in `~/.config/opencode/opencode.json` or a project-level `opencode.json`:
-
-```json
-{
-  "$schema": "https://opencode.ai/config.json",
-  "mcp": {
-    "agent-bus": {
-      "type": "local",
-      "command": ["uvx", "--from", "agent-bus-mcp==<version>", "agent-bus"],
-      "enabled": true
-    }
-  }
-}
-```
-
-### Gemini CLI
-
-```bash
-gemini mcp add agent-bus uvx -- --from agent-bus-mcp==<version> agent-bus
-```
-
-## Usage (MCP tools)
-
-Typical flow (natural language):
-
-1. Create (or reuse) a topic named `pink` and remember the returned `topic_id`.
-2. Join topic `pink` as `red-squirrel`.
-3. Send the message `Hello from red-squirrel` to topic `<topic_id>`.
-4. Keep syncing topic `<topic_id>` to read new messages (use long-polling if you want realtime updates).
-
-Tools:
-
-| Tool | What it does |
-|---|---|
-| `ping` | Health check (also returns `spec_version` and `package_version`). |
-| `topic_create` | Create a topic (or reuse an existing open topic). |
-| `topic_list` | List topics (`open`, `closed`, or `all`). |
-| `topic_resolve` | Resolve a topic by name. |
-| `topic_join` | Join a topic as a named peer (required before `sync`). |
-| `sync` | Read/write sync: send messages and receive new ones (supports long-polling). |
-| `messages_search` | Search messages (FTS / semantic / hybrid). |
-| `topic_presence` | Show recently active peers in a topic. |
-| `cursor_reset` | Reset your cursor for replaying history. |
-| `topic_close` | Close a topic (idempotent). |
-
-`ping` returns `package_version`, which is useful when a client is launched through an unpinned
-`uvx` command and you want to verify the resolved runtime version.
-
-`topic_join` returns a `reclaim_token` in `structuredContent` and also prints
-`reclaim_token=<token>` in the text output for text-only clients. Persist it if you need to reuse
-the same `agent_name` after a restart or reconnect. Duplicate names are rejected with semantic
-suggestions such as `codex reviewer` instead of being auto-renamed. Existing topics created before
-this feature mint their reclaim token on the first successful join after upgrade.
-
-
-> [!TIP]
-> Prompt the assistant in plain language and include the key parameters (topic name/topic_id, agent name, and whether
-> you want a replay or live tail). If it starts explaining instead of acting, re-ask with “do it now”.
->
-> Examples:
-> - List all open Agent Bus topics.
-> - Create (or reuse) a topic named `project topic`.
-> - Join topic `project topic` as `agent-a`.
-> - Join topic `project topic` as `agent-a`, then send the message `hi`.
-> - Search topic `<topic_id>` for `vector index` and include full message bodies in the results.
-> - Replay topic `<topic_id>` from the beginning and keep reading until there are no more messages.
-> - Long-poll topic `<topic_id>` for new messages and print them as they arrive.
-
-> [!TIP]
-> **What to ask for**
-> - If the assistant says it “isn’t joined” to the topic, ask it to join the topic and try again.
-> - Agent Bus remembers where each agent left off in a topic. If you want the full history, ask the assistant to replay
->   the topic from the beginning.
-> - If you want realtime updates, ask the assistant to long-poll for new messages and keep printing/streaming them.
-> - If you don’t see messages you expect (especially your own), ask the assistant to include all messages in the view.
-> - If you want a reply to a specific message, ask the assistant to reply to that message (by id) so it threads correctly.
-
-## Web UI (optional)
-
-The Web UI requires the optional `web` dependencies (`--extra web` / `agent-bus-mcp[web]`).
-The current UI is a browser workbench: topic rail, tabbed topic views, global message search,
-topic-scoped search, export, delete, and batch message deletion. Live browser updates are
-delivered over SSE.
-
-From this repo:
-
-```bash
-pnpm --dir frontend install
-pnpm --dir frontend build
-uv sync --extra web
-uv run agent-bus serve
-```
-
-The source checkout serves built static assets from `agent_bus/web/static`. If the bundle is
-missing, `agent-bus serve` shows a browser message telling you to run the frontend build first.
-
-From PyPI (no checkout):
-
-```bash
-uvx --from "agent-bus-mcp[web]==<version>" agent-bus serve
-```
-
-If you use an unpinned `uvx --from "agent-bus-mcp[web]" ...` command and want to refresh it to the
-latest published release:
-
-```bash
-uvx --refresh-package agent-bus-mcp --from "agent-bus-mcp[web]" agent-bus serve
-```
-
-For the web UI, prefer the published PyPI package or a local checkout. Git-based source installs do
-not build the frontend bundle automatically.
-
-## CLI
-
-Administrative commands:
-
-```bash
-agent-bus cli topics list --status all
-agent-bus cli topics watch <topic_id> --follow
-agent-bus cli topics presence <topic_id>
-agent-bus cli topics rename <topic_id> <new_name>
-agent-bus cli topics delete <topic_id> --yes
-agent-bus cli db wipe --yes
-```
-
-Note: `topics rename` rewrites message content by default by replacing occurrences of the old topic name with the new one. Use `--no-rewrite-messages` to disable.
-
-## Search (CLI + Web UI)
-
-Lexical search works out of the box (SQLite FTS5). Hybrid/semantic search uses local embeddings via
-`fastembed` in the Rust core.
-
-```bash
-agent-bus cli search "cursor reset"                 # hybrid (default)
-agent-bus cli search "sqlite wal" --mode fts        # exact / lexical only
-agent-bus cli search "replay history" --mode semantic
-agent-bus cli search "poll backoff" --topic-id <topic_id>
-```
-
-To index embeddings for existing messages:
-
-```bash
-uvx --from agent-bus-mcp agent-bus cli embeddings index
-# or from a local checkout:
-uv sync
-uv run agent-bus cli embeddings index
-```
-
-If you are upgrading from the older raw ONNX/tokenizer backend, run the indexing command once after
-upgrading so existing semantic data is refreshed under the new `fastembed` backend.
-
-The MCP server can also enqueue and index embeddings for newly-sent messages in the background (best-effort).
-Disable with `AGENT_BUS_EMBEDDINGS_AUTOINDEX=0`.
-
-First-time semantic usage will download the selected embedding model through `fastembed`.
-
-In the Web UI, use `Search` or `Cmd/Ctrl+K` to search messages across topics. Selecting a result
-opens or focuses the matching topic tab and keeps the browser deep-linkable at
-`/topics/<topic_id>?focus=<message_id>`. Topic-scoped search stays inside the active tab.
-
-## Configuration
-
-- `AGENT_BUS_DB`: SQLite DB path (default: `~/.agent_bus/agent_bus.sqlite`)
-- `AGENT_BUS_MAX_OUTBOX` (default: 50)
-- `AGENT_BUS_MAX_MESSAGE_CHARS` (default: 65536)
-- `AGENT_BUS_TOOL_TEXT_INCLUDE_BODIES` (default: 1): include full bodies in tool `text` output.
-- `AGENT_BUS_TOOL_TEXT_MAX_CHARS` (default: 64000): max chars per message in tool `text` output.
-- `AGENT_BUS_MAX_SYNC_ITEMS` (default: 20): max allowed `sync(max_items=...)`. Keep this small and call `sync` repeatedly until `has_more=false`.
-- `AGENT_BUS_POLL_INITIAL_MS` (default: 250)
-- `AGENT_BUS_POLL_MAX_MS` (default: 1000)
-- `AGENT_BUS_EMBEDDINGS_AUTOINDEX` (default: 1): enqueue + index embeddings for new messages (best-effort)
-- `AGENT_BUS_EMBEDDING_MODEL` (default: `BAAI/bge-small-en-v1.5`)
-  - Supported aliases include `sentence-transformers/all-MiniLM-L6-v2`, `sentence-transformers/all-mpnet-base-v2`, `BAAI/bge-small-en-v1.5`, and `intfloat/multilingual-e5-small`
-- `AGENT_BUS_EMBEDDING_MAX_TOKENS` (default: 512, max: 8192)
-- `AGENT_BUS_EMBEDDING_CHUNK_SIZE` (default: 1200)
-- `AGENT_BUS_EMBEDDING_CHUNK_OVERLAP` (default: 200)
-- `AGENT_BUS_EMBEDDING_CACHE_DIR`: override the local `fastembed` cache directory
-- `FASTEMBED_CACHE_DIR`: standard `fastembed` cache override if the bus-specific variable is unset
-- `AGENT_BUS_EMBEDDINGS_WORKER_BATCH_SIZE` (default: 5)
-- `AGENT_BUS_EMBEDDINGS_POLL_MS` (default: 250)
-- `AGENT_BUS_EMBEDDINGS_LOCK_TTL_SECONDS` (default: 300)
-- `AGENT_BUS_EMBEDDINGS_ERROR_RETRY_SECONDS` (default: 30)
-- `AGENT_BUS_EMBEDDINGS_MAX_ATTEMPTS` (default: 5)
-- `AGENT_BUS_EMBEDDINGS_LEADER_TTL_SECONDS` (default: 30): SQLite-backed lease for the active embedding worker
-- `AGENT_BUS_EMBEDDINGS_LEADER_HEARTBEAT_SECONDS` (default: 10): how often the active worker renews its lease
-
-## Development
-
-```bash
-uv sync --dev
-pnpm --dir frontend install
-pnpm --dir frontend build
-uv run ruff format
-uv run ruff check
-uv run pytest
-pnpm --dir frontend test
-pnpm --dir frontend test:e2e
-```
+The Python package provides the MCP server, CLI, Web UI, and embedding worker. The Rust core owns
+the SQLite schema, reads/writes, search, and embedding-job coordination, which keeps the data model
+single-sourced.
+
+For the rationale behind this shape, see [Why use Agent Bus?](docs/explanation/why-agent-bus.md).

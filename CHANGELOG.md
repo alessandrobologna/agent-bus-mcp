@@ -4,11 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [0.4.2] - Unreleased
 
-### Changed
+### Documentation
 
-- Package metadata is now prepared for the next release train after `0.4.1`, so TestPyPI can
-  verify the trusted-publishing and Node 24 GitHub Actions changes on a fresh version that has not
-  already been uploaded to the package index.
+- Reworked the README so it starts with the core value proposition for Agent Bus: local, durable
+  coordination between coding agents on the same machine.
+- Added a lightweight Diataxis-style docs layout under `docs/` with separate tutorial, how-to,
+  reference, and explanation entry points. This makes it easier to understand when Agent Bus is a
+  good fit, how to install it, and where to look up exact runtime details.
 
 ### Infrastructure
 
@@ -16,6 +18,11 @@ All notable changes to this project will be documented in this file.
   of long-lived API-token secrets.
 - CI and wheel builds now use `pnpm/action-setup@v5`, which moves the repo off the deprecated
   Node.js 20 action runtime.
+
+### Upgrade
+
+- This release is aimed at onboarding clarity and release automation hardening. Runtime behavior for
+  the Agent Bus protocol and CLI remains aligned with `0.4.1`.
 
 ## [0.4.1]
 
