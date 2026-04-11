@@ -12,6 +12,12 @@ on:
       pypi_readme_artifact_name:
         type: string
         default: pypi-readme
+      version_override_python:
+        type: string
+        default: ""
+      version_override_cargo:
+        type: string
+        default: ""
   workflow_dispatch:
     inputs:
       upload_artifacts:
@@ -23,6 +29,12 @@ on:
       pypi_readme_artifact_name:
         type: string
         default: pypi-readme
+      version_override_python:
+        type: string
+        default: ""
+      version_override_cargo:
+        type: string
+        default: ""
 
 env:
   ORT_VERSION: "1.23.2"
@@ -33,6 +45,49 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+
+      - name: Apply workflow version overrides
+        if: inputs.version_override_python != '' || inputs.version_override_cargo != ''
+        shell: bash
+        env:
+          PY_VERSION: ${{ inputs.version_override_python }}
+          CARGO_VERSION: ${{ inputs.version_override_cargo }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          import tomllib
+          from pathlib import Path
+
+          py_version = os.environ["PY_VERSION"].strip()
+          cargo_version = os.environ["CARGO_VERSION"].strip()
+          if not py_version or not cargo_version:
+            raise SystemExit("Expected both version overrides to be set together")
+
+          pyproject_path = Path("pyproject.toml")
+          pyproject_text = pyproject_path.read_text(encoding="utf-8")
+          current_py_version = tomllib.loads(pyproject_text)["project"]["version"]
+          updated_pyproject = pyproject_text.replace(
+            f'version = "{current_py_version}"',
+            f'version = "{py_version}"',
+            1,
+          )
+          if updated_pyproject == pyproject_text:
+            raise SystemExit("Failed to update pyproject.toml version")
+          pyproject_path.write_text(updated_pyproject, encoding="utf-8")
+
+          cargo_path = Path("Cargo.toml")
+          cargo_text = cargo_path.read_text(encoding="utf-8")
+          current_cargo_version = tomllib.loads(cargo_text)["package"]["version"]
+          updated_cargo = cargo_text.replace(
+            f'version = "{current_cargo_version}"',
+            f'version = "{cargo_version}"',
+            1,
+          )
+          if updated_cargo == cargo_text:
+            raise SystemExit("Failed to update Cargo.toml version")
+          cargo_path.write_text(updated_cargo, encoding="utf-8")
+          PY
 
       - uses: pnpm/action-setup@v5
         with:
@@ -66,9 +121,13 @@ jobs:
           path.write_text(updated, encoding="utf-8")
           PY
 
-      - name: Validate version sync
+      - name: Validate version configuration
+        env:
+          EXPECTED_PY_VERSION: ${{ inputs.version_override_python }}
+          EXPECTED_CARGO_VERSION: ${{ inputs.version_override_cargo }}
         run: |
-          python - <<'PY'
+          python3 - <<'PY'
+          import os
           import tomllib
 
           with open("pyproject.toml", "rb") as fh:
@@ -79,11 +138,27 @@ jobs:
           py_version = pyproject["project"]["version"]
           cargo_version = cargo["package"]["version"]
 
-          if py_version != cargo_version:
-            raise SystemExit(
-              f"Version mismatch: pyproject.toml={py_version} Cargo.toml={cargo_version}"
-            )
-          print(f"Version OK: {py_version}")
+          expected_py = os.environ["EXPECTED_PY_VERSION"].strip()
+          expected_cargo = os.environ["EXPECTED_CARGO_VERSION"].strip()
+
+          if expected_py or expected_cargo:
+            if not expected_py or not expected_cargo:
+              raise SystemExit("Expected both version overrides to be provided together")
+            if py_version != expected_py:
+              raise SystemExit(
+                f"pyproject.toml version mismatch: expected {expected_py}, got {py_version}"
+              )
+            if cargo_version != expected_cargo:
+              raise SystemExit(
+                f"Cargo.toml version mismatch: expected {expected_cargo}, got {cargo_version}"
+              )
+            print(f"Version overrides OK: pyproject.toml={py_version} Cargo.toml={cargo_version}")
+          else:
+            if py_version != cargo_version:
+              raise SystemExit(
+                f"Version mismatch: pyproject.toml={py_version} Cargo.toml={cargo_version}"
+              )
+            print(f"Version OK: {py_version}")
           PY
 
       - name: Install frontend dependencies
@@ -117,6 +192,49 @@ jobs:
           - windows-latest
     steps:
       - uses: actions/checkout@v5
+
+      - name: Apply workflow version overrides
+        if: inputs.version_override_python != '' || inputs.version_override_cargo != ''
+        shell: bash
+        env:
+          PY_VERSION: ${{ inputs.version_override_python }}
+          CARGO_VERSION: ${{ inputs.version_override_cargo }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          import tomllib
+          from pathlib import Path
+
+          py_version = os.environ["PY_VERSION"].strip()
+          cargo_version = os.environ["CARGO_VERSION"].strip()
+          if not py_version or not cargo_version:
+            raise SystemExit("Expected both version overrides to be set together")
+
+          pyproject_path = Path("pyproject.toml")
+          pyproject_text = pyproject_path.read_text(encoding="utf-8")
+          current_py_version = tomllib.loads(pyproject_text)["project"]["version"]
+          updated_pyproject = pyproject_text.replace(
+            f'version = "{current_py_version}"',
+            f'version = "{py_version}"',
+            1,
+          )
+          if updated_pyproject == pyproject_text:
+            raise SystemExit("Failed to update pyproject.toml version")
+          pyproject_path.write_text(updated_pyproject, encoding="utf-8")
+
+          cargo_path = Path("Cargo.toml")
+          cargo_text = cargo_path.read_text(encoding="utf-8")
+          current_cargo_version = tomllib.loads(cargo_text)["package"]["version"]
+          updated_cargo = cargo_text.replace(
+            f'version = "{current_cargo_version}"',
+            f'version = "{cargo_version}"',
+            1,
+          )
+          if updated_cargo == cargo_text:
+            raise SystemExit("Failed to update Cargo.toml version")
+          cargo_path.write_text(updated_cargo, encoding="utf-8")
+          PY
 
       - uses: pnpm/action-setup@v5
         with:

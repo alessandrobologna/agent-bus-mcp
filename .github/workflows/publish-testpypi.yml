@@ -11,10 +11,74 @@ on:
         options:
           - testpypi
           - pypi
+      test_version_suffix:
+        description: "Optional TestPyPI dev serial (digits only). Publishes <base>.devN."
+        required: false
+        type: string
+        default: ""
 
 permissions: {}
 
 jobs:
+  version-plan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      package_version: ${{ steps.plan.outputs.package_version }}
+      cargo_version: ${{ steps.plan.outputs.cargo_version }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Determine publish versions
+        id: plan
+        shell: bash
+        env:
+          PUBLISH_TARGET: ${{ inputs.publish_target }}
+          TEST_VERSION_SUFFIX: ${{ inputs.test_version_suffix }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          import re
+          import tomllib
+
+          with open("pyproject.toml", "rb") as fh:
+            pyproject = tomllib.load(fh)
+          with open("Cargo.toml", "rb") as fh:
+            cargo = tomllib.load(fh)
+
+          base_python = pyproject["project"]["version"]
+          base_cargo = cargo["package"]["version"]
+
+          if base_python != base_cargo:
+            raise SystemExit(
+              f"Version mismatch in repo: pyproject.toml={base_python} Cargo.toml={base_cargo}"
+            )
+
+          suffix = os.environ["TEST_VERSION_SUFFIX"].strip()
+          publish_target = os.environ["PUBLISH_TARGET"]
+
+          package_version = base_python
+          cargo_version = base_cargo
+
+          if suffix:
+            if publish_target != "testpypi":
+              raise SystemExit("test_version_suffix is only supported for testpypi publishes")
+            if not re.fullmatch(r"[0-9]+", suffix):
+              raise SystemExit("test_version_suffix must contain digits only")
+            package_version = f"{base_python}.dev{suffix}"
+            cargo_version = f"{base_cargo}-dev.{suffix}"
+
+          github_output = os.environ["GITHUB_OUTPUT"]
+          with open(github_output, "a", encoding="utf-8") as fh:
+            fh.write(f"package_version={package_version}\n")
+            fh.write(f"cargo_version={cargo_version}\n")
+
+          print(f"Package version: {package_version}")
+          print(f"Cargo version: {cargo_version}")
+          PY
+
   pypi-readme:
     uses: ./.github/workflows/render-pypi-readme.yml
     permissions:
@@ -33,7 +97,9 @@ jobs:
       artifact_name: pypi-readme
 
   build:
-    needs: pypi-readme
+    needs:
+      - version-plan
+      - pypi-readme
     uses: ./.github/workflows/build-wheels.yml
     permissions:
       contents: read
@@ -41,9 +107,13 @@ jobs:
       upload_artifacts: true
       use_pypi_readme: true
       pypi_readme_artifact_name: pypi-readme
+      version_override_python: ${{ needs.version-plan.outputs.package_version }}
+      version_override_cargo: ${{ needs.version-plan.outputs.cargo_version }}
 
   upload:
-    needs: build
+    needs:
+      - version-plan
+      - build
     runs-on: ubuntu-latest
     # Configure matching trusted publishers on PyPI and TestPyPI for this
     # workflow path and the corresponding GitHub environment name.
@@ -51,8 +121,6 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    outputs:
-      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v5
 
@@ -73,6 +141,16 @@ jobs:
         with:
           enable-cache: false
 
+      - name: Show publish version
+        shell: bash
+        env:
+          PACKAGE_VERSION: ${{ needs.version-plan.outputs.package_version }}
+          CARGO_VERSION: ${{ needs.version-plan.outputs.cargo_version }}
+        run: |
+          set -euo pipefail
+          echo "Publishing package version: $PACKAGE_VERSION"
+          echo "Using cargo package version: $CARGO_VERSION"
+
       - name: Upload distributions with trusted publishing
         shell: bash
         run: |
@@ -89,23 +167,10 @@ jobs:
             --trusted-publishing always \
             dist/*
 
-      - name: Determine version
-        id: version
-        run: |
-          python - <<'PY'
-          import os
-          import tomllib
-
-          with open("pyproject.toml", "rb") as fh:
-            data = tomllib.load(fh)
-          version = data["project"]["version"]
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
-            fh.write(f"version={version}\n")
-          print(f"Detected version: {version}")
-          PY
-
   qa-install:
-    needs: upload
+    needs:
+      - version-plan
+      - upload
     if: ${{ inputs.publish_target == 'testpypi' }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -127,7 +192,7 @@ jobs:
       - name: Install from TestPyPI (no build)
         shell: bash
         env:
-          VERSION: ${{ needs.upload.outputs.version }}
+          VERSION: ${{ needs.version-plan.outputs.package_version }}
         run: |
           set -euo pipefail
           echo "Testing install for agent-bus-mcp==$VERSION on $RUNNER_OS"
@@ -148,7 +213,9 @@ jobs:
           exit 1
 
   tag-release:
-    needs: upload
+    needs:
+      - version-plan
+      - upload
     if: ${{ inputs.publish_target == 'pypi' }}
     runs-on: ubuntu-latest
     permissions:
@@ -161,7 +228,7 @@ jobs:
 
       - name: Create annotated tag
         env:
-          VERSION: ${{ needs.upload.outputs.version }}
+          VERSION: ${{ needs.version-plan.outputs.package_version }}
         run: |
           set -euo pipefail
           tag="v${VERSION}"
