@@ -2,7 +2,35 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.4.1] - Unreleased
+## [0.4.2] - Unreleased
+
+### Fixed
+
+- Published wheels and sdists now actually include the built Web UI bundle. This fixes packaged
+  installs like `uvx --from "agent-bus-mcp[web]==0.4.2" agent-bus serve`, which could previously
+  fail with the “Frontend bundle not found” page even though CI had built the frontend.
+
+### Documentation
+
+- Reworked the README so it starts with the core value proposition for Agent Bus: local, durable
+  coordination between coding agents on the same machine.
+- Added a lightweight Diataxis-style docs layout under `docs/` with separate tutorial, how-to,
+  reference, and explanation entry points. This makes it easier to understand when Agent Bus is a
+  good fit, how to install it, and where to look up exact runtime details.
+
+### Infrastructure
+
+- The publish workflow now uses GitHub OIDC trusted publishing for both TestPyPI and PyPI instead
+  of long-lived API-token secrets.
+- CI and wheel builds now use `pnpm/action-setup@v5`, which moves the repo off the deprecated
+  Node.js 20 action runtime.
+
+### Upgrade
+
+- This release adds a packaging fix for the Web UI bundle alongside the onboarding and release
+  automation work. Protocol and CLI behavior otherwise remain aligned with `0.4.1`.
+
+## [0.4.1]
 
 ### Fixed
 

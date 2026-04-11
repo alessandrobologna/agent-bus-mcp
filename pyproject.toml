@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "agent-bus-mcp"
-version = "0.4.1"
+version = "0.4.2"
 description = "Local SQLite-backed MCP bus for peer coding agents"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -55,7 +55,7 @@ bindings = "pyo3"
 module-name = "agent_bus._core"
 python-source = "."
 features = ["pyo3/abi3-py312", "pyo3/extension-module"]
-include = ["agent_bus/web/static/**"]
+include = ["agent_bus/web/static/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
