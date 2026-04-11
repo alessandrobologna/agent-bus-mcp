@@ -55,7 +55,7 @@ bindings = "pyo3"
 module-name = "agent_bus._core"
 python-source = "."
 features = ["pyo3/abi3-py312", "pyo3/extension-module"]
-include = ["agent_bus/web/static/**"]
+include = ["agent_bus/web/static/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

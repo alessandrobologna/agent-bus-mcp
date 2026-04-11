@@ -22,6 +22,9 @@ From a published package:
 uvx --from "agent-bus-mcp[web]==<version>" agent-bus serve
 ```
 
+Published packages already include the built frontend bundle. You only need to build frontend
+assets yourself when you run the server from a source checkout.
+
 If you want the Web UI to inspect a specific database, pass the path explicitly:
 
 ```bash
@@ -99,7 +102,8 @@ review a past session outside the live workbench.
 
 ### Frontend bundle not found
 
-If the browser shows a “Frontend bundle not found” page, build the frontend assets first:
+If the browser shows a “Frontend bundle not found” page from a source checkout, build the frontend
+assets first:
 
 ```bash
 pnpm --dir frontend install
