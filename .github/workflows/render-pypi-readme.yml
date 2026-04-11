@@ -143,20 +143,99 @@ jobs:
             --artefacts "$ARTEFACTS_DIR/" \
             --puppeteerConfigFile "$puppeteer_cfg"
 
-      - name: Upload diagrams to GitHub Release assets
-        if: inputs.enabled && inputs.upload_release_assets && steps.detect.outputs.has_mermaid == 'true' && inputs.assets_mode == 'release'
+      - name: Stage local README images for PyPI
+        if: inputs.enabled
+        env:
+          OUT_PATH: ${{ inputs.output_readme_path }}
+          ARTEFACTS_DIR: ${{ inputs.artefacts_dir }}
+        run: |
+          python - <<'PY'
+          from __future__ import annotations
+
+          import os
+          import re
+          import shutil
+          from pathlib import Path
+          from urllib.parse import urlsplit
+
+          out_path = Path(os.environ["OUT_PATH"])
+          artefacts_dir = Path(os.environ["ARTEFACTS_DIR"])
+          repo_root = Path.cwd().resolve()
+
+          text = out_path.read_text(encoding="utf-8")
+          artefacts_dir.mkdir(parents=True, exist_ok=True)
+
+          markdown_image = re.compile(r'!\[[^\]]*\]\(([^)]+)\)')
+          html_image = re.compile(r'(<img\b[^>]*\bsrc=)(["\'])([^"\']+)(\2)', re.IGNORECASE)
+
+          rewritten: dict[str, str] = {}
+
+          def is_external(ref: str) -> bool:
+              lower = ref.lower()
+              return lower.startswith(("http://", "https://", "data:", "#", "//"))
+
+          def staged_ref(ref: str) -> str:
+              if ref in rewritten:
+                  return rewritten[ref]
+              if is_external(ref):
+                  rewritten[ref] = ref
+                  return ref
+
+              parsed = urlsplit(ref)
+              path = parsed.path
+              if not path:
+                  rewritten[ref] = ref
+                  return ref
+
+              normalized = path[2:] if path.startswith("./") else path
+              artefacts_prefix = f"{artefacts_dir.as_posix().rstrip('/')}/"
+              if normalized.startswith(artefacts_prefix):
+                  rewritten[ref] = ref
+                  return ref
+
+              source = (repo_root / normalized).resolve()
+              try:
+                  source.relative_to(repo_root)
+              except ValueError as exc:
+                  raise SystemExit(f"README image path escapes repository root: {ref}") from exc
+              if not source.is_file():
+                  raise SystemExit(f"README image path not found: {ref}")
+
+              dest_name = "__".join(Path(normalized).parts)
+              dest = artefacts_dir / dest_name
+              shutil.copy2(source, dest)
+
+              staged = f"{artefacts_dir.as_posix().rstrip('/')}/{dest_name}"
+              if parsed.query:
+                  staged = f"{staged}?{parsed.query}"
+              if parsed.fragment:
+                  staged = f"{staged}#{parsed.fragment}"
+              rewritten[ref] = staged
+              return staged
+
+          text = markdown_image.sub(lambda m: m.group(0).replace(m.group(1), staged_ref(m.group(1)), 1), text)
+
+          def replace_html(match: re.Match[str]) -> str:
+              prefix, quote, ref, suffix = match.groups()
+              return f"{prefix}{quote}{staged_ref(ref)}{suffix}"
+
+          text = html_image.sub(replace_html, text)
+          out_path.write_text(text, encoding="utf-8")
+          PY
+
+      - name: Upload README assets to GitHub Release assets
+        if: inputs.enabled && inputs.upload_release_assets && inputs.assets_mode == 'release'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           ARTEFACTS_DIR: ${{ inputs.artefacts_dir }}
-          OUTPUT_FORMAT: ${{ inputs.output_format }}
           RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           set -euo pipefail
           shopt -s nullglob
-          files=("$ARTEFACTS_DIR"/*."$OUTPUT_FORMAT")
+          files=("$ARTEFACTS_DIR"/*)
           if [ ${#files[@]} -eq 0 ]; then
-            echo "No rendered diagrams found, skipping."
+            echo "No README assets found, skipping."
             exit 0
           fi
 
@@ -164,39 +243,36 @@ jobs:
           if ! gh release view "$tag" >/dev/null 2>&1; then
             gh release create "$tag" \
               --title "PyPI assets" \
-              --notes "Rendered Mermaid diagrams used by the PyPI project description." \
+              --notes "Rendered README assets used by the PyPI project description." \
               --prerelease
           fi
 
           gh release upload "$tag" "${files[@]}" --clobber
 
-      - name: Upload diagrams to GitHub assets branch
-        if: inputs.enabled && inputs.upload_release_assets && steps.detect.outputs.has_mermaid == 'true' && inputs.assets_mode == 'branch'
+      - name: Upload README assets to GitHub assets branch
+        if: inputs.enabled && inputs.upload_release_assets && inputs.assets_mode == 'branch'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           ARTEFACTS_DIR: ${{ inputs.artefacts_dir }}
-          OUTPUT_FORMAT: ${{ inputs.output_format }}
           ASSETS_REF: ${{ inputs.release_tag }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          shopt -s nullglob
-          files=("$ARTEFACTS_DIR"/*."$OUTPUT_FORMAT")
-          if [ ${#files[@]} -eq 0 ]; then
-            echo "No rendered diagrams found, skipping."
+          if [ -z "$(find "$ARTEFACTS_DIR" -mindepth 1 -print -quit)" ]; then
+            echo "No README assets found, skipping."
             exit 0
           fi
 
           tmpdir="$RUNNER_TEMP/pypi-assets"
           rm -rf "$tmpdir"
           mkdir -p "$tmpdir/$ARTEFACTS_DIR"
-          cp "${files[@]}" "$tmpdir/$ARTEFACTS_DIR/"
+          cp -R "$ARTEFACTS_DIR"/. "$tmpdir/$ARTEFACTS_DIR/"
 
           cat >"$tmpdir/README.md" <<'EOF'
           # PyPI assets
 
-          This branch is generated by CI to host rendered Mermaid diagrams for PyPI.
+          This branch is generated by CI to host rendered README assets for PyPI.
           EOF
 
           git -C "$tmpdir" init
@@ -208,8 +284,8 @@ jobs:
           git -C "$tmpdir" remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
           git -C "$tmpdir" push --force origin "$ASSETS_REF"
 
-      - name: Rewrite diagram URLs to GitHub Release assets
-        if: inputs.enabled && inputs.upload_release_assets && steps.detect.outputs.has_mermaid == 'true' && inputs.assets_mode == 'release'
+      - name: Rewrite README asset URLs to GitHub Release assets
+        if: inputs.enabled && inputs.upload_release_assets && inputs.assets_mode == 'release'
         env:
           OUT_PATH: ${{ inputs.output_readme_path }}
           ARTEFACTS_DIR: ${{ inputs.artefacts_dir }}
@@ -230,15 +306,20 @@ jobs:
 
           base = f"https://github.com/{repo}/releases/download/{release_tag}/"
           text = out_path.read_text(encoding="utf-8")
-          pattern = re.compile(
-              rf"\]\((?:\./)?{re.escape(artefacts_dir)}/([^\)]+)\)"
+          markdown_pattern = re.compile(
+              rf"(!\[[^\]]*\]\()(?:\./)?{re.escape(artefacts_dir)}/([^\)]+)(\))"
           )
-          text = pattern.sub(lambda m: f"]({base}{m.group(1)})", text)
+          html_pattern = re.compile(
+              rf'(<img\b[^>]*\bsrc=)(["\'])(?:\./)?{re.escape(artefacts_dir)}/([^"\']+)(\2)',
+              re.IGNORECASE,
+          )
+          text = markdown_pattern.sub(lambda m: f"{m.group(1)}{base}{m.group(2)}{m.group(3)}", text)
+          text = html_pattern.sub(lambda m: f'{m.group(1)}{m.group(2)}{base}{m.group(3)}{m.group(4)}', text)
           out_path.write_text(text, encoding="utf-8")
           PY
 
-      - name: Rewrite diagram URLs to raw GitHub assets branch
-        if: inputs.enabled && inputs.upload_release_assets && steps.detect.outputs.has_mermaid == 'true' && inputs.assets_mode == 'branch'
+      - name: Rewrite README asset URLs to raw GitHub assets branch
+        if: inputs.enabled && inputs.upload_release_assets && inputs.assets_mode == 'branch'
         env:
           OUT_PATH: ${{ inputs.output_readme_path }}
           ARTEFACTS_DIR: ${{ inputs.artefacts_dir }}
@@ -259,8 +340,21 @@ jobs:
 
           base = f"https://raw.githubusercontent.com/{repo}/{assets_ref}/"
           text = out_path.read_text(encoding="utf-8")
-          pattern = re.compile(rf"\]\((?:\./)?{re.escape(artefacts_dir)}/([^\)]+)\)")
-          text = pattern.sub(lambda m: f"]({base}{artefacts_dir}/{m.group(1)})", text)
+          markdown_pattern = re.compile(
+              rf"(!\[[^\]]*\]\()(?:\./)?{re.escape(artefacts_dir)}/([^\)]+)(\))"
+          )
+          html_pattern = re.compile(
+              rf'(<img\b[^>]*\bsrc=)(["\'])(?:\./)?{re.escape(artefacts_dir)}/([^"\']+)(\2)',
+              re.IGNORECASE,
+          )
+          text = markdown_pattern.sub(
+              lambda m: f"{m.group(1)}{base}{artefacts_dir}/{m.group(2)}{m.group(3)}",
+              text,
+          )
+          text = html_pattern.sub(
+              lambda m: f'{m.group(1)}{m.group(2)}{base}{artefacts_dir}/{m.group(3)}{m.group(4)}',
+              text,
+          )
           out_path.write_text(text, encoding="utf-8")
           PY
 
