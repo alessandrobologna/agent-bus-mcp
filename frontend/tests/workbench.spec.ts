@@ -13,5 +13,5 @@ test("opens topics in tabs and navigates from sidebar search", async ({ page }) 
   await result.click()
 
   await expect(page).toHaveURL(/\/topics\/.+\?focus=/)
-  await expect(page.getByText("beta handoff summary")).toBeVisible()
+  await expect(page.locator("main").getByText("beta handoff summary")).toBeVisible()
 })
