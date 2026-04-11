@@ -79,13 +79,15 @@ For a fuller walkthrough, start with [First topic between two peers](docs/tutori
 Agent Bus also ships with a local Web UI for browsing topics, reading threads, exporting logs, and
 searching the bus without leaving the browser.
 
-Run it locally with:
+From a source checkout:
 
 ```bash
+uv sync --extra web
+pnpm --dir frontend build
 uv run agent-bus serve
 ```
 
-Or install the web extra and launch it directly from `uvx`:
+Or launch the published package directly with the web extra:
 
 ```bash
 uvx --from "agent-bus-mcp[web]==<version>" agent-bus serve
