@@ -109,8 +109,8 @@ jobs:
       upload_artifacts: true
       use_pypi_readme: true
       pypi_readme_artifact_name: pypi-readme
-      version_override_python: ${{ needs.version-plan.outputs.package_version }}
-      version_override_cargo: ${{ needs.version-plan.outputs.cargo_version }}
+      version_override_python: ${{ inputs.publish_target == 'testpypi' && inputs.test_version_suffix != '' && needs.version-plan.outputs.package_version || '' }}
+      version_override_cargo: ${{ inputs.publish_target == 'testpypi' && inputs.test_version_suffix != '' && needs.version-plan.outputs.cargo_version || '' }}
 
   upload:
     needs:

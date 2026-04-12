@@ -54,7 +54,7 @@ jobs:
           CARGO_VERSION: ${{ inputs.version_override_cargo }}
         run: |
           set -euo pipefail
-          python3 .github/scripts/apply_version_overrides.py "$PY_VERSION" "$CARGO_VERSION"
+          python .github/scripts/apply_version_overrides.py "$PY_VERSION" "$CARGO_VERSION"
 
       - uses: pnpm/action-setup@v5
         with:
@@ -168,7 +168,7 @@ jobs:
           CARGO_VERSION: ${{ inputs.version_override_cargo }}
         run: |
           set -euo pipefail
-          python3 .github/scripts/apply_version_overrides.py "$PY_VERSION" "$CARGO_VERSION"
+          python .github/scripts/apply_version_overrides.py "$PY_VERSION" "$CARGO_VERSION"
 
       - uses: pnpm/action-setup@v5
         with:

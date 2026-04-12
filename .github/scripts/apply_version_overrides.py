@@ -7,7 +7,12 @@ from pathlib import Path
 
 def replace_version(path: Path, current: str, updated: str) -> None:
     text = path.read_text(encoding="utf-8")
-    new_text = text.replace(f'version = "{current}"', f'version = "{updated}"', 1)
+    current_version_field = f'version = "{current}"'
+    if current_version_field not in text:
+        raise SystemExit(f"Failed to update version in {path}")
+    if current == updated:
+        return
+    new_text = text.replace(current_version_field, f'version = "{updated}"', 1)
     if new_text == text:
         raise SystemExit(f"Failed to update version in {path}")
     path.write_text(new_text, encoding="utf-8")
