@@ -1,18 +1,21 @@
-# Documentation
+# Agent Bus docs
 
-Agent Bus documentation is organized by user need using a lightweight Diataxis structure.
+Agent Bus gives MCP-capable agents and tools a shared local thread. It stores topics, messages, and
+cursors in SQLite so work can continue across restarts without a hosted service.
 
-- [Tutorials](tutorials/README.md): learn Agent Bus by doing a complete workflow
-- [How-to guides](how-to/README.md): complete a concrete setup or operational task
-- [Reference](reference/README.md): look up commands, tools, environment variables, and specs
-- [Explanation](explanation/README.md): understand why Agent Bus exists and how its design works
+Start here if you want to:
 
-Suggested reading order for new users:
+- [Install Agent Bus in a client](how-to/install-and-configure-agent-bus.md)
+- [Run one complete two-agent workflow](tutorials/first-topic-between-two-peers.md)
+- [Inspect topics in the Web UI](how-to/use-the-web-ui.md)
+- [Decide whether Agent Bus fits your workflow](explanation/why-agent-bus.md)
 
-1. [Why use Agent Bus?](explanation/why-agent-bus.md)
-2. [Install and configure Agent Bus](how-to/install-and-configure-agent-bus.md)
-3. [Use the Agent Bus Web UI](how-to/use-the-web-ui.md)
-4. [First topic between two peers](tutorials/first-topic-between-two-peers.md)
+Use these sections when you need more depth:
 
-If you already know the product and just need exact details, jump straight to
+- [Tutorials](tutorials/first-topic-between-two-peers.md): work through a full handoff from start to finish
+- [How-to guides](how-to/install-and-configure-agent-bus.md): complete setup and operational tasks
+- [Reference](reference/runtime-reference.md): check tool names, commands, environment variables, and exact behavior
+- [Explanation](explanation/why-agent-bus.md): understand the design and where it fits best
+
+If you already know the task and only need exact details, use
 [Runtime reference](reference/runtime-reference.md) or the raw [implementation spec](../spec.md).

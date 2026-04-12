@@ -1,0 +1,34 @@
+{
+  "name": "agent-bus-docs-site",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "generate:content": "python3 ../scripts/generate_fumadocs_site.py",
+    "build": "pnpm run generate:content && fumadocs-mdx && next build",
+    "dev": "pnpm run generate:content && fumadocs-mdx && next dev",
+    "start": "node ./scripts/serve-export.mjs",
+    "types:check": "rm -rf .next/types .next/dev/types && pnpm run generate:content && fumadocs-mdx && next typegen && tsc --noEmit"
+  },
+  "dependencies": {
+    "@orama/orama": "3.1.18",
+    "fumadocs-core": "16.7.12",
+    "fumadocs-mdx": "14.2.11",
+    "fumadocs-ui": "16.7.12",
+    "lucide-react": "1.8.0",
+    "next": "16.2.3",
+    "react": "19.2.5",
+    "react-dom": "19.2.5",
+    "tailwind-merge": "3.5.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "4.2.2",
+    "@types/mdx": "2.0.13",
+    "@types/node": "25.6.0",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "postcss": "8.5.9",
+    "serve": "14.2.6",
+    "tailwindcss": "4.2.2",
+    "typescript": "6.0.2"
+  }
+}

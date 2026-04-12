@@ -1,6 +1,6 @@
 # Runtime reference
 
-This page collects the runtime-facing lookup material that was previously mixed into the README.
+Use this page for exact MCP tool, CLI, search, and configuration details.
 
 ## MCP tools
 
@@ -21,7 +21,7 @@ This page collects the runtime-facing lookup material that was previously mixed 
 `reclaim_token=<token>` for text-only clients. Persist it if you need to reclaim the same
 `agent_name` after a restart.
 
-## Administrative CLI commands
+## Common CLI commands
 
 ```bash
 agent-bus cli topics list --status all
@@ -94,25 +94,9 @@ Supported embedding model aliases include:
 - `BAAI/bge-small-en-v1.5`
 - `intfloat/multilingual-e5-small`
 
-## Development commands
-
-```bash
-uv sync --dev
-pnpm --dir frontend install
-pnpm --dir frontend build
-uv run ruff format
-uv run ruff check
-uv run pytest
-pnpm --dir frontend test
-pnpm --dir frontend test:e2e
-```
-
-## Raw reference sources
-
-- [Implementation spec](../../spec.md)
-- [Changelog](../../CHANGELOG.md)
-
 ## See also
 
 - [Install and configure Agent Bus](../how-to/install-and-configure-agent-bus.md)
+- [Implementation spec](../../spec.md)
+- [Changelog](../../CHANGELOG.md)
 - [Why use Agent Bus?](../explanation/why-agent-bus.md)

@@ -1,7 +1,7 @@
 # Why use Agent Bus?
 
 Agent Bus exists for a narrow but common problem: multiple local coding agents often need to
-coordinate, but the usual tools for doing that are awkward.
+coordinate, and the usual tools for doing that do not hold up well.
 
 Without a shared bus, agents tend to coordinate through:
 
@@ -11,7 +11,7 @@ Without a shared bus, agents tend to coordinate through:
 - one-off prompts that disappear when a process restarts
 
 Those approaches work for tiny tasks, but they break down when you want durable handoffs,
-reviewer/implementer loops, or a searchable history of what each agent asked and answered.
+reviewer/implementer loops, or a searchable record of what each agent asked and answered.
 
 ## What Agent Bus gives you
 
@@ -20,7 +20,7 @@ contract.
 
 ### Topics instead of implicit threads
 
-Each conversation happens in a named topic. That makes coordination intentional:
+Each conversation happens in a named topic. That keeps coordination explicit:
 
 - one topic per task or incident
 - one ordered message stream per topic
@@ -29,15 +29,15 @@ Each conversation happens in a named topic. That makes coordination intentional:
 ### Stable peer identity
 
 Agents join with a human-friendly `agent_name`, and the name is reserved for the life of the topic.
-That matters because long-running coordination is easier to follow when "reviewer", "implementer",
-or "codex backend" keeps meaning the same thing across reconnects.
+That matters because coordination is easier to follow when "reviewer", "implementer", or "codex
+backend" keeps the same meaning across reconnects.
 
 ### Server-side cursors
 
 Each peer has a server-side cursor per topic. Clients do not need to keep re-reading full history or
 guess where they left off.
 
-That enables:
+This makes it easier to:
 
 - replay from the beginning when needed
 - long-polling for new work
@@ -52,11 +52,9 @@ Agent Bus stays local:
 - optional UI: local browser workbench
 
 That keeps setup lightweight and makes it practical to use in personal or small-team workflows
-without provisioning another network service.
+without another network service.
 
 ## Why SQLite and a Rust core?
-
-The design is intentionally narrow.
 
 SQLite is a good fit because the bus is local, single-machine, and mostly coordination-oriented.
 It gives durable state, transactional updates, FTS, and simple deployment with one file.
@@ -73,8 +71,8 @@ Rust consumers.
 
 ## Where Agent Bus fits
 
-Agent Bus is strongest when you want structured local coordination between agent tools, not when
-you need a full remote collaboration service.
+Agent Bus is strongest when you want structured local coordination between agent tools. It is not a
+full remote collaboration service.
 
 Good fits:
 
