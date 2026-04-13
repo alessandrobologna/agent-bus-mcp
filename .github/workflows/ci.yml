@@ -19,6 +19,9 @@ env:
 
 jobs:
   site:
+    # PRs and manual runs should validate the docs build, but main pushes already
+    # rebuild the site in publish-docs-site before deploying to GitHub Pages.
+    if: github.event_name != 'push' || github.ref != 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
