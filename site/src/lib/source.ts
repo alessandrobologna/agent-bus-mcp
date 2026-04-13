@@ -39,5 +39,5 @@ export function getSourceRepoPath(page: InferPageType<typeof source>) {
 export async function getLLMText(page: InferPageType<typeof source>) {
   const processed = await page.data.getText("processed");
 
-  return `# ${page.data.title} (${page.url})\n\n${processed}`;
+  return `# ${page.data.title} (${withBasePath(page.url)})\n\n${processed}`;
 }

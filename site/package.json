@@ -2,6 +2,7 @@
   "name": "agent-bus-docs-site",
   "version": "0.0.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "generate:content": "node ./scripts/generate-content.mjs",
     "build": "pnpm run generate:content && fumadocs-mdx && next build",

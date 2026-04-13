@@ -3,33 +3,21 @@ import { createReadStream, existsSync, readFileSync, statSync } from "node:fs";
 import { extname, join, normalize } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { inferBuiltBasePath, resolveBasePath } from "../base-path.shared.js";
 
 const scriptDir = fileURLToPath(new URL("..", import.meta.url));
 const outDir = join(scriptDir, "out");
 const port = Number.parseInt(process.env.PORT ?? "3000", 10);
 
-function normalizeBasePath(value) {
-  if (!value || value === "/") return "";
-  const trimmed = value.replace(/\/+$/, "");
-  return trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
-}
-
 function inferBasePath() {
-  if (process.env.NEXT_PUBLIC_BASE_PATH !== undefined) {
-    return normalizeBasePath(process.env.NEXT_PUBLIC_BASE_PATH);
-  }
-
-  if (process.env.GITHUB_ACTIONS === "true" && process.env.GITHUB_REPOSITORY) {
-    const repo = process.env.GITHUB_REPOSITORY.split("/")[1];
-    if (repo) return `/${repo}`;
-  }
+  const fromEnv = resolveBasePath();
+  if (fromEnv) return fromEnv;
 
   const indexPath = join(outDir, "index.html");
   if (!existsSync(indexPath)) return "";
 
   const html = readFileSync(indexPath, "utf8");
-  const match = html.match(/(?:href|src)="(\/[^"]*?)\/_next\//);
-  return normalizeBasePath(match?.[1] ?? "");
+  return inferBuiltBasePath(html);
 }
 
 const basePath = inferBasePath();

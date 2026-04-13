@@ -1,3 +1,5 @@
+import { resolveBasePath } from "../../base-path.shared.js";
+
 export const appName = "Agent Bus";
 export const docsRoute = "/docs";
 export const docsImageRoute = "/og/docs";
@@ -9,13 +11,9 @@ export const gitConfig = {
   branch: "main",
 };
 
-function normalizeBasePath(value: string | undefined) {
-  if (!value || value === "/") return "";
-  const trimmed = value.replace(/\/+$/, "");
-  return trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
-}
-
-export const basePath = normalizeBasePath(process.env.NEXT_PUBLIC_BASE_PATH);
+export const basePath = resolveBasePath({
+  explicit: process.env.NEXT_PUBLIC_BASE_PATH,
+});
 
 export function withBasePath(path: string) {
   if (!path.startsWith("/") || !basePath || path.startsWith(`${basePath}/`) || path === basePath) {

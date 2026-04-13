@@ -1,24 +1,7 @@
 import { createMDX } from "fumadocs-mdx/next";
+import { resolveBasePath } from "./base-path.shared.js";
 
 const withMDX = createMDX();
-
-function normalizeBasePath(value) {
-  if (!value || value === "/") return "";
-  const trimmed = value.replace(/\/+$/, "");
-  return trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
-}
-
-function resolveBasePath() {
-  const explicit = process.env.NEXT_PUBLIC_BASE_PATH;
-  if (explicit !== undefined) return normalizeBasePath(explicit);
-
-  if (process.env.GITHUB_ACTIONS === "true" && process.env.GITHUB_REPOSITORY) {
-    const repo = process.env.GITHUB_REPOSITORY.split("/")[1];
-    if (repo) return `/${repo}`;
-  }
-
-  return "";
-}
 
 const basePath = resolveBasePath();
 
