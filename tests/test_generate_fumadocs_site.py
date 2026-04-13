@@ -162,11 +162,15 @@ Understand the local-only design.
     assert (content_root / "how-to" / "meta.json").exists()
     assert (content_root / "reference" / "meta.json").exists()
     assert (content_root / "explanation" / "meta.json").exists()
-    assert json.loads((content_root / "how-to" / "meta.json").read_text(encoding="utf-8"))["pages"] == [
+    assert json.loads((content_root / "how-to" / "meta.json").read_text(encoding="utf-8"))[
+        "pages"
+    ] == [
         "install-and-configure-agent-bus",
         "use-the-web-ui",
     ]
-    assert json.loads((content_root / "reference" / "meta.json").read_text(encoding="utf-8"))["pages"] == [
+    assert json.loads((content_root / "reference" / "meta.json").read_text(encoding="utf-8"))[
+        "pages"
+    ] == [
         "runtime-reference",
         "implementation-spec",
         "changelog",

@@ -283,7 +283,12 @@ def docs_target_for(source_rel: PurePosixPath) -> PurePosixPath:
 
 
 def is_section_readme(source_rel: PurePosixPath) -> bool:
-    return len(source_rel.parts) == 3 and source_rel.parts[:1] == ("docs",) and source_rel.parts[1] in SECTION_ORDER and source_rel.name == "README.md"
+    return (
+        len(source_rel.parts) == 3
+        and source_rel.parts[:1] == ("docs",)
+        and source_rel.parts[1] in SECTION_ORDER
+        and source_rel.name == "README.md"
+    )
 
 
 def route_path_for_generated_page(target_rel: PurePosixPath) -> str:
@@ -364,7 +369,9 @@ def write_page(
     )
 
 
-def build_records(repo_root: Path, source_map: dict[PurePosixPath, PurePosixPath]) -> list[PageRecord]:
+def build_records(
+    repo_root: Path, source_map: dict[PurePosixPath, PurePosixPath]
+) -> list[PageRecord]:
     records: list[PageRecord] = []
     for source_rel, target_rel in sorted(source_map.items(), key=lambda item: item[1].as_posix()):
         source_path = repo_root / source_rel
@@ -401,7 +408,9 @@ def ordered_section_pages(section: str, records: list[PageRecord]) -> list[PageR
             "implementation-spec": 1,
             "changelog": 2,
         }
-        ordered.sort(key=lambda record: (priority.get(record.target_rel.stem, 99), record.target_rel.stem))
+        ordered.sort(
+            key=lambda record: (priority.get(record.target_rel.stem, 99), record.target_rel.stem)
+        )
     return ordered
 
 
@@ -467,7 +476,9 @@ def parse_args() -> argparse.Namespace:
     repo_root = script_path.parent.parent
     parser = argparse.ArgumentParser(description="Generate Fumadocs content from repository docs.")
     parser.add_argument("--repo-root", type=Path, default=repo_root)
-    parser.add_argument("--content-root", type=Path, default=repo_root / "site" / "content" / "docs")
+    parser.add_argument(
+        "--content-root", type=Path, default=repo_root / "site" / "content" / "docs"
+    )
     parser.add_argument("--public-root", type=Path, default=repo_root / "site" / "public")
     return parser.parse_args()
 

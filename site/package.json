@@ -3,11 +3,11 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "generate:content": "python3 ../scripts/generate_fumadocs_site.py",
+    "generate:content": "node ./scripts/generate-content.mjs",
     "build": "pnpm run generate:content && fumadocs-mdx && next build",
     "dev": "pnpm run generate:content && fumadocs-mdx && next dev",
     "start": "node ./scripts/serve-export.mjs",
-    "types:check": "rm -rf .next/types .next/dev/types && pnpm run generate:content && fumadocs-mdx && next typegen && tsc --noEmit"
+    "types:check": "node ./scripts/types-check.mjs"
   },
   "dependencies": {
     "@orama/orama": "3.1.18",
@@ -27,7 +27,6 @@
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
     "postcss": "8.5.9",
-    "serve": "14.2.6",
     "tailwindcss": "4.2.2",
     "typescript": "6.0.2"
   }

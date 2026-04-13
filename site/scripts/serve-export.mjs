@@ -105,7 +105,14 @@ function sendFile(res, filePath, statusCode, method, requestPath) {
 
 const server = createServer((req, res) => {
   const url = new URL(req.url ?? "/", "http://localhost");
-  let pathname = decodeURIComponent(url.pathname);
+  let pathname;
+  try {
+    pathname = decodeURIComponent(url.pathname);
+  } catch {
+    res.writeHead(400, { "Content-Type": "text/plain; charset=utf-8" });
+    res.end("Malformed request path");
+    return;
+  }
 
   if (basePath) {
     if (pathname === "/") {
