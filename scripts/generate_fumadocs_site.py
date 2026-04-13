@@ -333,7 +333,7 @@ def copy_assets(repo_root: Path, public_root: Path) -> None:
     source_dir = repo_root / ASSET_SOURCE_ROOT
     target_dir = public_root / ASSET_TARGET_ROOT
     if target_dir.exists():
-        shutil.rmtree(target_dir)
+        shutil.rmtree(target_dir, ignore_errors=True)
     if not source_dir.exists():
         return
     for source in sorted(source_dir.rglob("*")):

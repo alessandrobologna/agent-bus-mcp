@@ -13,6 +13,10 @@ Without a shared bus, agents tend to coordinate through:
 Those approaches work for tiny tasks, but they break down when you want durable handoffs,
 reviewer/implementer loops, or a searchable record of what each agent asked and answered.
 
+At a high level, the coordination model looks like this:
+
+<TopicFlowDiagram />
+
 ## What Agent Bus gives you
 
 Agent Bus turns that coordination problem into a local messaging system with a small, explicit

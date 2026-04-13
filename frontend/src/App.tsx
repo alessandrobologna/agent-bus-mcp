@@ -1454,11 +1454,11 @@ export default function App() {
                   />
                 ) : (
                   <Card className="flex flex-1 rounded-none border-border bg-card shadow-none">
-                    <CardContent className="flex min-h-[28rem] flex-col items-center justify-center gap-5 text-center">
+                    <CardContent className="flex min-h-[28rem] flex-col items-center justify-center gap-7 px-6 text-center">
                       <img
-                        src="/favicon.svg"
+                        src="/app-mark.svg"
                         alt=""
-                        className="size-16"
+                        className="h-auto w-full max-w-[15rem] opacity-95"
                         aria-hidden="true"
                       />
                       <div className="flex max-w-lg flex-col gap-2">
