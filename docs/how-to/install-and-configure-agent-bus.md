@@ -1,70 +1,21 @@
 # How to install and configure Agent Bus
 
-This guide shows how to install Agent Bus, connect it to a local MCP client, and optionally enable
-the web UI and workflow skill.
+This guide gets Agent Bus running in a local MCP client. Start with the published package unless
+you are developing Agent Bus itself.
 
-## Install from PyPI with `uvx`
+## Fastest path: run the published package with `uvx`
 
-For most users, the simplest path is to run the published package through `uvx`.
-
-Unpinned ad hoc use:
-
-```bash
-uvx --from agent-bus-mcp agent-bus --help
-```
-
-Pinned setup:
+Check that the published package runs:
 
 ```bash
 uvx --from "agent-bus-mcp==<version>" agent-bus --help
-uvx --from "agent-bus-mcp==<version>" agent-bus
 ```
 
-Optional web UI:
+Then add it to your MCP client.
 
-```bash
-uvx --from "agent-bus-mcp[web]==<version>" agent-bus serve
-```
+## Add Agent Bus to a client
 
-If you use an unpinned `uvx` command and want to refresh the cached package:
-
-```bash
-uvx --refresh-package agent-bus-mcp --from agent-bus-mcp agent-bus
-```
-
-## Run from a local checkout
-
-Use a local checkout when developing or testing unreleased changes.
-
-```bash
-git clone https://github.com/alessandrobologna/agent-bus-mcp.git
-cd agent-bus-mcp
-uv sync
-uv run agent-bus
-```
-
-If you are editing the Rust core locally:
-
-```bash
-uv sync --dev
-uv run maturin develop
-```
-
-## Configure the database path
-
-By default, Agent Bus uses `~/.agent_bus/agent_bus.sqlite`.
-
-To set the path explicitly:
-
-```bash
-export AGENT_BUS_DB="$HOME/.agent_bus/agent_bus.sqlite"
-```
-
-Use the same database path in every client that should share topics and cursors.
-
-## Configure an MCP client
-
-For long-lived client configuration, prefer pinning the package version.
+For long-lived client configuration, pin the package version.
 
 ### Codex
 
@@ -121,9 +72,45 @@ Equivalent `.mcp.json` entry:
 gemini mcp add agent-bus uvx -- --from agent-bus-mcp==<version> agent-bus
 ```
 
-## Enable the web UI
+## Share the same database between clients
 
-The web UI is optional and requires the `web` extras.
+By default, Agent Bus uses `~/.agent_bus/agent_bus.sqlite`.
+
+Set the path explicitly when multiple clients should share topics and cursors:
+
+```bash
+export AGENT_BUS_DB="$HOME/.agent_bus/agent_bus.sqlite"
+```
+
+Use the same database path in every client that should share the same bus.
+
+If you use an unpinned `uvx` command and need to refresh the cached package:
+
+```bash
+uvx --refresh-package agent-bus-mcp --from agent-bus-mcp agent-bus
+```
+
+## Run from a local checkout
+
+Use a local checkout when testing unreleased changes or developing Agent Bus itself.
+
+```bash
+git clone https://github.com/alessandrobologna/agent-bus-mcp.git
+cd agent-bus-mcp
+uv sync
+uv run agent-bus
+```
+
+If you are editing the Rust core locally:
+
+```bash
+uv sync --dev
+uv run maturin develop
+```
+
+## Optional: enable the Web UI
+
+The Web UI requires the `web` extras.
 
 From a checkout:
 
@@ -140,8 +127,8 @@ From PyPI:
 uvx --from "agent-bus-mcp[web]==<version>" agent-bus serve
 ```
 
-If you use a source install, make sure the frontend bundle exists in `agent_bus/web/static` before
-starting the server.
+If you are using a source checkout, make sure the frontend bundle exists in `agent_bus/web/static`
+before you start the server.
 
 For daily browser workflows after setup, see [How to use the Agent Bus Web UI](use-the-web-ui.md).
 

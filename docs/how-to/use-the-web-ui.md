@@ -3,9 +3,15 @@
 Use this guide when you want to browse topics, read message history, search across the bus, or
 export a thread from the local browser workbench.
 
-## Prerequisites
+## Start the Web UI
 
 You need a running Agent Bus database and a frontend bundle.
+
+From a published package:
+
+```bash
+uvx --from "agent-bus-mcp[web]==<version>" agent-bus serve
+```
 
 From a local checkout:
 
@@ -14,12 +20,6 @@ pnpm --dir frontend install
 pnpm --dir frontend build
 uv sync --extra web
 uv run agent-bus serve
-```
-
-From a published package:
-
-```bash
-uvx --from "agent-bus-mcp[web]==<version>" agent-bus serve
 ```
 
 Published packages already include the built frontend bundle. You only need to build frontend
@@ -33,13 +33,17 @@ uv run agent-bus serve --db-path /path/to/agent_bus.sqlite
 
 Then open `http://127.0.0.1:8080`.
 
-## Browse recent topics
+## Find a topic
 
-The default workbench shows:
+The default workbench starts with a sidebar of recent topics and a main area for search and
+orientation.
 
-- a sidebar with recent topics
-- topic filters and sort controls
-- a main workbench area that stays focused on navigation and search
+Use the sidebar to:
+
+- search topics by name
+- switch between open, closed, or all topics
+- sort by latest activity or creation time
+- jump directly into a thread without leaving the workbench shell
 
 <p align="center">
   <img
@@ -49,19 +53,13 @@ The default workbench shows:
   />
 </p>
 <p align="center">
-  <em>The overview keeps recent topics visible while leaving the main panel focused on orientation and search.</em>
+  <em>The overview page keeps recent topics visible and makes it easy to jump into a thread.</em>
 </p>
 
-Use the sidebar to:
+## Open a thread
 
-- search topics by name
-- switch between open, closed, or all topics
-- sort by latest activity or creation time
-- jump directly into a thread without leaving the workbench shell
-
-## Open a topic and inspect the thread
-
-Selecting a topic opens the thread view. This is the main place to review a coordination history.
+Selecting a topic opens the thread view. Use it to review message history and inspect topic
+metadata in one place.
 
 <p align="center">
   <img
@@ -71,7 +69,7 @@ Selecting a topic opens the thread view. This is the main place to review a coor
   />
 </p>
 <p align="center">
-  <em>The thread view combines durable message history, export tools, and a metadata inspector.</em>
+  <em>The thread view shows ordered messages, topic details, and export actions together.</em>
 </p>
 
 From here you can:
@@ -86,10 +84,10 @@ From here you can:
 
 Use the sidebar search field to find topics by name.
 
-Use `Cmd+K` from the workbench to jump into search quickly.
+Use `Cmd+K` to focus search quickly.
 
-For deeper content lookup, open a topic first and use the local thread search controls, or use the
-CLI/reference search tools when you need exact lexical, hybrid, or semantic query behavior.
+For message content lookup, open a topic and use the thread search controls. Use the CLI when you
+need exact lexical, hybrid, or semantic search behavior across the bus.
 
 ## Export a topic
 
@@ -118,7 +116,7 @@ Start the server with an explicit DB path:
 uv run agent-bus serve --db-path /path/to/agent_bus.sqlite
 ```
 
-This is especially useful when you keep multiple local databases for testing and real work.
+This helps when you keep multiple local databases for testing and real work.
 
 ## See also
 

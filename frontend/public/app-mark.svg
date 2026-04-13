@@ -1,0 +1,129 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="260" height="150" viewBox="0 0 260 150" fill="none">
+  <style>
+    .guide {
+      stroke: #707887;
+      stroke-opacity: 0.18;
+      stroke-width: 1;
+      stroke-dasharray: 4 8;
+    }
+
+    .frame {
+      fill: none;
+      stroke: #465062;
+      stroke-width: 1.5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .trace {
+      fill: none;
+      stroke: #d9deea;
+      stroke-width: 2.6;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .trace-muted {
+      fill: none;
+      stroke: #aab1bf;
+      stroke-opacity: 0.76;
+      stroke-width: 2.2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .node {
+      fill: #1f2229;
+      stroke: #d9deea;
+      stroke-width: 2.2;
+    }
+
+    .cursor {
+      fill: none;
+      stroke: #c6cedd;
+      stroke-width: 2.1;
+      stroke-linecap: round;
+    }
+
+    .token {
+      fill: #a9b8ff;
+      stroke: #dfe5ff;
+      stroke-width: 1.2;
+    }
+
+    .token-core {
+      fill: #dfe5ff;
+      opacity: 0.78;
+    }
+
+    .pulse {
+      fill: none;
+      stroke: #9aaafd;
+      stroke-width: 1.5;
+      opacity: 0;
+    }
+
+    .motion-reduced {
+      display: none;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .motion {
+        display: none;
+      }
+
+      .motion-reduced {
+        display: block;
+      }
+    }
+  </style>
+
+  <path class="guide" d="M18 75H242" />
+  <path class="guide" d="M32 18V132" />
+  <path class="guide" d="M126 18V132" />
+  <path class="guide" d="M228 18V132" />
+
+  <rect class="frame" x="22" y="32" width="90" height="18" rx="9" />
+  <rect class="frame" x="22" y="66" width="64" height="18" rx="9" />
+  <rect class="frame" x="22" y="100" width="76" height="18" rx="9" />
+
+  <path class="trace-muted" d="M112 41H126" />
+  <path class="trace" d="M86 75H126H180" />
+  <path class="trace-muted" d="M98 109H126" />
+  <path class="trace-muted" d="M126 41V109" />
+
+  <circle class="node" cx="126" cy="41" r="4.8" />
+  <circle class="node" cx="126" cy="75" r="5.4" />
+  <circle class="node" cx="126" cy="109" r="4.8" />
+
+  <rect class="frame" x="180" y="44" width="56" height="62" rx="16" />
+  <path class="cursor" d="M196 60H216" />
+  <path class="cursor" d="M196 75H210" />
+  <path class="cursor" d="M196 90H214" />
+  <circle class="node" cx="218" cy="75" r="4.6" />
+
+  <g class="motion">
+    <rect class="token" x="-6" y="-6" width="12" height="12" rx="3">
+      <animateMotion dur="3.8s" repeatCount="indefinite" path="M50 75H218" keyTimes="0;0.7;1" keySplines="0.2 0 0.2 1;0.2 0 0.2 1" calcMode="spline" />
+      <animate attributeName="opacity" values="0;1;1;1;0" keyTimes="0;0.08;0.78;0.92;1" dur="3.8s" repeatCount="indefinite" />
+    </rect>
+    <rect class="token-core" x="-2" y="-2" width="4" height="4" rx="1">
+      <animateMotion dur="3.8s" repeatCount="indefinite" path="M50 75H218" keyTimes="0;0.7;1" keySplines="0.2 0 0.2 1;0.2 0 0.2 1" calcMode="spline" />
+      <animate attributeName="opacity" values="0;0.7;0.7;0.7;0" keyTimes="0;0.08;0.78;0.92;1" dur="3.8s" repeatCount="indefinite" />
+    </rect>
+
+    <circle class="pulse" cx="218" cy="75" r="7">
+      <animate attributeName="r" values="7;7;7;7;19" keyTimes="0;0.76;0.83;0.9;1" dur="3.8s" repeatCount="indefinite" />
+      <animate attributeName="opacity" values="0;0;0;0.85;0" keyTimes="0;0.76;0.83;0.9;1" dur="3.8s" repeatCount="indefinite" />
+    </circle>
+    <circle class="pulse" cx="218" cy="75" r="7">
+      <animate attributeName="r" values="7;7;7;7;24" keyTimes="0;0.8;0.86;0.94;1" dur="3.8s" repeatCount="indefinite" />
+      <animate attributeName="opacity" values="0;0;0;0.45;0" keyTimes="0;0.8;0.86;0.94;1" dur="3.8s" repeatCount="indefinite" />
+    </circle>
+  </g>
+
+  <g class="motion-reduced">
+    <rect class="token" x="212" y="69" width="12" height="12" rx="3" />
+    <rect class="token-core" x="216" y="73" width="4" height="4" rx="1" />
+  </g>
+</svg>

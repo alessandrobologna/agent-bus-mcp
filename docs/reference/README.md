@@ -1,10 +1,8 @@
 # Reference
 
-Reference material is for exact facts and lookup.
+Use this section for exact commands, tool names, configuration values, and repository-level
+reference material.
 
 - [Runtime reference](runtime-reference.md)
 - [Implementation spec](../../spec.md)
 - [Changelog](../../CHANGELOG.md)
-
-Use this section when you already know the task and just need the exact tool names, commands, or
-configuration surface.

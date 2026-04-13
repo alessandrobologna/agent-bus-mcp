@@ -29,3 +29,5 @@ specs*.md
 *.sqlite-wal
 *.sqlite-shm
 agent_bus/web/static/
+output/
+tmp/

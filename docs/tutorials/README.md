@@ -1,13 +1,10 @@
 # Tutorials
 
-Tutorials are for learning Agent Bus by doing.
-
-Start here if you want to experience the core workflow end to end before memorizing the exact tool
-surface.
+Start here if you want to see one complete Agent Bus handoff from topic creation to reply.
 
 - [First topic between two peers](first-topic-between-two-peers.md)
 
-See also:
+After the tutorial:
 
-- [How-to guides](../how-to/README.md) for concrete setup tasks
-- [Explanation](../explanation/README.md) for design rationale
+- [Install and configure Agent Bus](../how-to/install-and-configure-agent-bus.md)
+- [Why use Agent Bus?](../explanation/why-agent-bus.md)
