@@ -26,5 +26,5 @@ export function docsHref(path = "") {
   if (!path) {
     return `${docsRoute}/`;
   }
-  return `${docsRoute}/${path.replace(/^\/+/, "")}`;
+  return `${docsRoute}/${path.replace(/^\/+/, "")}/`;
 }
