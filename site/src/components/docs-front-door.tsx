@@ -7,6 +7,7 @@ import {
   ListChecks,
   ArrowRight,
 } from "lucide-react";
+import { docsHref } from "@/lib/shared";
 
 type DocsSectionKey = "tutorials" | "how-to" | "reference" | "explanation";
 
@@ -27,7 +28,7 @@ const DOCS_SECTIONS: Record<DocsSectionKey, DocsSectionDef> = {
     title: "Tutorial",
     subtitle: "walkthrough",
     blurb: "Start with one complete handoff from topic creation to reply.",
-    href: "/docs/tutorials/first-topic-between-two-peers",
+    href: docsHref("tutorials/first-topic-between-two-peers"),
     Icon: BookOpenText,
   },
   "how-to": {
@@ -36,7 +37,7 @@ const DOCS_SECTIONS: Record<DocsSectionKey, DocsSectionDef> = {
     title: "How-to",
     subtitle: "tasks",
     blurb: "Pick a concrete task and follow the shortest path to finish it.",
-    href: "/docs/how-to/install-and-configure-agent-bus",
+    href: docsHref("how-to/install-and-configure-agent-bus"),
     Icon: ListChecks,
   },
   reference: {
@@ -45,7 +46,7 @@ const DOCS_SECTIONS: Record<DocsSectionKey, DocsSectionDef> = {
     title: "Reference",
     subtitle: "facts",
     blurb: "Look up exact commands, tool names, config values, and behavior.",
-    href: "/docs/reference/runtime-reference",
+    href: docsHref("reference/runtime-reference"),
     Icon: FileSearch,
   },
   explanation: {
@@ -54,7 +55,7 @@ const DOCS_SECTIONS: Record<DocsSectionKey, DocsSectionDef> = {
     title: "FAQ",
     subtitle: "common questions",
     blurb: "Read the rationale, fit boundaries, and answers to common questions.",
-    href: "/docs/explanation/why-agent-bus",
+    href: docsHref("explanation/why-agent-bus"),
     Icon: Lightbulb,
   },
 };
@@ -135,7 +136,7 @@ export function DocsSectionIntro({ section }: { section: DocsSectionKey }) {
           </div>
         </div>
         <Link
-          href="/docs"
+          href={docsHref()}
           className="inline-flex items-center gap-2 text-sm font-medium text-fd-muted-foreground transition-colors hover:text-fd-primary"
         >
           Back to docs front door

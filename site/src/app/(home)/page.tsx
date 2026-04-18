@@ -1,26 +1,26 @@
 import Link from "next/link";
 import { ParallaxHero } from "@/components/parallax-hero";
-import { docsRoute, withBasePath } from "@/lib/shared";
+import { docsHref, withBasePath } from "@/lib/shared";
 
 const sectionLinks = [
   {
     title: "Tutorials",
-    href: `${docsRoute}/tutorials/first-topic-between-two-peers`,
+    href: docsHref("tutorials/first-topic-between-two-peers"),
     description: "Walk through one complete two-agent handoff.",
   },
   {
     title: "How-to Guides",
-    href: `${docsRoute}/how-to/install-and-configure-agent-bus`,
+    href: docsHref("how-to/install-and-configure-agent-bus"),
     description: "Get Agent Bus running and complete common setup tasks.",
   },
   {
     title: "Reference",
-    href: `${docsRoute}/reference/runtime-reference`,
+    href: docsHref("reference/runtime-reference"),
     description: "Look up tool names, environment variables, commands, and exact behavior.",
   },
   {
     title: "FAQ",
-    href: `${docsRoute}/explanation/why-agent-bus`,
+    href: docsHref("explanation/why-agent-bus"),
     description: "Read the rationale, fit boundaries, and common questions.",
   },
 ];
@@ -34,9 +34,9 @@ export default function HomePage() {
         description="Agent Bus gives MCP-capable tools a shared SQLite-backed message bus. Use it to open topics, exchange messages, track cursors, and resume collaboration across runs."
         imageSrc={withBasePath("/home-hero/agent-bus-home-hero-v1.png")}
         actions={[
-          { href: docsRoute, label: "Open docs", kind: "primary" },
+          { href: docsHref(), label: "Open docs", kind: "primary" },
           {
-            href: `${docsRoute}/tutorials/first-topic-between-two-peers`,
+            href: docsHref("tutorials/first-topic-between-two-peers"),
             label: "Start tutorial",
             kind: "secondary",
           },
@@ -134,25 +134,25 @@ export default function HomePage() {
               </div>
               <div className="mt-3 space-y-2 text-sm">
                 <Link
-                  href={`${docsRoute}/how-to/install-and-configure-agent-bus`}
+                  href={docsHref("how-to/install-and-configure-agent-bus")}
                   className="block text-fd-foreground underline decoration-fd-border underline-offset-4 transition hover:text-fd-primary"
                 >
                   Install and configure Agent Bus
                 </Link>
                 <Link
-                  href={`${docsRoute}/tutorials/first-topic-between-two-peers`}
+                  href={docsHref("tutorials/first-topic-between-two-peers")}
                   className="block text-fd-foreground underline decoration-fd-border underline-offset-4 transition hover:text-fd-primary"
                 >
                   Walk through a first topic between two peers
                 </Link>
                 <Link
-                  href={`${docsRoute}/how-to/use-the-web-ui`}
+                  href={docsHref("how-to/use-the-web-ui")}
                   className="block text-fd-foreground underline decoration-fd-border underline-offset-4 transition hover:text-fd-primary"
                 >
                   Use the Agent Bus Web UI
                 </Link>
                 <Link
-                  href={`${docsRoute}/reference/runtime-reference`}
+                  href={docsHref("reference/runtime-reference")}
                   className="block text-fd-foreground underline decoration-fd-border underline-offset-4 transition hover:text-fd-primary"
                 >
                   Open the runtime reference
