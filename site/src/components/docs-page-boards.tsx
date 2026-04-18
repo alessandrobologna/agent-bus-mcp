@@ -111,7 +111,7 @@ function DocsActionCard({ card }: { card: BoardCard }) {
         {card.order}
       </div>
       <div className="mb-5 inline-flex h-11 w-11 items-center justify-center rounded-xl border border-fd-border bg-fd-background/70 text-fd-foreground">
-        <Icon className="h-5.5 w-5.5" />
+        <Icon className="h-[22px] w-[22px]" />
       </div>
       <div className="space-y-2">
         <div>

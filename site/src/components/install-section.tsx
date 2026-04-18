@@ -118,7 +118,7 @@ function GuideSection({
     <section className="my-8 rounded-2xl border border-fd-border bg-fd-card/45 px-5 py-5 sm:px-6">
       <div className="flex items-start gap-4">
         <div className="mt-0.5 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-fd-border bg-fd-background/75 text-fd-foreground">
-          <Icon className="h-5.5 w-5.5" />
+          <Icon className="h-[22px] w-[22px]" />
         </div>
         <div className="min-w-0 flex-1">
           <p className="mb-2 text-xs font-medium uppercase tracking-[0.22em] text-fd-muted-foreground">

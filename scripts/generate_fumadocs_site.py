@@ -312,11 +312,20 @@ def apply_site_only_page_transforms(text: str, source_rel: PurePosixPath) -> str
 
 
 def wrap_tutorial_steps(text: str) -> str:
-    start_marker = "## Step 1: connect Agent Bus in both clients"
-    end_marker = "## What you just learned"
-    start = text.find(start_marker)
-    end = text.find(end_marker)
-    if start == -1 or end == -1 or end <= start:
+    step_heading_re = re.compile(r"(?m)^## Step \d+: .*$")
+    h2_heading_re = re.compile(r"(?m)^## .*$")
+
+    start_match = step_heading_re.search(text)
+    if start_match is None:
+        return text
+
+    start = start_match.start()
+    end = len(text)
+    for heading_match in h2_heading_re.finditer(text, start_match.end()):
+        if not step_heading_re.fullmatch(heading_match.group(0)):
+            end = heading_match.start()
+            break
+    if end <= start:
         return text
 
     before = text[:start].rstrip()
