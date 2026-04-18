@@ -30,22 +30,12 @@ ATTR_RE = re.compile(r'([A-Za-z_:][-A-Za-z0-9_:.]*)\s*=\s*"([^"]*)"')
 TUTORIAL_STEPS_PAGE = PurePosixPath("docs/tutorials/first-topic-between-two-peers.md")
 INSTALL_GUIDE_PAGE = PurePosixPath("docs/how-to/install-and-configure-agent-bus.md")
 WEB_UI_GUIDE_PAGE = PurePosixPath("docs/how-to/use-the-web-ui.md")
-INSTALL_SECTION_VARIANTS = {
-    "Fastest path: run the published package with `uvx`": "package",
-    "Add Agent Bus to a client": "client",
-    "Share the same database between clients": "database",
-    "Run from a local checkout": "checkout",
-    "Optional: enable the Web UI": "webui",
-    "Optional: install the `agent-bus-workflows` skill": "workflow",
-}
-WEB_UI_SECTION_VARIANTS = {
-    "Start the Web UI": "start",
-    "Find a topic": "find",
-    "Open a thread": "thread",
-    "Search the bus": "search",
-    "Export a topic": "export",
-    "Troubleshooting": "troubleshooting",
-}
+INSTALL_SECTION_VARIANTS = frozenset(
+    {"package", "client", "database", "checkout", "webui", "workflow"}
+)
+WEB_UI_SECTION_VARIANTS = frozenset(
+    {"start", "find", "thread", "search", "export", "troubleshooting"}
+)
 
 
 @dataclass(frozen=True)
@@ -341,14 +331,13 @@ def wrap_tutorial_steps(text: str) -> str:
     return f"{before}\n\n{wrapped}\n\n{after}"
 
 
-def wrap_marked_sections(text: str, component_name: str, variant_map: dict[str, str]) -> str:
+def wrap_marked_sections(text: str, component_name: str, valid_variants: frozenset[str]) -> str:
     heading_matches = list(re.finditer(r"(?m)^## (.+)$", text))
     if not heading_matches:
         return text
 
     result: list[str] = []
     cursor = 0
-    valid_variants = set(variant_map.values())
     marker_re = re.compile(
         r"\A(## [^\n]+\n)<!--\s*site-wrap:\s*([a-z0-9-]+)\s*-->\n+", re.IGNORECASE
     )
