@@ -21,3 +21,18 @@ html > body[data-scroll-locked] {
   margin-right: 0 !important;
   --removed-body-scroll-bar-size: 0 !important;
 }
+
+article#nd-page .fd-steps {
+  margin-inline-start: 0.75rem;
+  padding-inline-start: 1.9rem;
+}
+
+article#nd-page .fd-step::before {
+  inline-size: 2.25rem;
+  block-size: 2.25rem;
+  inset-inline-start: -1.125rem;
+  border: 1.5px solid color-mix(in srgb, var(--color-fd-border) 88%, white 12%);
+  box-shadow: 0 0 0 3px var(--color-fd-background);
+  font-size: 0.95rem;
+  font-weight: 600;
+}

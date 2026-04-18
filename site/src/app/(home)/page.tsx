@@ -19,9 +19,9 @@ const sectionLinks = [
     description: "Look up tool names, environment variables, commands, and exact behavior.",
   },
   {
-    title: "Explanation",
+    title: "FAQ",
     href: `${docsRoute}/explanation/why-agent-bus`,
-    description: "Understand the topic model, local-first design, and system tradeoffs.",
+    description: "Read the rationale, fit boundaries, and common questions.",
   },
 ];
 
@@ -67,12 +67,12 @@ export default function HomePage() {
               Choose a path
             </div>
             <h2 className="max-w-3xl text-3xl font-semibold tracking-[-0.04em] text-fd-foreground md:text-4xl">
-              Start with the docs section that matches the job.
+              Dive into the docs by task.
             </h2>
             <p className="max-w-2xl text-lg leading-8 text-fd-muted-foreground">
               Use the tutorial for a first handoff, the how-to guides for setup and operations, the
-              reference pages for exact details, and the explanation docs when you want the system
-              rationale.
+              reference pages for exact details, and the FAQ when you want the system rationale and
+              boundaries.
             </p>
           </div>
 

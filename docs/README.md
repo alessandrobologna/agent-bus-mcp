@@ -14,8 +14,9 @@ Use these sections when you need more depth:
 
 - [Tutorials](tutorials/first-topic-between-two-peers.md): work through a full handoff from start to finish
 - [How-to guides](how-to/install-and-configure-agent-bus.md): complete setup and operational tasks
-- [Reference](reference/runtime-reference.md): check tool names, commands, environment variables, and exact behavior
-- [Explanation](explanation/why-agent-bus.md): understand the design and where it fits best
+- [Reference](reference/runtime-reference.md): check tool names, commands, and exact behavior
+- [FAQ](explanation/why-agent-bus.md): understand the design, fit boundaries, and common questions
 
 If you already know the task and only need exact details, use
-[Runtime reference](reference/runtime-reference.md) or the raw [implementation spec](../spec.md).
+[Runtime reference](reference/runtime-reference.md), [Search and embeddings reference](reference/search-and-embeddings-reference.md),
+or the raw [implementation spec](../spec.md).

@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { DocsFrontDoor, DocsSectionIntro, getDocsSection } from "@/components/docs-front-door";
+import { WhyAgentBusBoard } from "@/components/docs-page-boards";
 import { getMDXComponents } from "@/components/mdx";
 import { getPageImage, getPageMarkdownUrl, getSourceRepoPath, source } from "@/lib/source";
 import { gitConfig } from "@/lib/shared";
@@ -26,6 +28,9 @@ export function renderDocsPage(page: DocsSourcePage) {
   const MDX = page.data.body;
   const markdownUrl = getPageMarkdownUrl(page).url;
   const sourceRepoPath = getSourceRepoPath(page);
+  const docsSection = getDocsSection(page.path);
+  const isDocsLanding = page.path === "index.mdx";
+  const pageBoard = getPageBoard(page.path);
 
   return (
     <DocsPage toc={page.data.toc} full={page.data.full}>
@@ -38,11 +43,23 @@ export function renderDocsPage(page: DocsSourcePage) {
           githubUrl={`https://github.com/${gitConfig.user}/${gitConfig.repo}/blob/${gitConfig.branch}/${sourceRepoPath}`}
         />
       </div>
+      {isDocsLanding ? <DocsFrontDoor /> : null}
+      {!isDocsLanding && docsSection ? <DocsSectionIntro section={docsSection} /> : null}
+      {pageBoard}
       <DocsBody>
         <MDX components={getMDXComponents()} />
       </DocsBody>
     </DocsPage>
   );
+}
+
+function getPageBoard(path: string) {
+  switch (path) {
+    case "explanation/why-agent-bus.mdx":
+      return <WhyAgentBusBoard />;
+    default:
+      return null;
+  }
 }
 
 export function buildDocsMetadata(page: DocsSourcePage): Metadata {
