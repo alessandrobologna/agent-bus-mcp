@@ -1166,12 +1166,6 @@ export default function App() {
         payload.last_seq === currentLastSeq &&
         payload.message_count === currentDetail.message_count
       ) {
-        setTopicDetail((current) => {
-          if (!current || current.topic.topic_id !== topicId) {
-            return current
-          }
-          return current
-        })
         return
       }
 
