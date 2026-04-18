@@ -17,10 +17,10 @@ const topicsPayload: { topics: TopicSummary[] } = {
       closed_at: null,
       close_reason: null,
       metadata: null,
-      message_count: 2,
-      last_seq: 2,
-      last_message_at: 1_700_000_120,
-      last_updated_at: 1_700_000_120,
+      message_count: 1,
+      last_seq: 1,
+      last_message_at: 1_700_000_100,
+      last_updated_at: 1_700_000_100,
     },
     {
       topic_id: "t-2",
@@ -427,6 +427,114 @@ describe("App", () => {
       fetchSpy.mock.calls.filter(([input]) =>
         String(input).includes("/api/topics/t-1/messages")
       )
+    ).toHaveLength(2)
+  })
+
+  test("falls back to full topic detail when append catch-up exceeds the page cap", async () => {
+    const appendBatches = new Map(
+      [1, 201, 401, 601, 801].map((afterSeq) => [
+        String(afterSeq),
+        Array.from({ length: 200 }, (_, index) => {
+          const seq = afterSeq + index + 1
+          return {
+            message_id: `t-1-m-${seq}`,
+            topic_id: "t-1",
+            seq,
+            sender: "reviewer",
+            message_type: "message",
+            reply_to: null,
+            reply_to_sender: null,
+            content_markdown: `message ${seq}`,
+            metadata: null,
+            client_message_id: null,
+            created_at: 1_700_001_000 + seq,
+          }
+        }),
+      ])
+    )
+
+    let currentDetail: TopicDetailResponse = topicDetail("t-1", "hello from alpha")
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const url = new URL(String(input), "http://localhost")
+
+      if (url.pathname === "/api/topics") {
+        return jsonResponse(topicsPayload)
+      }
+      if (url.pathname === "/api/topics/t-1") {
+        return jsonResponse(currentDetail)
+      }
+      if (url.pathname === "/api/topics/t-1/messages") {
+        const afterSeq = url.searchParams.get("after_seq")
+        const messages = afterSeq ? appendBatches.get(afterSeq) : null
+
+        if (messages) {
+          return jsonResponse({
+            messages,
+            first_seq: messages[0]?.seq ?? null,
+            last_seq: messages[messages.length - 1]?.seq ?? null,
+            has_earlier: false,
+          })
+        }
+      }
+
+      throw new Error(`Unhandled fetch ${url.pathname}${url.search}`)
+    })
+
+    renderApp(["/topics/t-1"])
+
+    expect(await screen.findByText("hello from alpha")).toBeInTheDocument()
+
+    currentDetail = {
+      ...currentDetail,
+      messages: [
+        {
+          message_id: "t-1-m-1205",
+          topic_id: "t-1",
+          seq: 1205,
+          sender: "reviewer",
+          message_type: "message",
+          reply_to: null,
+          reply_to_sender: null,
+          content_markdown: "message 1205",
+          metadata: null,
+          client_message_id: null,
+          created_at: 1_700_002_205,
+        },
+      ],
+      message_count: 1205,
+      first_seq: 1205,
+      last_seq: 1205,
+      topic: {
+        ...currentDetail.topic,
+        message_count: 1205,
+        last_seq: 1205,
+        last_message_at: 1_700_002_205,
+        last_updated_at: 1_700_002_205,
+      },
+    }
+
+    topicStream("t-1").emit("topic.update", {
+      topic_id: "t-1",
+      last_seq: 1205,
+      message_count: 1205,
+      presence: [
+        {
+          topic_id: "t-1",
+          agent_name: "bulk sender",
+          last_seq: 1205,
+          updated_at: 1_700_002_210,
+        },
+      ],
+    })
+
+    expect(await screen.findByText("message 1205")).toBeInTheDocument()
+    expect(
+      fetchSpy.mock.calls.filter(([input]) =>
+        String(input).includes("/api/topics/t-1/messages")
+      )
+    ).toHaveLength(5)
+    expect(
+      fetchSpy.mock.calls.filter(([input]) => String(input) === "/api/topics/t-1")
     ).toHaveLength(2)
   })
 })

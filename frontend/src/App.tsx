@@ -27,6 +27,7 @@ import type {
   TopicMessage,
   TopicSort,
   TopicStatusFilter,
+  TopicStreamUpdate,
   TopicSummary,
   WorkbenchState,
 } from "@/lib/types"
@@ -1059,12 +1060,7 @@ export default function App() {
     const stream = new EventSource(`/api/stream/topics/${topicId}`)
 
     async function handleUpdate(event: Event) {
-      const payload = JSON.parse((event as MessageEvent<string>).data) as {
-        topic_id: string
-        last_seq: number
-        message_count: number
-        presence: CursorPresence[]
-      }
+      const payload = JSON.parse((event as MessageEvent<string>).data) as TopicStreamUpdate
 
       const currentDetail = topicDetailRef.current
       if (!currentDetail || currentDetail.topic.topic_id !== topicId) {
@@ -1104,15 +1100,18 @@ export default function App() {
       if (appendOnly) {
         try {
           const pageLimit = 200
+          const maxAppendPages = 5
           let afterSeq = currentLastSeq
           let appendedMessages: TopicMessage[] = []
+          let pagesFetched = 0
 
-          while (afterSeq < payload.last_seq) {
+          while (afterSeq < payload.last_seq && pagesFetched < maxAppendPages) {
             const nextMessages = await fetchTopicMessages(topicId, {
               afterSeq,
               limit: pageLimit,
             })
             const batch = nextMessages.messages
+            pagesFetched += 1
 
             if (batch.length === 0) {
               break
