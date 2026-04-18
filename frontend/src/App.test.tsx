@@ -4,9 +4,10 @@ import { describe, expect, test, vi } from "vitest"
 
 import App from "@/App"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import type { TopicDetailResponse, TopicSummary } from "@/lib/types"
 import { DEFAULT_WORKBENCH_STATE, loadWorkbenchState } from "@/lib/workbench-state"
 
-const topicsPayload = {
+const topicsPayload: { topics: TopicSummary[] } = {
   topics: [
     {
       topic_id: "t-1",
@@ -37,7 +38,11 @@ const topicsPayload = {
   ],
 }
 
-function topicDetail(topicId: string, content: string, options?: { focus?: string | null }) {
+function topicDetail(
+  topicId: string,
+  content: string,
+  options?: { focus?: string | null }
+): TopicDetailResponse {
   return {
     topic: topicsPayload.topics.find((topic) => topic.topic_id === topicId)!,
     messages: [
@@ -130,6 +135,18 @@ function renderApp(initialEntries: string[]) {
       </MemoryRouter>
     </TooltipProvider>
   )
+}
+
+function topicStream(topicId: string) {
+  const EventSourceCtor = globalThis.EventSource as unknown as {
+    instances: Array<{ url: string; emit: (type: string, payload?: unknown) => void }>
+  }
+
+  const stream = EventSourceCtor.instances.find(
+    (instance) => instance.url === `/api/stream/topics/${topicId}`
+  )
+  expect(stream).toBeDefined()
+  return stream!
 }
 
 describe("App", () => {
@@ -237,5 +254,179 @@ describe("App", () => {
       ...DEFAULT_WORKBENCH_STATE,
       openTopicIds: ["t-1"],
     })
+  })
+
+  test("refetches full topic detail when a stream update moves backward", async () => {
+    let currentDetail: TopicDetailResponse = topicDetail("t-1", "hello from alpha")
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const url = new URL(String(input), "http://localhost")
+
+      if (url.pathname === "/api/topics") {
+        return jsonResponse(topicsPayload)
+      }
+      if (url.pathname === "/api/topics/t-1") {
+        return jsonResponse(currentDetail)
+      }
+
+      throw new Error(`Unhandled fetch ${url.pathname}${url.search}`)
+    })
+
+    renderApp(["/topics/t-1"])
+
+    expect(await screen.findByText("hello from alpha")).toBeInTheDocument()
+
+    currentDetail = {
+      ...currentDetail,
+      messages: [],
+      message_count: 0,
+      first_seq: null,
+      last_seq: null,
+      topic: {
+        ...currentDetail.topic,
+        message_count: 0,
+        last_seq: 0,
+      },
+      presence: [
+        {
+          topic_id: "t-1",
+          agent_name: "remote reviewer",
+          last_seq: 0,
+          updated_at: 1_700_000_220,
+        },
+      ],
+    }
+
+    topicStream("t-1").emit("topic.update", {
+      topic_id: "t-1",
+      last_seq: 0,
+      message_count: 0,
+      presence: currentDetail.presence,
+    })
+
+    await waitFor(() => expect(screen.queryByText("hello from alpha")).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.getAllByText("remote reviewer").length).toBeGreaterThan(0))
+    expect(fetchSpy).toHaveBeenCalledWith("/api/topics/t-1", expect.any(Object))
+  })
+
+  test("keeps presence in sync even when append refresh fails", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const url = new URL(String(input), "http://localhost")
+
+      if (url.pathname === "/api/topics") {
+        return jsonResponse(topicsPayload)
+      }
+      if (url.pathname === "/api/topics/t-1") {
+        return jsonResponse(topicDetail("t-1", "hello from alpha"))
+      }
+      if (url.pathname === "/api/topics/t-1/messages") {
+        return Promise.reject(new Error("stream append fetch failed"))
+      }
+
+      throw new Error(`Unhandled fetch ${url.pathname}${url.search}`)
+    })
+
+    renderApp(["/topics/t-1"])
+
+    expect(await screen.findByText("hello from alpha")).toBeInTheDocument()
+
+    topicStream("t-1").emit("topic.update", {
+      topic_id: "t-1",
+      last_seq: 2,
+      message_count: 2,
+      presence: [
+        {
+          topic_id: "t-1",
+          agent_name: "append probe",
+          last_seq: 2,
+          updated_at: 1_700_000_330,
+        },
+      ],
+    })
+
+    await waitFor(() => expect(screen.getAllByText("append probe").length).toBeGreaterThan(0))
+    expect(screen.getByText("hello from alpha")).toBeInTheDocument()
+  })
+
+  test("drains multiple append pages for one stream update", async () => {
+    const batchOne = Array.from({ length: 200 }, (_, index) => ({
+      message_id: `t-1-m-${index + 2}`,
+      topic_id: "t-1",
+      seq: index + 2,
+      sender: "reviewer",
+      message_type: "message",
+      reply_to: null,
+      reply_to_sender: null,
+      content_markdown: `message ${index + 2}`,
+      metadata: null,
+      client_message_id: null,
+      created_at: 1_700_000_200 + index,
+    }))
+    const batchTwo = Array.from({ length: 4 }, (_, index) => ({
+      message_id: `t-1-m-${index + 202}`,
+      topic_id: "t-1",
+      seq: index + 202,
+      sender: "reviewer",
+      message_type: "message",
+      reply_to: null,
+      reply_to_sender: null,
+      content_markdown: `message ${index + 202}`,
+      metadata: null,
+      client_message_id: null,
+      created_at: 1_700_000_500 + index,
+    }))
+
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const url = new URL(String(input), "http://localhost")
+
+      if (url.pathname === "/api/topics") {
+        return jsonResponse(topicsPayload)
+      }
+      if (url.pathname === "/api/topics/t-1") {
+        return jsonResponse(topicDetail("t-1", "hello from alpha"))
+      }
+      if (url.pathname === "/api/topics/t-1/messages" && url.searchParams.get("after_seq") === "1") {
+        return jsonResponse({
+          messages: batchOne,
+          first_seq: 2,
+          last_seq: 201,
+          has_earlier: false,
+        })
+      }
+      if (url.pathname === "/api/topics/t-1/messages" && url.searchParams.get("after_seq") === "201") {
+        return jsonResponse({
+          messages: batchTwo,
+          first_seq: 202,
+          last_seq: 205,
+          has_earlier: false,
+        })
+      }
+
+      throw new Error(`Unhandled fetch ${url.pathname}${url.search}`)
+    })
+
+    renderApp(["/topics/t-1"])
+
+    expect(await screen.findByText("hello from alpha")).toBeInTheDocument()
+
+    topicStream("t-1").emit("topic.update", {
+      topic_id: "t-1",
+      last_seq: 205,
+      message_count: 205,
+      presence: [
+        {
+          topic_id: "t-1",
+          agent_name: "bulk sender",
+          last_seq: 205,
+          updated_at: 1_700_000_440,
+        },
+      ],
+    })
+
+    expect(await screen.findByText("message 205")).toBeInTheDocument()
+    expect(
+      fetchSpy.mock.calls.filter(([input]) =>
+        String(input).includes("/api/topics/t-1/messages")
+      )
+    ).toHaveLength(2)
   })
 })

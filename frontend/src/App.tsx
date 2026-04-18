@@ -1071,33 +1071,85 @@ export default function App() {
         return
       }
 
+      setTopicDetail((current) => {
+        if (!current || current.topic.topic_id !== topicId) {
+          return current
+        }
+        return {
+          ...current,
+          presence: payload.presence,
+        }
+      })
+
       const currentLastSeq = currentDetail.last_seq ?? 0
+      const currentFocusMessageId = currentDetail.focus_message_id
       const appendOnly =
         !currentDetail.context_mode &&
         payload.last_seq > currentLastSeq &&
         payload.message_count >= currentDetail.message_count
 
+      async function refreshTopicDetail() {
+        const refreshedDetail = await fetchTopicDetail(topicId, currentFocusMessageId)
+        setTopicDetail((current) => {
+          if (!current || current.topic.topic_id !== topicId) {
+            return current
+          }
+          return {
+            ...refreshedDetail,
+            presence: payload.presence,
+          }
+        })
+      }
+
       if (appendOnly) {
         try {
-          const nextMessages = await fetchTopicMessages(topicId, {
-            afterSeq: currentLastSeq,
-            limit: 200,
-          })
+          const pageLimit = 200
+          let afterSeq = currentLastSeq
+          let appendedMessages: TopicMessage[] = []
+
+          while (afterSeq < payload.last_seq) {
+            const nextMessages = await fetchTopicMessages(topicId, {
+              afterSeq,
+              limit: pageLimit,
+            })
+            const batch = nextMessages.messages
+
+            if (batch.length === 0) {
+              break
+            }
+
+            appendedMessages = mergeMessages(appendedMessages, batch)
+
+            const batchLastSeq = batch[batch.length - 1]?.seq ?? afterSeq
+            if (batchLastSeq <= afterSeq) {
+              break
+            }
+            afterSeq = batchLastSeq
+
+            if (batch.length < pageLimit) {
+              break
+            }
+          }
+
+          if (afterSeq < payload.last_seq) {
+            await refreshTopicDetail()
+            return
+          }
+
           setTopicDetail((current) => {
             if (!current || current.topic.topic_id !== topicId) {
               return current
             }
-            const messages = mergeMessages(current.messages, nextMessages.messages)
-            const addedCount = messages.length - current.messages.length
+            const messages = mergeMessages(current.messages, appendedMessages)
             return {
               ...current,
               messages,
               first_seq: messages[0]?.seq ?? current.first_seq,
               last_seq: messages[messages.length - 1]?.seq ?? current.last_seq,
-              message_count: current.message_count + Math.max(addedCount, 0),
+              message_count: payload.message_count,
               topic: {
                 ...current.topic,
-                message_count: current.topic.message_count + Math.max(addedCount, 0),
+                message_count: payload.message_count,
                 last_seq: payload.last_seq,
                 last_updated_at: Date.now() / 1000,
               },
@@ -1118,22 +1170,13 @@ export default function App() {
           if (!current || current.topic.topic_id !== topicId) {
             return current
           }
-          return {
-            ...current,
-            presence: payload.presence,
-          }
+          return current
         })
         return
       }
 
       try {
-        const refreshedDetail = await fetchTopicDetail(topicId, currentDetail.focus_message_id)
-        setTopicDetail((current) => {
-          if (!current || current.topic.topic_id !== topicId) {
-            return current
-          }
-          return refreshedDetail
-        })
+        await refreshTopicDetail()
       } catch {
         // Ignore transient stream refresh failures; the next event or manual refresh will catch up.
       }
