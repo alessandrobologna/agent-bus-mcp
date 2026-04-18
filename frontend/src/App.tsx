@@ -1062,52 +1062,77 @@ export default function App() {
       const payload = JSON.parse((event as MessageEvent<string>).data) as {
         topic_id: string
         last_seq: number
+        message_count: number
         presence: CursorPresence[]
       }
 
-      setTopicDetail((current) => {
-        if (!current || current.topic.topic_id !== topicId) {
-          return current
-        }
-        return {
-          ...current,
-          presence: payload.presence,
-        }
-      })
-
       const currentDetail = topicDetailRef.current
-      if (!currentDetail || currentDetail.topic.topic_id !== topicId || currentDetail.context_mode) {
-        return
-      }
-      if (payload.last_seq <= (currentDetail.last_seq ?? 0)) {
+      if (!currentDetail || currentDetail.topic.topic_id !== topicId) {
         return
       }
 
-      try {
-        const nextMessages = await fetchTopicMessages(topicId, {
-          afterSeq: currentDetail.last_seq ?? 0,
-          limit: 200,
-        })
+      const currentLastSeq = currentDetail.last_seq ?? 0
+      const appendOnly =
+        !currentDetail.context_mode &&
+        payload.last_seq > currentLastSeq &&
+        payload.message_count >= currentDetail.message_count
+
+      if (appendOnly) {
+        try {
+          const nextMessages = await fetchTopicMessages(topicId, {
+            afterSeq: currentLastSeq,
+            limit: 200,
+          })
+          setTopicDetail((current) => {
+            if (!current || current.topic.topic_id !== topicId) {
+              return current
+            }
+            const messages = mergeMessages(current.messages, nextMessages.messages)
+            const addedCount = messages.length - current.messages.length
+            return {
+              ...current,
+              messages,
+              first_seq: messages[0]?.seq ?? current.first_seq,
+              last_seq: messages[messages.length - 1]?.seq ?? current.last_seq,
+              message_count: current.message_count + Math.max(addedCount, 0),
+              topic: {
+                ...current.topic,
+                message_count: current.topic.message_count + Math.max(addedCount, 0),
+                last_seq: payload.last_seq,
+                last_updated_at: Date.now() / 1000,
+              },
+              presence: payload.presence,
+            }
+          })
+        } catch {
+          // Ignore transient stream refresh failures; the next event or manual refresh will catch up.
+        }
+        return
+      }
+
+      if (
+        payload.last_seq === currentLastSeq &&
+        payload.message_count === currentDetail.message_count
+      ) {
         setTopicDetail((current) => {
           if (!current || current.topic.topic_id !== topicId) {
             return current
           }
-          const messages = mergeMessages(current.messages, nextMessages.messages)
-          const addedCount = messages.length - current.messages.length
           return {
             ...current,
-            messages,
-            first_seq: messages[0]?.seq ?? current.first_seq,
-            last_seq: messages[messages.length - 1]?.seq ?? current.last_seq,
-            message_count: current.message_count + Math.max(addedCount, 0),
-            topic: {
-              ...current.topic,
-              message_count: current.topic.message_count + Math.max(addedCount, 0),
-              last_seq: payload.last_seq,
-              last_updated_at: Date.now() / 1000,
-            },
             presence: payload.presence,
           }
+        })
+        return
+      }
+
+      try {
+        const refreshedDetail = await fetchTopicDetail(topicId, currentDetail.focus_message_id)
+        setTopicDetail((current) => {
+          if (!current || current.topic.topic_id !== topicId) {
+            return current
+          }
+          return refreshedDetail
         })
       } catch {
         // Ignore transient stream refresh failures; the next event or manual refresh will catch up.
@@ -1458,7 +1483,7 @@ export default function App() {
                       <img
                         src="/app-mark.svg"
                         alt=""
-                        className="h-auto w-full max-w-[15rem] opacity-95"
+                        className="h-auto w-full max-w-[18.5rem] opacity-95"
                         aria-hidden="true"
                       />
                       <div className="flex max-w-lg flex-col gap-2">
