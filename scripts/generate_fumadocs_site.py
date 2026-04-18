@@ -213,9 +213,7 @@ def relative_asset_href(target_rel: PurePosixPath, repo_rel: PurePosixPath) -> s
 
 
 def rewrite_html_images(text: str, source_rel: PurePosixPath, target_rel: PurePosixPath) -> str:
-    def rewrite_attrs(
-        match: re.Match[str], tag_name: str, attr_name: str
-    ) -> str:
+    def rewrite_attrs(match: re.Match[str], tag_name: str, attr_name: str) -> str:
         attrs = ATTR_RE.findall(match.group(1))
         rewritten: list[tuple[str, str]] = []
         target_found = False
@@ -343,9 +341,7 @@ def wrap_tutorial_steps(text: str) -> str:
     return f"{before}\n\n{wrapped}\n\n{after}"
 
 
-def wrap_named_sections(
-    text: str, component_name: str, variant_map: dict[str, str]
-) -> str:
+def wrap_named_sections(text: str, component_name: str, variant_map: dict[str, str]) -> str:
     heading_matches = list(re.finditer(r"(?m)^## (.+)$", text))
     if not heading_matches:
         return text
@@ -355,7 +351,9 @@ def wrap_named_sections(
 
     for index, match in enumerate(heading_matches):
         title = match.group(1).strip()
-        next_start = heading_matches[index + 1].start() if index + 1 < len(heading_matches) else len(text)
+        next_start = (
+            heading_matches[index + 1].start() if index + 1 < len(heading_matches) else len(text)
+        )
         section = text[match.start() : next_start].strip()
         result.append(text[cursor : match.start()])
         cursor = next_start
