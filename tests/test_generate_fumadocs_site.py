@@ -93,26 +93,32 @@ Fast paths for concrete tasks.
 Install the package and start the server.
 
 ## Fastest path: run the published package with `uvx`
+<!-- site-wrap: package -->
 
 Fastest path body.
 
 ## Add Agent Bus to a client
+<!-- site-wrap: client -->
 
 Client setup body.
 
-## Share the same database between clients
+## Use one database path across clients
+<!-- site-wrap: database -->
 
 Shared database body.
 
-## Run from a local checkout
+## Work from a local checkout
+<!-- site-wrap: checkout -->
 
 Local checkout body.
 
-## Optional: enable the Web UI
+## Optional: turn on the Web UI
+<!-- site-wrap: webui -->
 
 Web UI body.
 
-## Optional: install the `agent-bus-workflows` skill
+## Optional: add the `agent-bus-workflows` skill
+<!-- site-wrap: workflow -->
 
 Workflow body.
 """,
@@ -127,27 +133,33 @@ Browse topics from the browser.
   <img src="../images/webui-overview.png" alt="Overview" width="960" />
 </p>
 
-## Start the Web UI
+## Launch the browser workbench
+<!-- site-wrap: start -->
 
 Start body.
 
-## Find a topic
+## Find a topic fast
+<!-- site-wrap: find -->
 
 Find body.
 
-## Open a thread
+## Open one thread
+<!-- site-wrap: thread -->
 
 Open body.
 
-## Search the bus
+## Search everything
+<!-- site-wrap: search -->
 
 Search body.
 
-## Export a topic
+## Export one topic
+<!-- site-wrap: export -->
 
 Export body.
 
-## Troubleshooting
+## Fix common problems
+<!-- site-wrap: troubleshooting -->
 
 Troubleshooting body.
 

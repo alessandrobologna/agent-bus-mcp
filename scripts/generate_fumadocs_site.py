@@ -303,9 +303,9 @@ def apply_site_only_page_transforms(text: str, source_rel: PurePosixPath) -> str
     if source_rel == TUTORIAL_STEPS_PAGE:
         text = wrap_tutorial_steps(text)
     if source_rel == INSTALL_GUIDE_PAGE:
-        text = wrap_named_sections(text, "InstallSection", INSTALL_SECTION_VARIANTS)
+        text = wrap_marked_sections(text, "InstallSection", INSTALL_SECTION_VARIANTS)
     if source_rel == WEB_UI_GUIDE_PAGE:
-        text = wrap_named_sections(text, "WebUiSection", WEB_UI_SECTION_VARIANTS)
+        text = wrap_marked_sections(text, "WebUiSection", WEB_UI_SECTION_VARIANTS)
     return text
 
 
@@ -341,16 +341,19 @@ def wrap_tutorial_steps(text: str) -> str:
     return f"{before}\n\n{wrapped}\n\n{after}"
 
 
-def wrap_named_sections(text: str, component_name: str, variant_map: dict[str, str]) -> str:
+def wrap_marked_sections(text: str, component_name: str, variant_map: dict[str, str]) -> str:
     heading_matches = list(re.finditer(r"(?m)^## (.+)$", text))
     if not heading_matches:
         return text
 
     result: list[str] = []
     cursor = 0
+    valid_variants = set(variant_map.values())
+    marker_re = re.compile(
+        r"\A(## [^\n]+\n)<!--\s*site-wrap:\s*([a-z0-9-]+)\s*-->\n+", re.IGNORECASE
+    )
 
     for index, match in enumerate(heading_matches):
-        title = match.group(1).strip()
         next_start = (
             heading_matches[index + 1].start() if index + 1 < len(heading_matches) else len(text)
         )
@@ -358,10 +361,16 @@ def wrap_named_sections(text: str, component_name: str, variant_map: dict[str, s
         result.append(text[cursor : match.start()])
         cursor = next_start
 
-        variant = variant_map.get(title)
-        if variant:
+        marker_match = marker_re.match(section)
+        variant = marker_match.group(2).lower() if marker_match else None
+        if variant in valid_variants:
+            cleaned_section = (
+                f"{marker_match.group(1)}{section[marker_match.end() :]}"
+                if marker_match
+                else section
+            )
             result.append(
-                f'<{component_name} variant="{variant}">\n\n{section}\n\n</{component_name}>\n\n'
+                f'<{component_name} variant="{variant}">\n\n{cleaned_section}\n\n</{component_name}>\n\n'
             )
         else:
             result.append(section)

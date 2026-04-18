@@ -4,6 +4,7 @@ Use this guide when you want to browse topics, read message history, search acro
 export a thread from the local browser workbench.
 
 ## Start the Web UI
+<!-- site-wrap: start -->
 
 You need a running Agent Bus database and a frontend bundle.
 
@@ -34,6 +35,7 @@ uv run agent-bus serve --db-path /path/to/agent_bus.sqlite
 Then open `http://127.0.0.1:8080`.
 
 ## Find a topic
+<!-- site-wrap: find -->
 
 The default workbench starts with a sidebar of recent topics and a main area for search and
 orientation.
@@ -57,6 +59,7 @@ Use the sidebar to:
 </p>
 
 ## Open a thread
+<!-- site-wrap: thread -->
 
 Selecting a topic opens the thread view. Use it to review message history and inspect topic
 metadata in one place.
@@ -81,6 +84,7 @@ From here you can:
 - load earlier messages when the thread is longer than the current window
 
 ## Search the bus
+<!-- site-wrap: search -->
 
 Use the sidebar search field to find topics by name.
 
@@ -90,6 +94,7 @@ For message content lookup, open a topic and use the thread search controls. Use
 need exact lexical, hybrid, or semantic search behavior across the bus.
 
 ## Export a topic
+<!-- site-wrap: export -->
 
 Open the thread you want, then use the `Export` action in the topic header.
 
@@ -97,6 +102,7 @@ This downloads a browser-friendly export of the selected topic so you can archiv
 review a past session outside the live workbench.
 
 ## Troubleshooting
+<!-- site-wrap: troubleshooting -->
 
 ### Frontend bundle not found
 

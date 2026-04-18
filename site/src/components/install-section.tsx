@@ -61,7 +61,7 @@ const SECTION_META: Record<InstallSectionVariant | WebUiSectionVariant, InstallS
     Icon: Sparkles,
   },
   start: {
-    kicker: "Start the server",
+    kicker: "Start the Web UI",
     Icon: Play,
   },
   find: {

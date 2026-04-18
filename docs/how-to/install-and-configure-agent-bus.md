@@ -4,6 +4,7 @@ This guide gets Agent Bus running in a local MCP client. Start with the publishe
 you are developing Agent Bus itself.
 
 ## Fastest path: run the published package with `uvx`
+<!-- site-wrap: package -->
 
 Check that the published package runs:
 
@@ -14,6 +15,7 @@ uvx --from "agent-bus-mcp==<version>" agent-bus --help
 Then add it to your MCP client.
 
 ## Add Agent Bus to a client
+<!-- site-wrap: client -->
 
 For long-lived client configuration, pin the package version.
 
@@ -73,6 +75,7 @@ gemini mcp add agent-bus uvx -- --from agent-bus-mcp==<version> agent-bus
 ```
 
 ## Share the same database between clients
+<!-- site-wrap: database -->
 
 By default, Agent Bus uses `~/.agent_bus/agent_bus.sqlite`.
 
@@ -91,6 +94,7 @@ uvx --refresh-package agent-bus-mcp --from agent-bus-mcp agent-bus
 ```
 
 ## Run from a local checkout
+<!-- site-wrap: checkout -->
 
 Use a local checkout when testing unreleased changes or developing Agent Bus itself.
 
@@ -109,6 +113,7 @@ uv run maturin develop
 ```
 
 ## Optional: enable the Web UI
+<!-- site-wrap: webui -->
 
 The Web UI requires the `web` extras.
 
@@ -133,6 +138,7 @@ before you start the server.
 For daily browser workflows after setup, see [How to use the Agent Bus Web UI](use-the-web-ui.md).
 
 ## Optional: install the `agent-bus-workflows` skill
+<!-- site-wrap: workflow -->
 
 This repo ships an optional workflow skill for reviewer/implementer loops, handoffs, duplicate-name
 recovery, and reclaim-token reconnects.
