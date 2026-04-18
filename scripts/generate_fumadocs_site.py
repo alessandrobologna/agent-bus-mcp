@@ -15,6 +15,9 @@ SPECIAL_PAGES = {
     PurePosixPath("spec.md"): PurePosixPath("reference/implementation-spec.mdx"),
     PurePosixPath("CHANGELOG.md"): PurePosixPath("reference/changelog.mdx"),
 }
+PAGE_TITLE_OVERRIDES = {
+    PurePosixPath("spec.md"): "Implementation spec",
+}
 ASSET_SOURCE_ROOT = PurePosixPath("docs/images")
 ASSET_TARGET_ROOT = PurePosixPath("docs-assets/images")
 
@@ -22,7 +25,17 @@ FENCE_RE = re.compile(r"(?ms)^```.*?^```[ \t]*\n?")
 MARKDOWN_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\(([^)\s]+)(?:\s+\"([^\"]*)\")?\)")
 MARKDOWN_LINK_RE = re.compile(r"(?<!!)\[([^\]]+)\]\(([^)\s]+)(?:\s+\"([^\"]*)\")?\)")
 HTML_IMAGE_RE = re.compile(r"(?is)<img\b([^>]*?)\/?>")
+HTML_SOURCE_RE = re.compile(r"(?is)<source\b([^>]*?)\/?>")
 ATTR_RE = re.compile(r'([A-Za-z_:][-A-Za-z0-9_:.]*)\s*=\s*"([^"]*)"')
+TUTORIAL_STEPS_PAGE = PurePosixPath("docs/tutorials/first-topic-between-two-peers.md")
+INSTALL_GUIDE_PAGE = PurePosixPath("docs/how-to/install-and-configure-agent-bus.md")
+WEB_UI_GUIDE_PAGE = PurePosixPath("docs/how-to/use-the-web-ui.md")
+INSTALL_SECTION_VARIANTS = frozenset(
+    {"package", "client", "database", "checkout", "webui", "workflow"}
+)
+WEB_UI_SECTION_VARIANTS = frozenset(
+    {"start", "find", "thread", "search", "export", "troubleshooting"}
+)
 
 
 @dataclass(frozen=True)
@@ -190,25 +203,26 @@ def relative_asset_href(target_rel: PurePosixPath, repo_rel: PurePosixPath) -> s
 
 
 def rewrite_html_images(text: str, source_rel: PurePosixPath, target_rel: PurePosixPath) -> str:
-    def replace(match: re.Match[str]) -> str:
+    def rewrite_attrs(match: re.Match[str], tag_name: str, attr_name: str) -> str:
         attrs = ATTR_RE.findall(match.group(1))
         rewritten: list[tuple[str, str]] = []
-        src_found = False
+        target_found = False
         for key, value in attrs:
-            if key == "src":
+            if key == attr_name:
                 resolved = resolve_repo_rel(source_rel.parent, value)
                 if resolved:
                     relative = relative_asset_href(target_rel, resolved)
                     if relative:
                         value = relative
-                src_found = True
+                target_found = True
             rewritten.append((key, value))
-        if not src_found:
+        if not target_found:
             return match.group(0)
         rendered = " ".join(f'{key}="{value}"' for key, value in rewritten)
-        return f"<img {rendered} />"
+        return f"<{tag_name} {rendered} />"
 
-    return HTML_IMAGE_RE.sub(replace, text)
+    text = HTML_IMAGE_RE.sub(lambda match: rewrite_attrs(match, "img", "src"), text)
+    return HTML_SOURCE_RE.sub(lambda match: rewrite_attrs(match, "source", "srcset"), text)
 
 
 def rewrite_markdown_images(text: str, source_rel: PurePosixPath, target_rel: PurePosixPath) -> str:
@@ -249,6 +263,8 @@ def rewrite_markdown_links(
         target_route = route_path_for_generated_page(mapped)
         relative = posixpath.relpath(target_route or ".", start=current_route or ".")
         rewritten = "./" if relative == "." else relative
+        if rewritten != "./" and not rewritten.startswith((".", "/")):
+            rewritten = f"./{rewritten}"
         if not rewritten.endswith("/"):
             rewritten = f"{rewritten}/"
         if hash_sep:
@@ -271,6 +287,87 @@ def rewrite_content(
         return rewrite_markdown_links(segment, source_rel, target_rel, source_map)
 
     return replace_outside_code_fences(text, replacer)
+
+
+def apply_site_only_page_transforms(text: str, source_rel: PurePosixPath) -> str:
+    if source_rel == TUTORIAL_STEPS_PAGE:
+        text = wrap_tutorial_steps(text)
+    if source_rel == INSTALL_GUIDE_PAGE:
+        text = wrap_marked_sections(text, "InstallSection", INSTALL_SECTION_VARIANTS)
+    if source_rel == WEB_UI_GUIDE_PAGE:
+        text = wrap_marked_sections(text, "WebUiSection", WEB_UI_SECTION_VARIANTS)
+    return text
+
+
+def wrap_tutorial_steps(text: str) -> str:
+    step_heading_re = re.compile(r"(?m)^## Step \d+: .*$")
+    h2_heading_re = re.compile(r"(?m)^## .*$")
+
+    start_match = step_heading_re.search(text)
+    if start_match is None:
+        return text
+
+    start = start_match.start()
+    end = len(text)
+    for heading_match in h2_heading_re.finditer(text, start_match.end()):
+        if not step_heading_re.fullmatch(heading_match.group(0)):
+            end = heading_match.start()
+            break
+    if end <= start:
+        return text
+
+    before = text[:start].rstrip()
+    steps_block = text[start:end].strip()
+    after = text[end:].lstrip()
+    parts = re.split(r"(?m)(?=^## Step \d+: )", steps_block)
+    step_sections = [part.strip() for part in parts if part.strip()]
+    if not step_sections:
+        return text
+
+    wrapped_steps = "\n\n".join(
+        f'<div className="fd-step">\n\n{section}\n\n</div>' for section in step_sections
+    )
+    wrapped = f'<div className="fd-steps">\n\n{wrapped_steps}\n\n</div>'
+    return f"{before}\n\n{wrapped}\n\n{after}"
+
+
+def wrap_marked_sections(text: str, component_name: str, valid_variants: frozenset[str]) -> str:
+    heading_matches = list(re.finditer(r"(?m)^## (.+)$", text))
+    if not heading_matches:
+        return text
+
+    result: list[str] = []
+    cursor = 0
+    marker_re = re.compile(
+        r"\A(## [^\n]+\n)<!--\s*site-wrap:\s*([a-z0-9-]+)\s*-->\n+", re.IGNORECASE
+    )
+
+    for index, match in enumerate(heading_matches):
+        next_start = (
+            heading_matches[index + 1].start() if index + 1 < len(heading_matches) else len(text)
+        )
+        section = text[match.start() : next_start].strip()
+        result.append(text[cursor : match.start()])
+        cursor = next_start
+
+        marker_match = marker_re.match(section)
+        variant = marker_match.group(2).lower() if marker_match else None
+        if variant in valid_variants:
+            cleaned_section = (
+                f"{marker_match.group(1)}{section[marker_match.end() :]}"
+                if marker_match
+                else section
+            )
+            result.append(
+                f'<{component_name} variant="{variant}">\n\n{cleaned_section}\n\n</{component_name}>\n\n'
+            )
+        else:
+            result.append(section)
+            if next_start < len(text):
+                result.append("\n\n")
+
+    result.append(text[cursor:])
+    return "".join(result)
 
 
 def docs_target_for(source_rel: PurePosixPath) -> PurePosixPath:
@@ -360,6 +457,7 @@ def write_page(
     raw = source_path.read_text(encoding="utf-8")
     body = strip_leading_h1(raw)
     body = strip_leading_description_block(body, record.description)
+    body = apply_site_only_page_transforms(body, record.source_rel)
     rewritten = rewrite_content(body, record.source_rel, record.target_rel, source_map).rstrip()
     destination = content_root / record.target_rel
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -377,11 +475,12 @@ def build_records(
         source_path = repo_root / source_rel
         fallback_title = target_rel.stem.replace("-", " ").title()
         text = source_path.read_text(encoding="utf-8")
+        title = PAGE_TITLE_OVERRIDES.get(source_rel, extract_title(text, fallback_title))
         records.append(
             PageRecord(
                 source_rel=source_rel,
                 target_rel=target_rel,
-                title=extract_title(text, fallback_title),
+                title=title,
                 description=extract_description(text),
             )
         )

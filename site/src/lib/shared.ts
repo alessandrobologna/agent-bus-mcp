@@ -21,3 +21,10 @@ export function withBasePath(path: string) {
   }
   return `${basePath}${path}`;
 }
+
+export function docsHref(path = "") {
+  if (!path) {
+    return `${docsRoute}/`;
+  }
+  return `${docsRoute}/${path.replace(/^\/+/, "")}/`;
+}

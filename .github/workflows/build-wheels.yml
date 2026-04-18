@@ -39,6 +39,7 @@ on:
 env:
   ORT_VERSION: "1.23.2"
   NODE_VERSION: "24"
+  MATURIN_VERSION: "v1.11.5"
 
 jobs:
   sdist:
@@ -135,9 +136,10 @@ jobs:
         run: pnpm --dir frontend build
 
       - name: Build sdist
-        uses: PyO3/maturin-action@v1
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
           command: sdist
+          maturin-version: ${{ env.MATURIN_VERSION }}
           args: --out dist
 
       - name: Upload sdist
@@ -222,27 +224,30 @@ jobs:
 
       - name: Build wheels (Linux, manylinux_2_28)
         if: runner.os == 'Linux'
-        uses: PyO3/maturin-action@v1
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
           command: build
+          maturin-version: ${{ env.MATURIN_VERSION }}
           # manylinux builds run in a container, so pin the interpreter here.
           args: --release --out dist -i python3.12
           manylinux: 2_28
 
       - name: Build wheels (Linux, manylinux_2_28 aarch64)
         if: runner.os == 'Linux'
-        uses: PyO3/maturin-action@v1
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
           command: build
+          maturin-version: ${{ env.MATURIN_VERSION }}
           args: --release --out dist -i python3.12
           manylinux: 2_28
           target: aarch64-unknown-linux-gnu
 
       - name: Build wheels (macOS/Windows)
         if: runner.os != 'Linux'
-        uses: PyO3/maturin-action@v1
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
           command: build
+          maturin-version: ${{ env.MATURIN_VERSION }}
           args: --release --out dist
 
       - name: Upload wheels
