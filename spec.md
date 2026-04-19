@@ -176,7 +176,7 @@ Constraints:
 
 - `ok: true`
 - `spec_version: string`
-- `package_version: string` (installed package/runtime version, for example `0.4.2`)
+- `package_version: string` (installed package/runtime version, for example `0.4.3`)
 
 ### 4.3 `sync()` semantics
 
