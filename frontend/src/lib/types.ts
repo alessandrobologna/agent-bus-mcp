@@ -84,6 +84,7 @@ export interface SearchResponse {
 export interface TopicStreamUpdate {
   topic_id: string
   last_seq: number
+  message_count: number
   presence: CursorPresence[]
 }
 

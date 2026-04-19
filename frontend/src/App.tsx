@@ -27,6 +27,7 @@ import type {
   TopicMessage,
   TopicSort,
   TopicStatusFilter,
+  TopicStreamUpdate,
   TopicSummary,
   WorkbenchState,
 } from "@/lib/types"
@@ -864,6 +865,7 @@ export default function App() {
   const [selectionMode, setSelectionMode] = useState(false)
   const [selectedMessageIds, setSelectedMessageIds] = useState<Set<string>>(new Set())
   const topicDetailRef = useRef<TopicDetailResponse | null>(null)
+  const topicStreamUpdateTokenRef = useRef(0)
   const restoredInitialRoute = useRef(false)
   const sidebarSearchInputRef = useRef<HTMLInputElement | null>(null)
   const topicFindInputRef = useRef<HTMLInputElement | null>(null)
@@ -881,6 +883,10 @@ export default function App() {
   useEffect(() => {
     topicDetailRef.current = topicDetail
   }, [topicDetail])
+
+  useEffect(() => {
+    topicStreamUpdateTokenRef.current += 1
+  }, [focusMessageId, routeTopicId])
 
   useEffect(() => {
     if (restoredInitialRoute.current) {
@@ -1059,11 +1065,14 @@ export default function App() {
     const stream = new EventSource(`/api/stream/topics/${topicId}`)
 
     async function handleUpdate(event: Event) {
-      const payload = JSON.parse((event as MessageEvent<string>).data) as {
-        topic_id: string
-        last_seq: number
-        presence: CursorPresence[]
+      const payload = JSON.parse((event as MessageEvent<string>).data) as TopicStreamUpdate
+
+      const currentDetail = topicDetailRef.current
+      if (!currentDetail || currentDetail.topic.topic_id !== topicId) {
+        return
       }
+
+      const updateToken = ++topicStreamUpdateTokenRef.current
 
       setTopicDetail((current) => {
         if (!current || current.topic.topic_id !== topicId) {
@@ -1075,40 +1084,105 @@ export default function App() {
         }
       })
 
-      const currentDetail = topicDetailRef.current
-      if (!currentDetail || currentDetail.topic.topic_id !== topicId || currentDetail.context_mode) {
-        return
-      }
-      if (payload.last_seq <= (currentDetail.last_seq ?? 0)) {
-        return
-      }
+      const currentLastSeq = currentDetail.last_seq ?? 0
+      const currentFocusMessageId = currentDetail.focus_message_id
+      const appendOnly =
+        !currentDetail.context_mode &&
+        payload.last_seq > currentLastSeq &&
+        payload.message_count > currentDetail.message_count
 
-      try {
-        const nextMessages = await fetchTopicMessages(topicId, {
-          afterSeq: currentDetail.last_seq ?? 0,
-          limit: 200,
-        })
+      async function refreshTopicDetail() {
+        const refreshedDetail = await fetchTopicDetail(topicId, currentFocusMessageId)
         setTopicDetail((current) => {
           if (!current || current.topic.topic_id !== topicId) {
             return current
           }
-          const messages = mergeMessages(current.messages, nextMessages.messages)
-          const addedCount = messages.length - current.messages.length
+          if (updateToken !== topicStreamUpdateTokenRef.current) {
+            return current
+          }
           return {
-            ...current,
-            messages,
-            first_seq: messages[0]?.seq ?? current.first_seq,
-            last_seq: messages[messages.length - 1]?.seq ?? current.last_seq,
-            message_count: current.message_count + Math.max(addedCount, 0),
-            topic: {
-              ...current.topic,
-              message_count: current.topic.message_count + Math.max(addedCount, 0),
-              last_seq: payload.last_seq,
-              last_updated_at: Date.now() / 1000,
-            },
+            ...refreshedDetail,
             presence: payload.presence,
           }
         })
+      }
+
+      if (appendOnly) {
+        try {
+          const pageLimit = 200
+          const maxAppendPages = 5
+          let afterSeq = currentLastSeq
+          let appendedMessages: TopicMessage[] = []
+          let pagesFetched = 0
+
+          while (afterSeq < payload.last_seq && pagesFetched < maxAppendPages) {
+            const nextMessages = await fetchTopicMessages(topicId, {
+              afterSeq,
+              limit: pageLimit,
+            })
+            const batch = nextMessages.messages
+            pagesFetched += 1
+
+            if (batch.length === 0) {
+              break
+            }
+
+            appendedMessages = mergeMessages(appendedMessages, batch)
+
+            const batchLastSeq = batch[batch.length - 1]?.seq ?? afterSeq
+            if (batchLastSeq <= afterSeq) {
+              break
+            }
+            afterSeq = batchLastSeq
+
+            if (batch.length < pageLimit) {
+              break
+            }
+          }
+
+          if (afterSeq < payload.last_seq) {
+            await refreshTopicDetail()
+            return
+          }
+
+          setTopicDetail((current) => {
+            if (!current || current.topic.topic_id !== topicId) {
+              return current
+            }
+            if (updateToken !== topicStreamUpdateTokenRef.current) {
+              return current
+            }
+            const messages = mergeMessages(current.messages, appendedMessages)
+            return {
+              ...current,
+              messages,
+              first_seq: messages[0]?.seq ?? current.first_seq,
+              last_seq: messages[messages.length - 1]?.seq ?? current.last_seq,
+              message_count: payload.message_count,
+              topic: {
+                ...current.topic,
+                message_count: payload.message_count,
+                last_seq: payload.last_seq,
+                last_updated_at: Date.now() / 1000,
+              },
+              presence: payload.presence,
+            }
+          })
+        } catch {
+          // Ignore transient stream refresh failures; the next event or manual refresh will catch up.
+        }
+        return
+      }
+
+      if (
+        payload.last_seq === currentLastSeq &&
+        payload.message_count === currentDetail.message_count
+      ) {
+        return
+      }
+
+      try {
+        await refreshTopicDetail()
       } catch {
         // Ignore transient stream refresh failures; the next event or manual refresh will catch up.
       }
@@ -1122,6 +1196,7 @@ export default function App() {
     stream.addEventListener("topic.update", handleUpdate)
     stream.addEventListener("topic.deleted", handleDeleted)
     return () => {
+      topicStreamUpdateTokenRef.current += 1
       stream.removeEventListener("topic.update", handleUpdate)
       stream.removeEventListener("topic.deleted", handleDeleted)
       stream.close()
@@ -1458,7 +1533,7 @@ export default function App() {
                       <img
                         src="/app-mark.svg"
                         alt=""
-                        className="h-auto w-full max-w-[15rem] opacity-95"
+                        className="h-auto w-full max-w-[18.5rem] opacity-95"
                         aria-hidden="true"
                       />
                       <div className="flex max-w-lg flex-col gap-2">

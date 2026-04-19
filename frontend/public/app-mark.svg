@@ -2,64 +2,74 @@
   <style>
     .guide {
       stroke: #707887;
-      stroke-opacity: 0.18;
+      stroke-opacity: 0.12;
       stroke-width: 1;
       stroke-dasharray: 4 8;
     }
 
-    .frame {
+    .spoke-soft {
       fill: none;
-      stroke: #465062;
-      stroke-width: 1.5;
+      stroke: #667186;
+      stroke-opacity: 0.16;
+      stroke-width: 8;
       stroke-linecap: round;
       stroke-linejoin: round;
     }
 
-    .trace {
+    .spoke {
       fill: none;
       stroke: #d9deea;
-      stroke-width: 2.6;
+      stroke-width: 2.35;
       stroke-linecap: round;
       stroke-linejoin: round;
     }
 
-    .trace-muted {
-      fill: none;
-      stroke: #aab1bf;
-      stroke-opacity: 0.76;
-      stroke-width: 2.2;
-      stroke-linecap: round;
-      stroke-linejoin: round;
+    .accent {
+      fill: rgba(145, 167, 255, 0.16);
+      stroke: #dfe5ff;
+      stroke-width: 1.3;
     }
 
-    .node {
-      fill: #1f2229;
+    .port {
+      fill: #20242c;
       stroke: #d9deea;
-      stroke-width: 2.2;
+      stroke-width: 1.9;
     }
 
-    .cursor {
+    .hub {
       fill: none;
-      stroke: #c6cedd;
-      stroke-width: 2.1;
+      stroke: #bcc5d5;
+      stroke-opacity: 0.72;
+      stroke-width: 1.55;
+    }
+
+    .hub-core {
+      fill: #edf1fb;
+    }
+
+    .measure {
+      fill: none;
+      stroke: #616b7d;
+      stroke-opacity: 0.54;
+      stroke-width: 1.05;
       stroke-linecap: round;
     }
 
     .token {
-      fill: #a9b8ff;
-      stroke: #dfe5ff;
-      stroke-width: 1.2;
+      fill: #aab8ff;
+      stroke: #e4e9ff;
+      stroke-width: 1.1;
     }
 
     .token-core {
-      fill: #dfe5ff;
-      opacity: 0.78;
+      fill: #f1f4ff;
+      opacity: 0.84;
     }
 
-    .pulse {
+    .halo {
       fill: none;
-      stroke: #9aaafd;
-      stroke-width: 1.5;
+      stroke: #9fb0ff;
+      stroke-width: 1.35;
       opacity: 0;
     }
 
@@ -78,52 +88,191 @@
     }
   </style>
 
-  <path class="guide" d="M18 75H242" />
-  <path class="guide" d="M32 18V132" />
-  <path class="guide" d="M126 18V132" />
-  <path class="guide" d="M228 18V132" />
+  <path class="guide" d="M24 75H236" />
+  <path class="guide" d="M54 18V132" />
+  <path class="guide" d="M130 18V132" />
+  <path class="guide" d="M206 18V132" />
 
-  <rect class="frame" x="22" y="32" width="90" height="18" rx="9" />
-  <rect class="frame" x="22" y="66" width="64" height="18" rx="9" />
-  <rect class="frame" x="22" y="100" width="76" height="18" rx="9" />
+  <path class="spoke-soft" d="M54 108L130 75" />
+  <path class="spoke-soft" d="M206 108L130 75" />
+  <path class="spoke-soft" d="M130 30L130 75" />
 
-  <path class="trace-muted" d="M112 41H126" />
-  <path class="trace" d="M86 75H126H180" />
-  <path class="trace-muted" d="M98 109H126" />
-  <path class="trace-muted" d="M126 41V109" />
+  <path class="spoke" d="M54 108L130 75" />
+  <path class="spoke" d="M206 108L130 75" />
+  <path class="spoke" d="M130 30L130 75" />
 
-  <circle class="node" cx="126" cy="41" r="4.8" />
-  <circle class="node" cx="126" cy="75" r="5.4" />
-  <circle class="node" cx="126" cy="109" r="4.8" />
+  <rect class="accent" x="157" y="86" width="22" height="12" rx="6" transform="rotate(23.5 168 92)" />
+  <rect class="accent" x="136" y="44" width="18" height="10" rx="5" />
 
-  <rect class="frame" x="180" y="44" width="56" height="62" rx="16" />
-  <path class="cursor" d="M196 60H216" />
-  <path class="cursor" d="M196 75H210" />
-  <path class="cursor" d="M196 90H214" />
-  <circle class="node" cx="218" cy="75" r="4.6" />
+  <line class="measure" x1="130" y1="22" x2="130" y2="16" />
+  <line class="measure" x1="130" y1="128" x2="130" y2="134" />
+  <line class="measure" x1="40" y1="108" x2="32" y2="108" />
+  <line class="measure" x1="220" y1="108" x2="228" y2="108" />
+  <path class="measure" d="M64 118H196" />
+  <line class="measure" x1="100" y1="114" x2="100" y2="122" />
+  <line class="measure" x1="160" y1="114" x2="160" y2="122" />
+
+  <circle class="hub" cx="130" cy="75" r="12" />
+  <circle class="hub-core" cx="130" cy="75" r="4" />
+
+  <circle class="port" cx="54" cy="108" r="5" />
+  <circle class="port" cx="206" cy="108" r="5" />
+  <circle class="port" cx="130" cy="30" r="5" />
 
   <g class="motion">
-    <rect class="token" x="-6" y="-6" width="12" height="12" rx="3">
-      <animateMotion dur="3.8s" repeatCount="indefinite" path="M50 75H218" keyTimes="0;0.7;1" keySplines="0.2 0 0.2 1;0.2 0 0.2 1" calcMode="spline" />
-      <animate attributeName="opacity" values="0;1;1;1;0" keyTimes="0;0.08;0.78;0.92;1" dur="3.8s" repeatCount="indefinite" />
-    </rect>
-    <rect class="token-core" x="-2" y="-2" width="4" height="4" rx="1">
-      <animateMotion dur="3.8s" repeatCount="indefinite" path="M50 75H218" keyTimes="0;0.7;1" keySplines="0.2 0 0.2 1;0.2 0 0.2 1" calcMode="spline" />
-      <animate attributeName="opacity" values="0;0.7;0.7;0.7;0" keyTimes="0;0.08;0.78;0.92;1" dur="3.8s" repeatCount="indefinite" />
+    <rect class="token" x="-5" y="-5" width="10" height="10" rx="2.5">
+      <animateMotion
+        dur="3.9s"
+        repeatCount="indefinite"
+        path="M54 108L130 75L130 30"
+        keyTimes="0;0.58;1"
+        keySplines="0.2 0 0.2 1;0.2 0 0.2 1"
+        calcMode="spline"
+      />
+      <animate
+        attributeName="opacity"
+        values="0;1;1;1;0"
+        keyTimes="0;0.06;0.74;0.92;1"
+        dur="3.9s"
+        repeatCount="indefinite"
+      />
     </rect>
 
-    <circle class="pulse" cx="218" cy="75" r="7">
-      <animate attributeName="r" values="7;7;7;7;19" keyTimes="0;0.76;0.83;0.9;1" dur="3.8s" repeatCount="indefinite" />
-      <animate attributeName="opacity" values="0;0;0;0.85;0" keyTimes="0;0.76;0.83;0.9;1" dur="3.8s" repeatCount="indefinite" />
+    <rect class="token-core" x="-1.5" y="-1.5" width="3" height="3" rx="0.8">
+      <animateMotion
+        dur="3.9s"
+        repeatCount="indefinite"
+        path="M54 108L130 75L130 30"
+        keyTimes="0;0.58;1"
+        keySplines="0.2 0 0.2 1;0.2 0 0.2 1"
+        calcMode="spline"
+      />
+      <animate
+        attributeName="opacity"
+        values="0;0.84;0.84;0.84;0"
+        keyTimes="0;0.06;0.74;0.92;1"
+        dur="3.9s"
+        repeatCount="indefinite"
+      />
+    </rect>
+
+    <rect class="token" x="-5" y="-5" width="10" height="10" rx="2.5">
+      <animateMotion
+        dur="3.9s"
+        repeatCount="indefinite"
+        begin="1.65s"
+        path="M206 108L130 75L54 108"
+        keyTimes="0;0.5;1"
+        keySplines="0.2 0 0.2 1;0.2 0 0.2 1"
+        calcMode="spline"
+      />
+      <animate
+        attributeName="opacity"
+        values="0;1;1;1;0"
+        keyTimes="0;0.06;0.74;0.92;1"
+        dur="3.9s"
+        repeatCount="indefinite"
+        begin="1.65s"
+      />
+    </rect>
+
+    <rect class="token-core" x="-1.5" y="-1.5" width="3" height="3" rx="0.8">
+      <animateMotion
+        dur="3.9s"
+        repeatCount="indefinite"
+        begin="1.65s"
+        path="M206 108L130 75L54 108"
+        keyTimes="0;0.5;1"
+        keySplines="0.2 0 0.2 1;0.2 0 0.2 1"
+        calcMode="spline"
+      />
+      <animate
+        attributeName="opacity"
+        values="0;0.84;0.84;0.84;0"
+        keyTimes="0;0.06;0.74;0.92;1"
+        dur="3.9s"
+        repeatCount="indefinite"
+        begin="1.65s"
+      />
+    </rect>
+
+    <circle class="halo" cx="130" cy="75" r="6">
+      <animate
+        attributeName="r"
+        values="6;6;6;18;18"
+        keyTimes="0;0.52;0.60;0.74;1"
+        dur="3.9s"
+        repeatCount="indefinite"
+      />
+      <animate
+        attributeName="opacity"
+        values="0;0;0.72;0;0"
+        keyTimes="0;0.52;0.60;0.74;1"
+        dur="3.9s"
+        repeatCount="indefinite"
+      />
     </circle>
-    <circle class="pulse" cx="218" cy="75" r="7">
-      <animate attributeName="r" values="7;7;7;7;24" keyTimes="0;0.8;0.86;0.94;1" dur="3.8s" repeatCount="indefinite" />
-      <animate attributeName="opacity" values="0;0;0;0.45;0" keyTimes="0;0.8;0.86;0.94;1" dur="3.8s" repeatCount="indefinite" />
+
+    <circle class="halo" cx="130" cy="75" r="6">
+      <animate
+        attributeName="r"
+        values="6;6;6;18;18"
+        keyTimes="0;0.34;0.42;0.58;1"
+        dur="3.9s"
+        repeatCount="indefinite"
+        begin="1.65s"
+      />
+      <animate
+        attributeName="opacity"
+        values="0;0;0.72;0;0"
+        keyTimes="0;0.34;0.42;0.58;1"
+        dur="3.9s"
+        repeatCount="indefinite"
+        begin="1.65s"
+      />
+    </circle>
+
+    <circle class="halo" cx="130" cy="30" r="6">
+      <animate
+        attributeName="r"
+        values="6;6;6;16"
+        keyTimes="0;0.88;0.94;1"
+        dur="3.9s"
+        repeatCount="indefinite"
+      />
+      <animate
+        attributeName="opacity"
+        values="0;0;0.72;0"
+        keyTimes="0;0.88;0.94;1"
+        dur="3.9s"
+        repeatCount="indefinite"
+      />
+    </circle>
+
+    <circle class="halo" cx="54" cy="108" r="6">
+      <animate
+        attributeName="r"
+        values="6;6;6;16"
+        keyTimes="0;0.88;0.94;1"
+        dur="3.9s"
+        repeatCount="indefinite"
+        begin="1.65s"
+      />
+      <animate
+        attributeName="opacity"
+        values="0;0;0.72;0"
+        keyTimes="0;0.88;0.94;1"
+        dur="3.9s"
+        repeatCount="indefinite"
+        begin="1.65s"
+      />
     </circle>
   </g>
 
   <g class="motion-reduced">
-    <rect class="token" x="212" y="69" width="12" height="12" rx="3" />
-    <rect class="token-core" x="216" y="73" width="4" height="4" rx="1" />
+    <rect class="token" x="125" y="70" width="10" height="10" rx="2.5" />
+    <rect class="token-core" x="128.5" y="73.5" width="3" height="3" rx="0.8" />
+    <rect class="token" x="49" y="103" width="10" height="10" rx="2.5" />
+    <rect class="token-core" x="52.5" y="106.5" width="3" height="3" rx="0.8" />
   </g>
 </svg>
