@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
-import { MemoryRouter } from "react-router-dom"
+import { MemoryRouter, useNavigate } from "react-router-dom"
 import { describe, expect, test, vi } from "vitest"
 
 import App from "@/App"
@@ -131,6 +131,27 @@ function renderApp(initialEntries: string[]) {
   return render(
     <TooltipProvider>
       <MemoryRouter initialEntries={initialEntries}>
+        <App />
+      </MemoryRouter>
+    </TooltipProvider>
+  )
+}
+
+function renderAppWithControls(initialEntries: string[]) {
+  function NavigationControls() {
+    const navigate = useNavigate()
+
+    return (
+      <button type="button" onClick={() => navigate("/topics/t-1?focus=focused-message")}>
+        Focus same topic
+      </button>
+    )
+  }
+
+  return render(
+    <TooltipProvider>
+      <MemoryRouter initialEntries={initialEntries}>
+        <NavigationControls />
         <App />
       </MemoryRouter>
     </TooltipProvider>
@@ -713,5 +734,67 @@ describe("App", () => {
         String(input).includes("/api/topics/t-1/messages")
       )
     ).toHaveLength(1)
+  })
+
+  test("ignores stale stream refreshes after the topic focus changes", async () => {
+    let detailRequestCount = 0
+    let resolveStaleRefresh!: (response: Response) => void
+    const staleRefresh = new Promise<Response>((resolve) => {
+      resolveStaleRefresh = resolve
+    })
+
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const url = new URL(String(input), "http://localhost")
+
+      if (url.pathname === "/api/topics") {
+        return jsonResponse(topicsPayload)
+      }
+      if (url.pathname === "/api/topics/t-1" && url.searchParams.get("focus") === "focused-message") {
+        return jsonResponse(topicDetail("t-1", "focused detail", { focus: "focused-message" }))
+      }
+      if (url.pathname === "/api/topics/t-1") {
+        detailRequestCount += 1
+        if (detailRequestCount === 1) {
+          return jsonResponse(topicDetail("t-1", "hello from alpha"))
+        }
+        if (detailRequestCount === 2) {
+          return staleRefresh
+        }
+      }
+
+      throw new Error(`Unhandled fetch ${url.pathname}${url.search}`)
+    })
+
+    renderAppWithControls(["/topics/t-1"])
+
+    expect(await screen.findByText("hello from alpha")).toBeInTheDocument()
+
+    topicStream("t-1").emit("topic.update", {
+      topic_id: "t-1",
+      last_seq: 0,
+      message_count: 0,
+      presence: [
+        {
+          topic_id: "t-1",
+          agent_name: "stale reviewer",
+          last_seq: 0,
+          updated_at: 1_700_000_250,
+        },
+      ],
+    })
+
+    fireEvent.click(screen.getByRole("button", { name: "Focus same topic" }))
+
+    expect(await screen.findByText("focused detail")).toBeInTheDocument()
+
+    resolveStaleRefresh(
+      new Response(JSON.stringify(topicDetail("t-1", "stale detail")), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    )
+
+    await waitFor(() => expect(screen.queryByText("stale detail")).not.toBeInTheDocument())
+    expect(screen.getByText("focused detail")).toBeInTheDocument()
   })
 })

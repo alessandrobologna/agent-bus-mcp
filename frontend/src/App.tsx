@@ -885,6 +885,10 @@ export default function App() {
   }, [topicDetail])
 
   useEffect(() => {
+    topicStreamUpdateTokenRef.current += 1
+  }, [focusMessageId, routeTopicId])
+
+  useEffect(() => {
     if (restoredInitialRoute.current) {
       return
     }
