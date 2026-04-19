@@ -865,6 +865,7 @@ export default function App() {
   const [selectionMode, setSelectionMode] = useState(false)
   const [selectedMessageIds, setSelectedMessageIds] = useState<Set<string>>(new Set())
   const topicDetailRef = useRef<TopicDetailResponse | null>(null)
+  const topicStreamUpdateTokenRef = useRef(0)
   const restoredInitialRoute = useRef(false)
   const sidebarSearchInputRef = useRef<HTMLInputElement | null>(null)
   const topicFindInputRef = useRef<HTMLInputElement | null>(null)
@@ -1067,6 +1068,8 @@ export default function App() {
         return
       }
 
+      const updateToken = ++topicStreamUpdateTokenRef.current
+
       setTopicDetail((current) => {
         if (!current || current.topic.topic_id !== topicId) {
           return current
@@ -1082,12 +1085,15 @@ export default function App() {
       const appendOnly =
         !currentDetail.context_mode &&
         payload.last_seq > currentLastSeq &&
-        payload.message_count >= currentDetail.message_count
+        payload.message_count > currentDetail.message_count
 
       async function refreshTopicDetail() {
         const refreshedDetail = await fetchTopicDetail(topicId, currentFocusMessageId)
         setTopicDetail((current) => {
           if (!current || current.topic.topic_id !== topicId) {
+            return current
+          }
+          if (updateToken !== topicStreamUpdateTokenRef.current) {
             return current
           }
           return {
@@ -1139,6 +1145,9 @@ export default function App() {
             if (!current || current.topic.topic_id !== topicId) {
               return current
             }
+            if (updateToken !== topicStreamUpdateTokenRef.current) {
+              return current
+            }
             const messages = mergeMessages(current.messages, appendedMessages)
             return {
               ...current,
@@ -1183,6 +1192,7 @@ export default function App() {
     stream.addEventListener("topic.update", handleUpdate)
     stream.addEventListener("topic.deleted", handleDeleted)
     return () => {
+      topicStreamUpdateTokenRef.current += 1
       stream.removeEventListener("topic.update", handleUpdate)
       stream.removeEventListener("topic.deleted", handleDeleted)
       stream.close()

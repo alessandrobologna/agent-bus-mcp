@@ -537,4 +537,181 @@ describe("App", () => {
       fetchSpy.mock.calls.filter(([input]) => String(input) === "/api/topics/t-1")
     ).toHaveLength(2)
   })
+
+  test("refetches full topic detail when last_seq advances without message_count growth", async () => {
+    let currentDetail: TopicDetailResponse = topicDetail("t-1", "hello from alpha")
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const url = new URL(String(input), "http://localhost")
+
+      if (url.pathname === "/api/topics") {
+        return jsonResponse(topicsPayload)
+      }
+      if (url.pathname === "/api/topics/t-1") {
+        return jsonResponse(currentDetail)
+      }
+      if (url.pathname === "/api/topics/t-1/messages") {
+        return jsonResponse({
+          messages: [],
+          first_seq: null,
+          last_seq: null,
+          has_earlier: false,
+        })
+      }
+
+      throw new Error(`Unhandled fetch ${url.pathname}${url.search}`)
+    })
+
+    renderApp(["/topics/t-1"])
+
+    expect(await screen.findByText("hello from alpha")).toBeInTheDocument()
+
+    currentDetail = {
+      ...currentDetail,
+      messages: [
+        {
+          message_id: "t-1-m-2",
+          topic_id: "t-1",
+          seq: 2,
+          sender: "reviewer",
+          message_type: "message",
+          reply_to: null,
+          reply_to_sender: null,
+          content_markdown: "replacement message",
+          metadata: null,
+          client_message_id: null,
+          created_at: 1_700_000_200,
+        },
+      ],
+      first_seq: 2,
+      last_seq: 2,
+      message_count: 1,
+      topic: {
+        ...currentDetail.topic,
+        last_seq: 2,
+        message_count: 1,
+        last_message_at: 1_700_000_200,
+        last_updated_at: 1_700_000_200,
+      },
+    }
+
+    topicStream("t-1").emit("topic.update", {
+      topic_id: "t-1",
+      last_seq: 2,
+      message_count: 1,
+      presence: [
+        {
+          topic_id: "t-1",
+          agent_name: "replacement reviewer",
+          last_seq: 2,
+          updated_at: 1_700_000_210,
+        },
+      ],
+    })
+
+    expect(await screen.findByText("replacement message")).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByText("hello from alpha")).not.toBeInTheDocument())
+    expect(
+      fetchSpy.mock.calls.filter(([input]) =>
+        String(input).includes("/api/topics/t-1/messages")
+      )
+    ).toHaveLength(0)
+  })
+
+  test("ignores stale refresh results after a newer topic update lands", async () => {
+    let detailRequestCount = 0
+    let resolveStaleRefresh!: (response: Response) => void
+    const staleRefresh = new Promise<Response>((resolve) => {
+      resolveStaleRefresh = resolve
+    })
+
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const url = new URL(String(input), "http://localhost")
+
+      if (url.pathname === "/api/topics") {
+        return jsonResponse(topicsPayload)
+      }
+      if (url.pathname === "/api/topics/t-1") {
+        detailRequestCount += 1
+        if (detailRequestCount === 1) {
+          return jsonResponse(topicDetail("t-1", "hello from alpha"))
+        }
+        if (detailRequestCount === 2) {
+          return staleRefresh
+        }
+      }
+      if (url.pathname === "/api/topics/t-1/messages" && url.searchParams.get("after_seq") === "1") {
+        return jsonResponse({
+          messages: [
+            {
+              message_id: "t-1-m-2",
+              topic_id: "t-1",
+              seq: 2,
+              sender: "reviewer",
+              message_type: "message",
+              reply_to: null,
+              reply_to_sender: null,
+              content_markdown: "message 2",
+              metadata: null,
+              client_message_id: null,
+              created_at: 1_700_000_220,
+            },
+          ],
+          first_seq: 2,
+          last_seq: 2,
+          has_earlier: false,
+        })
+      }
+
+      throw new Error(`Unhandled fetch ${url.pathname}${url.search}`)
+    })
+
+    renderApp(["/topics/t-1"])
+
+    expect(await screen.findByText("hello from alpha")).toBeInTheDocument()
+
+    topicStream("t-1").emit("topic.update", {
+      topic_id: "t-1",
+      last_seq: 0,
+      message_count: 0,
+      presence: [
+        {
+          topic_id: "t-1",
+          agent_name: "stale reviewer",
+          last_seq: 0,
+          updated_at: 1_700_000_230,
+        },
+      ],
+    })
+
+    topicStream("t-1").emit("topic.update", {
+      topic_id: "t-1",
+      last_seq: 2,
+      message_count: 2,
+      presence: [
+        {
+          topic_id: "t-1",
+          agent_name: "fresh reviewer",
+          last_seq: 2,
+          updated_at: 1_700_000_240,
+        },
+      ],
+    })
+
+    expect(await screen.findByText("message 2")).toBeInTheDocument()
+
+    resolveStaleRefresh(
+      new Response(JSON.stringify(topicDetail("t-1", "stale detail")), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    )
+
+    await waitFor(() => expect(screen.queryByText("stale detail")).not.toBeInTheDocument())
+    expect(screen.getByText("message 2")).toBeInTheDocument()
+    expect(
+      fetchSpy.mock.calls.filter(([input]) =>
+        String(input).includes("/api/topics/t-1/messages")
+      )
+    ).toHaveLength(1)
+  })
 })
