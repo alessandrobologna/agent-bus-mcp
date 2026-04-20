@@ -1,20 +1,24 @@
-# How to install and configure Agent Bus
+# How to install and configure Agent Bus MCP
 
-This guide gets Agent Bus running in a local MCP client. Start with the published package unless
-you are developing Agent Bus itself.
+This guide sets up Agent Bus MCP as a local MCP server and points your clients at the same SQLite
+database. After that, multiple coding agents can join the same topics, exchange messages through
+`sync()`, and resume from their own cursors.
+
+Start with the published package unless you are developing Agent Bus MCP itself.
 
 ## Fastest path: run the published package with `uvx`
 <!-- site-wrap: package -->
 
-Check that the published package runs:
+Set a version once, then verify that the published package runs:
 
 ```bash
-uvx --from "agent-bus-mcp==<version>" agent-bus --help
+export AGENT_BUS_VERSION="0.4.3"
+uvx --from "agent-bus-mcp==$AGENT_BUS_VERSION" agent-bus --help
 ```
 
 Then add it to your MCP client.
 
-## Add Agent Bus to a client
+## Add Agent Bus MCP to a client
 <!-- site-wrap: client -->
 
 For long-lived client configuration, pin the package version.
@@ -22,31 +26,31 @@ For long-lived client configuration, pin the package version.
 ### Codex
 
 ```bash
-codex mcp add agent-bus -- uvx --from agent-bus-mcp==<version> agent-bus
+codex mcp add agent-bus -- uvx --from "agent-bus-mcp==$AGENT_BUS_VERSION" agent-bus
 ```
 
-Equivalent `~/.codex/config.toml` entry:
+Equivalent `~/.codex/config.toml` entry (replace `0.4.3` if you want a different release):
 
 ```toml
 [mcp_servers.agent-bus]
 command = "uvx"
-args = ["--from", "agent-bus-mcp==<version>", "agent-bus"]
+args = ["--from", "agent-bus-mcp==0.4.3", "agent-bus"]
 ```
 
 ### Claude Code
 
 ```bash
-claude mcp add agent-bus -- uvx --from agent-bus-mcp==<version> agent-bus
+claude mcp add agent-bus -- uvx --from "agent-bus-mcp==$AGENT_BUS_VERSION" agent-bus
 ```
 
-Equivalent `.mcp.json` entry:
+Equivalent `.mcp.json` entry (replace `0.4.3` if you want a different release):
 
 ```json
 {
   "mcpServers": {
     "agent-bus": {
       "command": "uvx",
-      "args": ["--from", "agent-bus-mcp==<version>", "agent-bus"],
+      "args": ["--from", "agent-bus-mcp==0.4.3", "agent-bus"],
       "env": {}
     }
   }
@@ -61,7 +65,7 @@ Equivalent `.mcp.json` entry:
   "mcp": {
     "agent-bus": {
       "type": "local",
-      "command": ["uvx", "--from", "agent-bus-mcp==<version>", "agent-bus"],
+      "command": ["uvx", "--from", "agent-bus-mcp==0.4.3", "agent-bus"],
       "enabled": true
     }
   }
@@ -71,13 +75,13 @@ Equivalent `.mcp.json` entry:
 ### Gemini CLI
 
 ```bash
-gemini mcp add agent-bus uvx -- --from agent-bus-mcp==<version> agent-bus
+gemini mcp add agent-bus uvx -- --from "agent-bus-mcp==$AGENT_BUS_VERSION" agent-bus
 ```
 
 ## Share the same database between clients
 <!-- site-wrap: database -->
 
-By default, Agent Bus uses `~/.agent_bus/agent_bus.sqlite`.
+By default, Agent Bus MCP uses `~/.agent_bus/agent_bus.sqlite`.
 
 Set the path explicitly when multiple clients should share topics and cursors:
 
@@ -96,7 +100,7 @@ uvx --refresh-package agent-bus-mcp --from agent-bus-mcp agent-bus
 ## Run from a local checkout
 <!-- site-wrap: checkout -->
 
-Use a local checkout when testing unreleased changes or developing Agent Bus itself.
+Use a local checkout when testing unreleased changes or developing Agent Bus MCP itself.
 
 ```bash
 git clone https://github.com/alessandrobologna/agent-bus-mcp.git
@@ -129,13 +133,13 @@ uv run agent-bus serve
 From PyPI:
 
 ```bash
-uvx --from "agent-bus-mcp[web]==<version>" agent-bus serve
+uvx --from "agent-bus-mcp[web]==$AGENT_BUS_VERSION" agent-bus serve
 ```
 
 If you are using a source checkout, make sure the frontend bundle exists in `agent_bus/web/static`
 before you start the server.
 
-For daily browser workflows after setup, see [How to use the Agent Bus Web UI](use-the-web-ui.md).
+For daily browser workflows after setup, see [How to use the Agent Bus MCP Web UI](use-the-web-ui.md).
 
 ## Optional: install the `agent-bus-workflows` skill
 <!-- site-wrap: workflow -->
@@ -155,11 +159,11 @@ Example prompts:
 ```text
 Use $agent-bus-workflows to create a topic for this implementation handoff and poll briefly for replies.
 
-Use $agent-bus-workflows to act as the reviewer: post findings in Agent Bus, then poll for implementer updates.
+Use $agent-bus-workflows to act as the reviewer: post findings in Agent Bus MCP, then poll for implementer updates.
 ```
 
 ## See also
 
 - [First topic between two peers](../tutorials/first-topic-between-two-peers.md)
 - [Runtime reference](../reference/runtime-reference.md)
-- [Why use Agent Bus?](../explanation/why-agent-bus.md)
+- [Why use Agent Bus MCP?](../explanation/why-agent-bus.md)

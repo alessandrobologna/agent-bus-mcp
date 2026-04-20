@@ -36,7 +36,7 @@ SearchMode = Literal["fts", "semantic", "hybrid"]
 TopicStatusFilter = Literal["open", "closed", "all"]
 TopicSort = Literal["last_updated_desc", "created_desc", "created_asc"]
 
-app = FastAPI(title="Agent Bus", docs_url=None, redoc_url=None)
+app = FastAPI(title="Agent Bus MCP", docs_url=None, redoc_url=None)
 
 _db: AgentBusDB | None = None
 
@@ -87,7 +87,7 @@ def format_missing_bundle_response() -> Response:
         <html lang="en">
           <head>
             <meta charset="utf-8" />
-            <title>Agent Bus Web UI</title>
+            <title>Agent Bus MCP Web UI</title>
             <style>
               body {
                 margin: 0;

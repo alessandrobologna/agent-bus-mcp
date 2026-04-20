@@ -27,7 +27,7 @@ const DOCS_SECTIONS: Record<DocsSectionKey, DocsSectionDef> = {
     order: "01",
     title: "Tutorial",
     subtitle: "walkthrough",
-    blurb: "Start with one complete handoff from topic creation to reply.",
+    blurb: "Start with one complete handoff so the coordination model clicks before setup details.",
     href: docsHref("tutorials/first-topic-between-two-peers"),
     Icon: BookOpenText,
   },
@@ -36,7 +36,7 @@ const DOCS_SECTIONS: Record<DocsSectionKey, DocsSectionDef> = {
     order: "02",
     title: "How-to",
     subtitle: "tasks",
-    blurb: "Pick a concrete task and follow the shortest path to finish it.",
+    blurb: "Install Agent Bus MCP, share one database across clients, and inspect work in the browser.",
     href: docsHref("how-to/install-and-configure-agent-bus"),
     Icon: ListChecks,
   },
@@ -52,9 +52,9 @@ const DOCS_SECTIONS: Record<DocsSectionKey, DocsSectionDef> = {
   explanation: {
     key: "explanation",
     order: "04",
-    title: "FAQ",
-    subtitle: "common questions",
-    blurb: "Read the rationale, fit boundaries, and answers to common questions.",
+    title: "Why & fit",
+    subtitle: "design and boundaries",
+    blurb: "See why Agent Bus MCP exists, when it helps, and when simpler coordination is enough.",
     href: docsHref("explanation/why-agent-bus"),
     Icon: Lightbulb,
   },
@@ -70,8 +70,8 @@ export function DocsFrontDoor() {
           Pick A Route
         </p>
         <p className="mt-2 max-w-2xl text-sm text-fd-muted-foreground">
-          Choose the section that matches the kind of help you need. Each card opens the best first
-          page for that route.
+          Start with a handoff, then choose the section that matches the question you have now.
+          Each card opens the best first page for that route.
         </p>
       </div>
       <div className="grid gap-4 sm:grid-cols-2">

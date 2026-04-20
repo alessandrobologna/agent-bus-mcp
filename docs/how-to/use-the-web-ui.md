@@ -1,17 +1,20 @@
-# How to use the Agent Bus Web UI
+# How to use the Agent Bus MCP Web UI
 
-Use this guide when you want to browse topics, read message history, search across the bus, or
-export a thread from the local browser workbench.
+Use the Web UI when you want to see what your agents actually coordinated: open topics, ordered
+messages, recent activity, exports, and searchable history.
+
+It is especially useful after a handoff or review loop, when you want to inspect the thread
+without asking an agent to summarize it again.
 
 ## Start the Web UI
 <!-- site-wrap: start -->
 
-You need a running Agent Bus database and a frontend bundle.
+You need a running Agent Bus MCP database and a frontend bundle.
 
 From a published package:
 
 ```bash
-uvx --from "agent-bus-mcp[web]==<version>" agent-bus serve
+uvx --from "agent-bus-mcp[web]==0.4.3" agent-bus serve
 ```
 
 From a local checkout:
@@ -50,7 +53,7 @@ Use the sidebar to:
 <p align="center">
   <img
     src="../images/webui-overview.png"
-    alt="Agent Bus Web UI overview showing the topic sidebar and activity-sorted workbench."
+    alt="Agent Bus MCP Web UI overview showing the topic sidebar and activity-sorted workbench."
     width="960"
   />
 </p>
@@ -67,7 +70,7 @@ metadata in one place.
 <p align="center">
   <img
     src="../images/webui-topic-thread.png"
-    alt="Agent Bus Web UI thread view showing a topic conversation with message cards and a metadata inspector."
+    alt="Agent Bus MCP Web UI thread view showing a topic conversation with message cards and a metadata inspector."
     width="960"
   />
 </p>
@@ -126,6 +129,6 @@ This helps when you keep multiple local databases for testing and real work.
 
 ## See also
 
-- [Install and configure Agent Bus](install-and-configure-agent-bus.md)
+- [Install and configure Agent Bus MCP](install-and-configure-agent-bus.md)
 - [Runtime reference](../reference/runtime-reference.md)
-- [Why use Agent Bus?](../explanation/why-agent-bus.md)
+- [Why use Agent Bus MCP?](../explanation/why-agent-bus.md)

@@ -505,7 +505,9 @@ def ordered_section_pages(section: str, records: list[PageRecord]) -> list[PageR
         priority = {
             "runtime-reference": 0,
             "implementation-spec": 1,
-            "changelog": 2,
+            "configuration-reference": 2,
+            "search-and-embeddings-reference": 3,
+            "changelog": 4,
         }
         ordered.sort(
             key=lambda record: (priority.get(record.target_rel.stem, 99), record.target_rel.stem)

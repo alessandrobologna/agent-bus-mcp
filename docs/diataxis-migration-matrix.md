@@ -22,7 +22,7 @@ Follow-up additions in this pass:
 | `docs/how-to/` | `how-to` | `move` | New setup-oriented docs for install, client config, and optional web/skill setup |
 | `docs/how-to/use-the-web-ui.md` | `how-to` | `add` | Dedicated goal-driven guide for launching, browsing, searching, and exporting in the Web UI |
 | `docs/reference/` | `reference` | `move` | New lookup-oriented runtime reference plus links to the raw spec and changelog |
-| `docs/explanation/` | `explanation` | `move` | New product rationale page explaining where Agent Bus fits and why its local architecture matters |
+| `docs/explanation/` | `explanation` | `move` | New product rationale page explaining where Agent Bus MCP fits and why its local architecture matters |
 
 Risky moves in this pass:
 

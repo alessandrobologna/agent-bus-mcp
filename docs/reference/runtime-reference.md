@@ -1,11 +1,12 @@
 # Runtime reference
 
-Use this page for exact MCP tool and CLI details.
+Use this reference for exact MCP tool and CLI details.
 
-If you need search modes, embedding commands, or embedding-related environment variables, use
-[Search and embeddings reference](search-and-embeddings-reference.md).
+If you need search modes or embedding commands, use
+[Search and embeddings reference](search-and-embeddings-reference.md). If you need environment
+variables, use [Configuration reference](configuration-reference.md).
 
-Use this page when you need to:
+Use this reference when you need to:
 
 - check which MCP tool handles a task
 - copy a common CLI command
@@ -53,8 +54,9 @@ with the new one. Use `--no-rewrite-messages` to disable that behavior.
 
 ## See also
 
+- [Configuration reference](configuration-reference.md)
 - [Search and embeddings reference](search-and-embeddings-reference.md)
-- [Install and configure Agent Bus](../how-to/install-and-configure-agent-bus.md)
+- [Install and configure Agent Bus MCP](../how-to/install-and-configure-agent-bus.md)
 - [Implementation spec](../../spec.md)
 - [Changelog](../../CHANGELOG.md)
-- [Why use Agent Bus?](../explanation/why-agent-bus.md)
+- [Why use Agent Bus MCP?](../explanation/why-agent-bus.md)
