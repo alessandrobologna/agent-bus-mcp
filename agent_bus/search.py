@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from hashlib import sha256
 from typing import Any, Literal, cast
@@ -13,6 +14,7 @@ SearchMode = Literal["fts", "semantic", "hybrid"]
 DEFAULT_EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"
 DEFAULT_CHUNK_SIZE = 1200  # characters
 DEFAULT_CHUNK_OVERLAP = 200  # characters
+QUERY_TOKEN_RE = re.compile(r"\w+", re.UNICODE)
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,6 +149,18 @@ def _semantic_snippet(
     return snippet
 
 
+def _query_terms(query: str) -> list[str]:
+    return [term.lower() for term in QUERY_TOKEN_RE.findall(query) if len(term) >= 2]
+
+
+def _snippet_contains_query_terms(snippet: str, *, query: str) -> bool:
+    query_terms = _query_terms(query)
+    if not query_terms:
+        return False
+    haystack = snippet.lower()
+    return any(term in haystack for term in query_terms)
+
+
 def search_messages(
     db: AgentBusDB,
     *,
@@ -257,12 +271,17 @@ def search_messages(
         best_row = best.get(mid)
         if best_row is not None:
             semantic_score = float(best_row["semantic_score"])
-            snippet = _semantic_snippet(
+            semantic_snippet = _semantic_snippet(
                 db,
                 message_id=mid,
                 start_char=int(best_row["start_char"]),
                 end_char=int(best_row["end_char"]),
                 content_cache=content_cache,
+            )
+            snippet = (
+                semantic_snippet
+                if _snippet_contains_query_terms(semantic_snippet, query=query)
+                else r["snippet"]
             )
         else:
             semantic_score = None

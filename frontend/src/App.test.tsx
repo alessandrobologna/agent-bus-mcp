@@ -7,6 +7,9 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 import type { TopicDetailResponse, TopicSummary } from "@/lib/types"
 import { DEFAULT_WORKBENCH_STATE, loadWorkbenchState } from "@/lib/workbench-state"
 
+const SEARCH_HIGHLIGHT_START = "__AB_HL_START__"
+const SEARCH_HIGHLIGHT_END = "__AB_HL_END__"
+
 const topicsPayload: { topics: TopicSummary[] } = {
   topics: [
     {
@@ -117,7 +120,7 @@ function installFetchMock() {
             seq: 7,
             sender: "architect",
             message_type: "message",
-            snippet: '<img src=x onerror=alert(1)> [handoff] summary',
+            snippet: `<img src=x onerror=alert(1)> ${SEARCH_HIGHLIGHT_START}handoff${SEARCH_HIGHLIGHT_END} summary`,
             semantic_score: 0.81,
           },
         ],
@@ -202,7 +205,7 @@ describe("App", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Close Alpha review/i }))
 
-    expect(await screen.findByText(/Agent Bus Workbench/i)).toBeInTheDocument()
+    expect(await screen.findByText(/Agent Bus MCP Workbench/i)).toBeInTheDocument()
   })
 
   test("uses the sidebar search to navigate to a focused result", async () => {
@@ -218,6 +221,109 @@ describe("App", () => {
     fireEvent.click(result)
 
     await waitFor(() => expect(screen.getByText("beta context")).toBeInTheDocument())
+  })
+
+  test("highlights lexical sidebar matches inside the focused message", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const url = new URL(String(input), "http://localhost")
+
+      if (url.pathname === "/api/topics") {
+        return jsonResponse(topicsPayload)
+      }
+      if (url.pathname === "/api/topics/t-2" && url.searchParams.get("focus") === "focused-message") {
+        return jsonResponse(
+          topicDetail("t-2", "beta handoff summary context", { focus: "focused-message" })
+        )
+      }
+      if (url.pathname === "/api/search") {
+        return jsonResponse({
+          query: url.searchParams.get("q") ?? "",
+          mode: "hybrid",
+          warnings: [],
+          results: [
+            {
+              topic_id: "t-2",
+              topic_name: "Beta thread",
+              message_id: "focused-message",
+              seq: 7,
+              sender: "architect",
+              message_type: "message",
+              snippet: `beta ${SEARCH_HIGHLIGHT_START}handoff${SEARCH_HIGHLIGHT_END} summary`,
+              rank: 0.2,
+            },
+          ],
+        })
+      }
+
+      throw new Error(`Unhandled fetch ${url.pathname}${url.search}`)
+    })
+
+    const { container } = renderApp(["/"])
+
+    fireEvent.change(await screen.findByPlaceholderText(/^Search$/i), {
+      target: { value: "handoff" },
+    })
+
+    fireEvent.click(await screen.findByRole("button", { name: /Beta thread/i }))
+
+    await waitFor(() =>
+      expect(
+        Array.from(container.querySelectorAll("mark[data-ab-highlight='true']")).some(
+          (element) => element.textContent === "handoff"
+        )
+      ).toBe(true)
+    )
+  })
+
+  test("highlights overlapping query terms for semantic results", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const url = new URL(String(input), "http://localhost")
+
+      if (url.pathname === "/api/topics") {
+        return jsonResponse(topicsPayload)
+      }
+      if (url.pathname === "/api/topics/t-2" && url.searchParams.get("focus") === "focused-message") {
+        return jsonResponse(
+          topicDetail("t-2", "beta handoff\nsummary context", { focus: "focused-message" })
+        )
+      }
+      if (url.pathname === "/api/search") {
+        return jsonResponse({
+          query: url.searchParams.get("q") ?? "",
+          mode: "hybrid",
+          warnings: [],
+          results: [
+            {
+              topic_id: "t-2",
+              topic_name: "Beta thread",
+              message_id: "focused-message",
+              seq: 7,
+              sender: "architect",
+              message_type: "message",
+              snippet: "handoff summary",
+              semantic_score: 0.81,
+            },
+          ],
+        })
+      }
+
+      throw new Error(`Unhandled fetch ${url.pathname}${url.search}`)
+    })
+
+    const { container } = renderApp(["/"])
+
+    fireEvent.change(await screen.findByPlaceholderText(/^Search$/i), {
+      target: { value: "semantic handoff" },
+    })
+
+    fireEvent.click(await screen.findByRole("button", { name: /Beta thread/i }))
+
+    await waitFor(() => {
+      const highlightedText = Array.from(container.querySelectorAll("mark[data-ab-highlight='true']")).map(
+        (element) => element.textContent ?? ""
+      )
+      expect(highlightedText).toContain("handoff")
+    })
   })
 
   test("renders search snippets as text instead of attacker-controlled HTML", async () => {
@@ -237,7 +343,7 @@ describe("App", () => {
   test("opens local find with the keyboard shortcut inside the active topic", async () => {
     installFetchMock()
 
-    renderApp(["/topics/t-1"])
+    const { container } = renderApp(["/topics/t-1"])
 
     expect(await screen.findByText("hello from alpha")).toBeInTheDocument()
     fireEvent.keyDown(window, { key: "f", metaKey: true })
@@ -246,6 +352,13 @@ describe("App", () => {
     })
 
     expect(await screen.findByText("1/1")).toBeInTheDocument()
+    await waitFor(() =>
+      expect(
+        Array.from(container.querySelectorAll("mark[data-ab-highlight='true']")).some(
+          (element) => element.textContent === "alpha"
+        )
+      ).toBe(true)
+    )
   })
 
   test("focuses the sidebar search with the keyboard shortcut", async () => {

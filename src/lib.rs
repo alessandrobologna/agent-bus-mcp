@@ -32,6 +32,8 @@ const EMBEDDING_CACHE_DIR_ENV: &str = "AGENT_BUS_EMBEDDING_CACHE_DIR";
 const FASTEMBED_CACHE_DIR_ENV: &str = "FASTEMBED_CACHE_DIR";
 const XDG_CACHE_HOME_ENV: &str = "XDG_CACHE_HOME";
 const HOME_ENV: &str = "HOME";
+const FTS_SNIPPET_HIGHLIGHT_START: &str = "__AB_HL_START__";
+const FTS_SNIPPET_HIGHLIGHT_END: &str = "__AB_HL_END__";
 
 #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
 #[no_mangle]
@@ -518,7 +520,7 @@ impl CoreDb {
               m.sender,
               m.message_type,
               m.created_at,
-              snippet(messages_fts, 0, '[', ']', '…', 10) AS snippet,
+              snippet(messages_fts, 0, '{highlight_start}', '{highlight_end}', '…', 10) AS snippet,
               bm25(messages_fts) AS rank
               {content_col}
             FROM messages_fts
@@ -528,6 +530,8 @@ impl CoreDb {
             ORDER BY rank ASC
             LIMIT ?
             ",
+            highlight_start = FTS_SNIPPET_HIGHLIGHT_START,
+            highlight_end = FTS_SNIPPET_HIGHLIGHT_END,
             where = where_parts.join(" AND "),
         );
 

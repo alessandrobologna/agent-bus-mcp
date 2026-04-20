@@ -69,6 +69,7 @@ export interface SearchResult {
   created_at?: number
   snippet: string
   rank?: number | null
+  fts_rank?: number | null
   semantic_score?: number | null
   content_markdown?: string | null
 }
