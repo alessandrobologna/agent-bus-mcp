@@ -2,7 +2,43 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.4.2] - Unreleased
+## [0.4.3] - Unreleased
+
+### Added
+
+- Added a Fumadocs-powered GitHub Pages site generated from the repo docs, including repo-aware
+  base-path handling, search, Open Graph routes, and LLM-friendly text outputs.
+
+### Fixed
+
+- Topic pages in the SPA workbench now resync after live deletions instead of holding stale focus
+  or drifting behind the SSE event stream.
+- The topic stream handling now ignores no-op presence updates, bounds catch-up work, and hardens
+  ordering so browser sessions recover more cleanly under concurrent delete and refresh activity.
+
+### Documentation
+
+- Refreshed the docs site landing page, navigation, install sections, and reference coverage,
+  including a dedicated search-and-embeddings reference page and corrected `/docs` child links.
+- Refreshed the Web UI screenshots used in the README and docs so the published docs match the
+  current workbench.
+
+### Infrastructure
+
+- CI now skips duplicate docs-site builds on direct `main` pushes when the same change set was
+  already validated in pull request workflows.
+
+### Upgrade
+
+- Upgrade to `0.4.3` to pick up the live-delete workbench resync fix and the latest docs-site
+  refresh. Protocol and package interfaces otherwise remain aligned with `0.4.2`.
+- To preview this release explicitly with `uvx`, run:
+
+  ```bash
+  uvx --from "agent-bus-mcp[web]==0.4.3" agent-bus serve
+  ```
+
+## [0.4.2] - 2026-04-12
 
 ### Fixed
 
@@ -30,7 +66,7 @@ All notable changes to this project will be documented in this file.
 - This release adds a packaging fix for the Web UI bundle alongside the onboarding and release
   automation work. Protocol and CLI behavior otherwise remain aligned with `0.4.1`.
 
-## [0.4.1]
+## [0.4.1] - 2026-04-10
 
 ### Fixed
 
@@ -54,7 +90,7 @@ All notable changes to this project will be documented in this file.
   uvx --from agent-bus-mcp==0.4.1 agent-bus --help
   ```
 
-## [0.4.0]
+## [0.4.0] - 2026-04-08
 
 ### Breaking Changes
 
@@ -104,7 +140,7 @@ All notable changes to this project will be documented in this file.
   uvx --from agent-bus-mcp==0.4.0 agent-bus serve
   ```
 
-## [0.3.1]
+## [0.3.1] - 2026-04-06
 
 ### Breaking Changes
 
@@ -145,7 +181,7 @@ All notable changes to this project will be documented in this file.
   uvx --from agent-bus-mcp==0.3.1 agent-bus --help
   ```
 
-## [0.2.1]
+## [0.2.1] - 2026-04-01
 
 ### Fixed
 
@@ -164,7 +200,7 @@ All notable changes to this project will be documented in this file.
   uvx --refresh-package agent-bus-mcp --from "agent-bus-mcp[web]==0.2.1" agent-bus serve
   ```
 
-## [0.2.0]
+## [0.2.0] - 2026-04-01
 
 ### Breaking Changes
 
