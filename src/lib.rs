@@ -32,8 +32,8 @@ const EMBEDDING_CACHE_DIR_ENV: &str = "AGENT_BUS_EMBEDDING_CACHE_DIR";
 const FASTEMBED_CACHE_DIR_ENV: &str = "FASTEMBED_CACHE_DIR";
 const XDG_CACHE_HOME_ENV: &str = "XDG_CACHE_HOME";
 const HOME_ENV: &str = "HOME";
-const FTS_SNIPPET_HIGHLIGHT_START: &str = "__AB_HL_START__";
-const FTS_SNIPPET_HIGHLIGHT_END: &str = "__AB_HL_END__";
+const FTS_SNIPPET_HIGHLIGHT_START: &str = "\u{E000}";
+const FTS_SNIPPET_HIGHLIGHT_END: &str = "\u{E001}";
 
 #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
 #[no_mangle]

@@ -90,8 +90,8 @@ type MessageHighlightSpec = {
   terms: string[]
 }
 
-const SEARCH_HIGHLIGHT_START = "__AB_HL_START__"
-const SEARCH_HIGHLIGHT_END = "__AB_HL_END__"
+const SEARCH_HIGHLIGHT_START = "\uE000"
+const SEARCH_HIGHLIGHT_END = "\uE001"
 
 const SIDEBAR_LAYOUT_STYLE = {
   "--sidebar-width": "22rem",
@@ -142,7 +142,10 @@ function snippetLabel(result: SearchResult): string {
   if (result.semantic_score !== undefined && result.semantic_score !== null) {
     return `semantic ${result.semantic_score.toFixed(4)}`
   }
-  if (result.rank !== undefined && result.rank !== null) {
+  if (
+    (result.rank !== undefined && result.rank !== null) ||
+    (result.fts_rank !== undefined && result.fts_rank !== null)
+  ) {
     return "fts"
   }
   return result.message_type
@@ -460,7 +463,7 @@ function MessageMarkdown(props: { content: string; highlight: MessageHighlightSp
     return () => {
       clearMessageHighlights(container)
     }
-  }, [content, highlightTermsKey, highlight])
+  }, [content, highlightTermsKey])
 
   return (
     <div ref={containerRef} className="min-w-0 text-sm">

@@ -7,8 +7,8 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 import type { TopicDetailResponse, TopicSummary } from "@/lib/types"
 import { DEFAULT_WORKBENCH_STATE, loadWorkbenchState } from "@/lib/workbench-state"
 
-const SEARCH_HIGHLIGHT_START = "__AB_HL_START__"
-const SEARCH_HIGHLIGHT_END = "__AB_HL_END__"
+const SEARCH_HIGHLIGHT_START = "\uE000"
+const SEARCH_HIGHLIGHT_END = "\uE001"
 
 const topicsPayload: { topics: TopicSummary[] } = {
   topics: [
@@ -324,6 +324,45 @@ describe("App", () => {
       )
       expect(highlightedText).toContain("handoff")
     })
+  })
+
+  test("labels fts-only sidebar results using fts_rank", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const url = new URL(String(input), "http://localhost")
+
+      if (url.pathname === "/api/topics") {
+        return jsonResponse(topicsPayload)
+      }
+      if (url.pathname === "/api/search") {
+        return jsonResponse({
+          query: url.searchParams.get("q") ?? "",
+          mode: "hybrid",
+          warnings: [],
+          results: [
+            {
+              topic_id: "t-2",
+              topic_name: "Beta thread",
+              message_id: "focused-message",
+              seq: 7,
+              sender: "architect",
+              message_type: "message",
+              snippet: `beta ${SEARCH_HIGHLIGHT_START}handoff${SEARCH_HIGHLIGHT_END} summary`,
+              fts_rank: 0.2,
+            },
+          ],
+        })
+      }
+
+      throw new Error(`Unhandled fetch ${url.pathname}${url.search}`)
+    })
+
+    renderApp(["/"])
+
+    fireEvent.change(await screen.findByPlaceholderText(/^Search$/i), {
+      target: { value: "handoff" },
+    })
+
+    expect(await screen.findByText(/^fts$/i)).toBeInTheDocument()
   })
 
   test("renders search snippets as text instead of attacker-controlled HTML", async () => {

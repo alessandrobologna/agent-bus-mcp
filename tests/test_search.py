@@ -106,4 +106,15 @@ def test_search_messages_hybrid_keeps_fts_snippet_when_semantic_excerpt_omits_qu
     results, _warnings = search_messages(db, query="lambda", topic_id=topic.topic_id, mode="hybrid")
 
     assert results
-    assert "__ab_hl_start__lambda__ab_hl_end__" in results[0]["snippet"].lower()
+    assert "\ue000lambda\ue001" in results[0]["snippet"].lower()
+
+
+def test_snippet_contains_query_terms_ignores_fts_operators() -> None:
+    assert not search_module._snippet_contains_query_terms(
+        "batch or stream handling",
+        query="lambda OR adapter",
+    )
+    assert search_module._snippet_contains_query_terms(
+        "lambda adapter wiring",
+        query="lambda OR adapter",
+    )

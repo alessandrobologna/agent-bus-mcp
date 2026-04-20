@@ -15,6 +15,7 @@ DEFAULT_EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"
 DEFAULT_CHUNK_SIZE = 1200  # characters
 DEFAULT_CHUNK_OVERLAP = 200  # characters
 QUERY_TOKEN_RE = re.compile(r"\w+", re.UNICODE)
+FTS_QUERY_OPERATORS = {"and", "or", "not", "near"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,15 +151,19 @@ def _semantic_snippet(
 
 
 def _query_terms(query: str) -> list[str]:
-    return [term.lower() for term in QUERY_TOKEN_RE.findall(query) if len(term) >= 2]
+    return [
+        term.lower()
+        for term in QUERY_TOKEN_RE.findall(query)
+        if len(term) >= 2 and term.lower() not in FTS_QUERY_OPERATORS
+    ]
 
 
 def _snippet_contains_query_terms(snippet: str, *, query: str) -> bool:
-    query_terms = _query_terms(query)
-    if not query_terms:
+    query_term_set = set(_query_terms(query))
+    if not query_term_set:
         return False
-    haystack = snippet.lower()
-    return any(term in haystack for term in query_terms)
+    snippet_term_set = {term.lower() for term in QUERY_TOKEN_RE.findall(snippet) if len(term) >= 2}
+    return bool(query_term_set & snippet_term_set)
 
 
 def search_messages(
