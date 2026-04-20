@@ -81,6 +81,18 @@ type FindState = {
   activeIndex: number
 }
 
+type TextRange = {
+  start: number
+  end: number
+}
+
+type MessageHighlightSpec = {
+  terms: string[]
+}
+
+const SEARCH_HIGHLIGHT_START = "\uE000"
+const SEARCH_HIGHLIGHT_END = "\uE001"
+
 const SIDEBAR_LAYOUT_STYLE = {
   "--sidebar-width": "22rem",
   "--sidebar-width-mobile": "22rem",
@@ -119,32 +131,266 @@ function statusVariant(status: TopicSummary["status"]): "default" | "secondary" 
 }
 
 function snippetLabel(result: SearchResult): string {
-  if (result.semantic_score !== undefined && result.semantic_score !== null) {
-    return `semantic ${result.semantic_score.toFixed(3)}`
+  if (
+    result.semantic_score !== undefined &&
+    result.semantic_score !== null &&
+    result.fts_rank !== undefined &&
+    result.fts_rank !== null
+  ) {
+    return `hybrid ${result.semantic_score.toFixed(4)}`
   }
-  if (result.rank !== undefined && result.rank !== null) {
-    return `rank ${result.rank.toFixed(3)}`
+  if (result.semantic_score !== undefined && result.semantic_score !== null) {
+    return `semantic ${result.semantic_score.toFixed(4)}`
+  }
+  if (
+    (result.rank !== undefined && result.rank !== null) ||
+    (result.fts_rank !== undefined && result.fts_rank !== null)
+  ) {
+    return "fts"
   }
   return result.message_type
 }
 
 function renderSnippet(snippet: string) {
-  const parts = snippet.split(/(\[[^\]]+\])/g).filter(Boolean)
+  const parts = splitSearchSnippet(snippet)
   return parts.map((part, index) => {
-    const isHighlight = part.startsWith("[") && part.endsWith("]")
-    const content = isHighlight ? part.slice(1, -1) : part
-    if (isHighlight) {
+    if (part.highlight) {
       return (
         <mark
           key={`snippet-${index}`}
           className="rounded-sm bg-primary/15 px-0.5 text-zinc-200"
         >
-          {content}
+          {part.text}
         </mark>
       )
     }
-    return <span key={`snippet-${index}`}>{content}</span>
+    return <span key={`snippet-${index}`}>{part.text}</span>
   })
+}
+
+function uniqueStrings(values: string[]): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const value of values) {
+    const trimmed = value.trim()
+    if (!trimmed) {
+      continue
+    }
+    const key = trimmed.toLocaleLowerCase()
+    if (seen.has(key)) {
+      continue
+    }
+    seen.add(key)
+    out.push(trimmed)
+  }
+  return out
+}
+
+function normalizeSearchText(value: string): string {
+  return value.toLocaleLowerCase().normalize("NFKD").replace(/\p{M}+/gu, "")
+}
+
+function splitSearchSnippet(snippet: string): Array<{ text: string; highlight: boolean }> {
+  const parts: Array<{ text: string; highlight: boolean }> = []
+  let cursor = 0
+
+  while (cursor < snippet.length) {
+    const start = snippet.indexOf(SEARCH_HIGHLIGHT_START, cursor)
+    if (start === -1) {
+      const text = snippet.slice(cursor)
+      if (text) {
+        parts.push({ text, highlight: false })
+      }
+      break
+    }
+
+    if (start > cursor) {
+      parts.push({ text: snippet.slice(cursor, start), highlight: false })
+    }
+
+    const highlightStart = start + SEARCH_HIGHLIGHT_START.length
+    const end = snippet.indexOf(SEARCH_HIGHLIGHT_END, highlightStart)
+    if (end === -1) {
+      parts.push({ text: snippet.slice(start), highlight: false })
+      break
+    }
+
+    const text = snippet.slice(highlightStart, end)
+    if (text) {
+      parts.push({ text, highlight: true })
+    }
+    cursor = end + SEARCH_HIGHLIGHT_END.length
+  }
+
+  return parts
+}
+
+function extractSnippetTerms(snippet: string): string[] {
+  return uniqueStrings(
+    splitSearchSnippet(snippet)
+      .filter((part) => part.highlight)
+      .map((part) => part.text)
+  )
+}
+
+function tokenizeSearchQuery(query: string): string[] {
+  return uniqueStrings(
+    query
+      .split(/\s+/u)
+      .map((part) => part.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, ""))
+      .filter((part) => part.length >= 2)
+  )
+}
+
+function mergeRanges(ranges: TextRange[]): TextRange[] {
+  if (ranges.length === 0) {
+    return []
+  }
+  const merged: TextRange[] = []
+  const sorted = [...ranges].sort((left, right) => left.start - right.start || left.end - right.end)
+  for (const range of sorted) {
+    if (range.end <= range.start) {
+      continue
+    }
+    const last = merged.at(-1)
+    if (!last || range.start > last.end) {
+      merged.push({ ...range })
+      continue
+    }
+    last.end = Math.max(last.end, range.end)
+  }
+  return merged
+}
+
+function findTermRanges(text: string, terms: string[]): TextRange[] {
+  if (!text || terms.length === 0) {
+    return []
+  }
+
+  const haystack = normalizeSearchText(text)
+  const normalizedIndexToOriginalRange: TextRange[] = []
+  let originalIndex = 0
+  for (const char of text) {
+    const start = originalIndex
+    const end = start + char.length
+    for (const _normalizedChar of normalizeSearchText(char)) {
+      normalizedIndexToOriginalRange.push({ start, end })
+    }
+    originalIndex = end
+  }
+
+  const ranges: TextRange[] = []
+
+  for (const term of uniqueStrings(terms)) {
+    const needle = normalizeSearchText(term)
+    if (!needle) {
+      continue
+    }
+    let searchStart = 0
+    while (searchStart < haystack.length) {
+      const normalizedMatchIndex = haystack.indexOf(needle, searchStart)
+      if (normalizedMatchIndex === -1) {
+        break
+      }
+      const normalizedMatchEnd = normalizedMatchIndex + needle.length - 1
+      const start = normalizedIndexToOriginalRange[normalizedMatchIndex]?.start
+      const end = normalizedIndexToOriginalRange[normalizedMatchEnd]?.end
+      if (start !== undefined && end !== undefined && end > start) {
+        ranges.push({ start, end })
+      }
+      searchStart = normalizedMatchIndex + Math.max(needle.length, 1)
+    }
+  }
+
+  return mergeRanges(ranges)
+}
+
+function clearMessageHighlights(root: HTMLElement): void {
+  root.querySelectorAll("mark[data-ab-highlight='true']").forEach((mark) => {
+    const parent = mark.parentNode
+    if (!parent) {
+      return
+    }
+    while (mark.firstChild) {
+      parent.insertBefore(mark.firstChild, mark)
+    }
+    parent.removeChild(mark)
+    parent.normalize()
+  })
+}
+
+function applyMessageHighlights(root: HTMLElement, spec: MessageHighlightSpec | null): void {
+  clearMessageHighlights(root)
+
+  if (!spec) {
+    return
+  }
+
+  const nodeFilter = root.ownerDocument.defaultView?.NodeFilter ?? NodeFilter
+  const walker = root.ownerDocument.createTreeWalker(root, nodeFilter.SHOW_TEXT)
+  const textNodes: Array<{ node: Text; start: number; end: number }> = []
+
+  let currentNode = walker.nextNode()
+  let cursor = 0
+  while (currentNode) {
+    const textNode = currentNode as Text
+    const value = textNode.data
+    if (value) {
+      textNodes.push({
+        node: textNode,
+        start: cursor,
+        end: cursor + value.length,
+      })
+      cursor += value.length
+    }
+    currentNode = walker.nextNode()
+  }
+
+  if (textNodes.length === 0) {
+    return
+  }
+
+  const fullText = textNodes.map((entry) => entry.node.data).join("")
+  const ranges = findTermRanges(fullText, spec.terms)
+
+  if (ranges.length === 0) {
+    return
+  }
+
+  for (const entry of [...textNodes].reverse()) {
+    const localRanges = ranges
+      .filter((range) => range.start < entry.end && range.end > entry.start)
+      .map((range) => ({
+        start: Math.max(range.start, entry.start) - entry.start,
+        end: Math.min(range.end, entry.end) - entry.start,
+      }))
+
+    if (localRanges.length === 0) {
+      continue
+    }
+
+    const fragment = root.ownerDocument.createDocumentFragment()
+    let localCursor = 0
+
+    for (const range of localRanges) {
+      if (range.start > localCursor) {
+        fragment.append(root.ownerDocument.createTextNode(entry.node.data.slice(localCursor, range.start)))
+      }
+      const mark = root.ownerDocument.createElement("mark")
+      mark.dataset.abHighlight = "true"
+      mark.className =
+        "rounded-sm bg-amber-300/45 px-0.5 text-amber-50 ring-1 ring-inset ring-amber-200/45"
+      mark.textContent = entry.node.data.slice(range.start, range.end)
+      fragment.append(mark)
+      localCursor = range.end
+    }
+
+    if (localCursor < entry.node.data.length) {
+      fragment.append(root.ownerDocument.createTextNode(entry.node.data.slice(localCursor)))
+    }
+
+    entry.node.parentNode?.replaceChild(fragment, entry.node)
+  }
 }
 
 function fallbackTopic(topicId: string): TopicSummary {
@@ -223,9 +469,24 @@ const markdownComponents: Components = {
   ),
 }
 
-function MessageMarkdown({ content }: { content: string }) {
+function MessageMarkdown(props: { content: string; highlight: MessageHighlightSpec | null }) {
+  const { content, highlight } = props
+  const containerRef = useRef<HTMLDivElement | null>(null)
+  const highlightTermsKey = highlight?.terms.join("\u0000") ?? ""
+
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) {
+      return
+    }
+    applyMessageHighlights(container, highlight)
+    return () => {
+      clearMessageHighlights(container)
+    }
+  }, [content, highlightTermsKey])
+
   return (
-    <div className="min-w-0 text-sm">
+    <div ref={containerRef} className="min-w-0 text-sm">
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
         {content}
       </ReactMarkdown>
@@ -235,6 +496,7 @@ function MessageMarkdown({ content }: { content: string }) {
 
 function MessageCard(props: {
   message: TopicMessage
+  highlight: MessageHighlightSpec | null
   focused: boolean
   localMatched: boolean
   localActive: boolean
@@ -242,7 +504,7 @@ function MessageCard(props: {
   selected: boolean
   onSelectedChange: (next: boolean) => void
 }) {
-  const { message, focused, localMatched, localActive, selectable, selected, onSelectedChange } = props
+  const { message, highlight, focused, localMatched, localActive, selectable, selected, onSelectedChange } = props
 
   return (
     <article
@@ -283,7 +545,7 @@ function MessageCard(props: {
               <Badge variant="secondary">reply to {message.reply_to_sender}</Badge>
             ) : null}
           </div>
-          <MessageMarkdown content={message.content_markdown} />
+          <MessageMarkdown content={message.content_markdown} highlight={highlight} />
           <div className="text-xs text-muted-foreground">{formatAbsoluteTime(message.created_at)}</div>
         </div>
       </div>
@@ -293,6 +555,8 @@ function MessageCard(props: {
 
 function TopicView(props: {
   topicDetail: TopicDetailResponse
+  activeSearchResult: SearchResult | null
+  sidebarSearchQuery: string
   findState: FindState
   findMatches: TopicMessage[]
   selectionMode: boolean
@@ -310,6 +574,8 @@ function TopicView(props: {
 }) {
   const {
     topicDetail,
+    activeSearchResult,
+    sidebarSearchQuery,
     findState,
     findMatches,
     selectionMode,
@@ -330,6 +596,7 @@ function TopicView(props: {
     findState.query.trim() && findMatches.length > 0
       ? findMatches[Math.min(findState.activeIndex, findMatches.length - 1)]?.message_id ?? null
       : null
+  const activeSearchTerms = activeSearchResult ? extractSnippetTerms(activeSearchResult.snippet) : []
 
   return (
     <div className="grid h-full min-h-0 flex-1 grid-cols-1 gap-0 border border-border bg-card xl:grid-cols-[minmax(0,1fr)_12rem]">
@@ -452,21 +719,44 @@ function TopicView(props: {
                     </div>
                   </div>
                 ) : (
-                  topicDetail.messages.map((message) => (
-                    <MessageCard
-                      key={message.message_id}
-                      message={message}
-                      focused={topicDetail.focus_message_id === message.message_id}
-                      localMatched={
-                        Boolean(findState.query.trim()) &&
-                        findMatches.some((candidate) => candidate.message_id === message.message_id)
-                      }
-                      localActive={activeFindMessageId === message.message_id}
-                      selectable={selectionMode}
-                      selected={selectedMessageIds.has(message.message_id)}
-                      onSelectedChange={(next) => onMessageSelectionChange(message.message_id, next)}
-                    />
-                  ))
+                  topicDetail.messages.map((message) => {
+                    const localMatched =
+                      Boolean(findState.query.trim()) &&
+                      findMatches.some((candidate) => candidate.message_id === message.message_id)
+                    const localFindQuery = localMatched ? findState.query.trim() : null
+                    const focusedSearchMessage =
+                      activeSearchResult?.message_id === message.message_id ? activeSearchResult : null
+                    const highlightTerms = uniqueStrings([
+                      ...(localFindQuery ? [localFindQuery] : []),
+                      ...(focusedSearchMessage
+                        ? activeSearchTerms.length > 0
+                          ? activeSearchTerms
+                          : sidebarSearchQuery.trim()
+                            ? tokenizeSearchQuery(sidebarSearchQuery)
+                            : []
+                        : []),
+                    ])
+                    const highlight =
+                      highlightTerms.length > 0
+                        ? {
+                            terms: highlightTerms,
+                          }
+                        : null
+
+                    return (
+                      <MessageCard
+                        key={message.message_id}
+                        message={message}
+                        highlight={highlight}
+                        focused={topicDetail.focus_message_id === message.message_id}
+                        localMatched={localMatched}
+                        localActive={activeFindMessageId === message.message_id}
+                        selectable={selectionMode}
+                        selected={selectedMessageIds.has(message.message_id)}
+                        onSelectedChange={(next) => onMessageSelectionChange(message.message_id, next)}
+                      />
+                    )
+                  })
                 )}
               </div>
             </ScrollArea>
@@ -595,7 +885,7 @@ function AppSidebar(props: {
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
               <span className="text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
-                Agent Bus
+                Agent Bus MCP
               </span>
               <div className="truncate text-sm font-medium">Workbench</div>
             </div>
@@ -871,6 +1161,7 @@ export default function App() {
   const topicFindInputRef = useRef<HTMLInputElement | null>(null)
   const tabStripRef = useRef<HTMLDivElement | null>(null)
   const activeTabRef = useRef<HTMLButtonElement | null>(null)
+  const suppressNextFindScrollRef = useRef(false)
 
   const pathnameParts = location.pathname.split("/").filter(Boolean)
   const routeTopicId = pathnameParts[0] === "topics" ? decodeURIComponent(pathnameParts[1] ?? "") : null
@@ -1203,16 +1494,34 @@ export default function App() {
     }
   }, [routeTopicId])
 
+  const topicFindMatches =
+    topicDetail && topicFindState.query.trim()
+      ? topicDetail.messages.filter((message) => messageContainsText(message, topicFindState.query.trim()))
+      : []
+  const activeRailSearchResult =
+    routeTopicId && focusMessageId
+      ? railSearchState.results.find(
+          (result) => result.topic_id === routeTopicId && result.message_id === focusMessageId
+        ) ?? null
+      : null
+
   useEffect(() => {
     if (!topicDetail?.focus_message_id) {
       return
     }
+    suppressNextFindScrollRef.current = topicFindState.open && topicFindMatches.length > 0
     const element = document.getElementById(`msg-${topicDetail.focus_message_id}`)
     if (!element) {
       return
     }
     element.scrollIntoView({ behavior: "smooth", block: "center" })
-  }, [topicDetail])
+  }, [topicDetail, topicFindMatches.length, topicFindState.open])
+
+  useEffect(() => {
+    if (!topicFindState.open || !topicFindState.query.trim() || topicFindMatches.length === 0) {
+      suppressNextFindScrollRef.current = false
+    }
+  }, [topicFindMatches.length, topicFindState.open, topicFindState.query])
 
   useEffect(() => {
     activeTabRef.current?.scrollIntoView({
@@ -1221,11 +1530,6 @@ export default function App() {
       inline: "nearest",
     })
   }, [routeTopicId, workbenchState.openTopicIds])
-
-  const topicFindMatches =
-    topicDetail && topicFindState.query.trim()
-      ? topicDetail.messages.filter((message) => messageContainsText(message, topicFindState.query.trim()))
-      : []
 
   useEffect(() => {
     setTopicFindState((current) => {
@@ -1240,6 +1544,10 @@ export default function App() {
 
   useEffect(() => {
     if (!topicFindState.open || !topicFindState.query.trim() || topicFindMatches.length === 0) {
+      return
+    }
+    if (suppressNextFindScrollRef.current) {
+      suppressNextFindScrollRef.current = false
       return
     }
     const activeMatch = topicFindMatches[Math.min(topicFindState.activeIndex, topicFindMatches.length - 1)]
@@ -1479,10 +1787,12 @@ export default function App() {
                     </CardContent>
                   </Card>
                 ) : topicDetail ? (
-                  <TopicView
-                    topicDetail={topicDetail}
-                    findState={topicFindState}
-                    findMatches={topicFindMatches}
+        <TopicView
+          topicDetail={topicDetail}
+          activeSearchResult={activeRailSearchResult}
+          sidebarSearchQuery={railSearchState.query}
+          findState={topicFindState}
+          findMatches={topicFindMatches}
                     selectionMode={selectionMode}
                     selectedMessageIds={selectedMessageIds}
                     findInputRef={topicFindInputRef}
@@ -1537,7 +1847,7 @@ export default function App() {
                         aria-hidden="true"
                       />
                       <div className="flex max-w-lg flex-col gap-2">
-                        <h1 className="text-2xl font-medium tracking-tight">Agent Bus Workbench</h1>
+                        <h1 className="text-2xl font-medium tracking-tight">Agent Bus MCP Workbench</h1>
                         <p className="text-muted-foreground">
                           Browse topics by creation or latest activity, keep several threads open at
                           once, and search across the whole bus from the sidebar without leaving the
