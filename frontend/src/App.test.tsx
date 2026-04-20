@@ -326,6 +326,57 @@ describe("App", () => {
     })
   })
 
+  test("highlights Unicode case-insensitive matches without misaligned ranges", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const url = new URL(String(input), "http://localhost")
+
+      if (url.pathname === "/api/topics") {
+        return jsonResponse(topicsPayload)
+      }
+      if (url.pathname === "/api/topics/t-2" && url.searchParams.get("focus") === "focused-message") {
+        return jsonResponse(
+          topicDetail("t-2", "İstanbul handoff context", { focus: "focused-message" })
+        )
+      }
+      if (url.pathname === "/api/search") {
+        return jsonResponse({
+          query: url.searchParams.get("q") ?? "",
+          mode: "hybrid",
+          warnings: [],
+          results: [
+            {
+              topic_id: "t-2",
+              topic_name: "Beta thread",
+              message_id: "focused-message",
+              seq: 7,
+              sender: "architect",
+              message_type: "message",
+              snippet: "İstanbul handoff",
+              semantic_score: 0.81,
+            },
+          ],
+        })
+      }
+
+      throw new Error(`Unhandled fetch ${url.pathname}${url.search}`)
+    })
+
+    const { container } = renderApp(["/"])
+
+    fireEvent.change(await screen.findByPlaceholderText(/^Search$/i), {
+      target: { value: "istanbul" },
+    })
+
+    fireEvent.click(await screen.findByRole("button", { name: /Beta thread/i }))
+
+    await waitFor(() => {
+      const highlightedText = Array.from(container.querySelectorAll("mark[data-ab-highlight='true']")).map(
+        (element) => element.textContent ?? ""
+      )
+      expect(highlightedText).toContain("İstanbul")
+    })
+  })
+
   test("labels fts-only sidebar results using fts_rank", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
       const url = new URL(String(input), "http://localhost")
@@ -398,6 +449,45 @@ describe("App", () => {
         )
       ).toBe(true)
     )
+  })
+
+  test("focused-message navigation does not suppress the first later local-find scroll", async () => {
+    const scrollIntoViewSpy = vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => {})
+    let detailRequestCount = 0
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const url = new URL(String(input), "http://localhost")
+
+      if (url.pathname === "/api/topics") {
+        return jsonResponse(topicsPayload)
+      }
+      if (url.pathname === "/api/topics/t-1" && url.searchParams.get("focus") === "focused-message") {
+        return jsonResponse(topicDetail("t-1", "focused detail", { focus: "focused-message" }))
+      }
+      if (url.pathname === "/api/topics/t-1") {
+        detailRequestCount += 1
+        if (detailRequestCount === 1) {
+          return jsonResponse(topicDetail("t-1", "hello from alpha"))
+        }
+      }
+
+      throw new Error(`Unhandled fetch ${url.pathname}${url.search}`)
+    })
+
+    renderAppWithControls(["/topics/t-1"])
+
+    expect(await screen.findByText("hello from alpha")).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Focus same topic" }))
+    expect(await screen.findByText("focused detail")).toBeInTheDocument()
+
+    scrollIntoViewSpy.mockClear()
+
+    fireEvent.keyDown(window, { key: "f", metaKey: true })
+    fireEvent.change(await screen.findByPlaceholderText(/Find in this thread/i), {
+      target: { value: "focused" },
+    })
+
+    expect(await screen.findByText("1/1")).toBeInTheDocument()
+    await waitFor(() => expect(scrollIntoViewSpy).toHaveBeenCalled())
   })
 
   test("focuses the sidebar search with the keyboard shortcut", async () => {

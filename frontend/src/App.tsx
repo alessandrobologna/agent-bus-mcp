@@ -186,6 +186,10 @@ function uniqueStrings(values: string[]): string[] {
   return out
 }
 
+function normalizeSearchText(value: string): string {
+  return value.toLocaleLowerCase().normalize("NFKD").replace(/\p{M}+/gu, "")
+}
+
 function splitSearchSnippet(snippet: string): Array<{ text: string; highlight: boolean }> {
   const parts: Array<{ text: string; highlight: boolean }> = []
   let cursor = 0
@@ -263,22 +267,38 @@ function findTermRanges(text: string, terms: string[]): TextRange[] {
     return []
   }
 
-  const haystack = text.toLocaleLowerCase()
+  const haystack = normalizeSearchText(text)
+  const normalizedIndexToOriginalRange: TextRange[] = []
+  let originalIndex = 0
+  for (const char of text) {
+    const start = originalIndex
+    const end = start + char.length
+    for (const _normalizedChar of normalizeSearchText(char)) {
+      normalizedIndexToOriginalRange.push({ start, end })
+    }
+    originalIndex = end
+  }
+
   const ranges: TextRange[] = []
 
   for (const term of uniqueStrings(terms)) {
-    const needle = term.toLocaleLowerCase()
+    const needle = normalizeSearchText(term)
     if (!needle) {
       continue
     }
-    let startIndex = 0
-    while (startIndex < haystack.length) {
-      const matchIndex = haystack.indexOf(needle, startIndex)
-      if (matchIndex === -1) {
+    let searchStart = 0
+    while (searchStart < haystack.length) {
+      const normalizedMatchIndex = haystack.indexOf(needle, searchStart)
+      if (normalizedMatchIndex === -1) {
         break
       }
-      ranges.push({ start: matchIndex, end: matchIndex + needle.length })
-      startIndex = matchIndex + Math.max(needle.length, 1)
+      const normalizedMatchEnd = normalizedMatchIndex + needle.length - 1
+      const start = normalizedIndexToOriginalRange[normalizedMatchIndex]?.start
+      const end = normalizedIndexToOriginalRange[normalizedMatchEnd]?.end
+      if (start !== undefined && end !== undefined && end > start) {
+        ranges.push({ start, end })
+      }
+      searchStart = normalizedMatchIndex + Math.max(needle.length, 1)
     }
   }
 
@@ -1474,26 +1494,6 @@ export default function App() {
     }
   }, [routeTopicId])
 
-  useEffect(() => {
-    if (!topicDetail?.focus_message_id) {
-      return
-    }
-    suppressNextFindScrollRef.current = true
-    const element = document.getElementById(`msg-${topicDetail.focus_message_id}`)
-    if (!element) {
-      return
-    }
-    element.scrollIntoView({ behavior: "smooth", block: "center" })
-  }, [topicDetail])
-
-  useEffect(() => {
-    activeTabRef.current?.scrollIntoView({
-      behavior: "smooth",
-      block: "nearest",
-      inline: "nearest",
-    })
-  }, [routeTopicId, workbenchState.openTopicIds])
-
   const topicFindMatches =
     topicDetail && topicFindState.query.trim()
       ? topicDetail.messages.filter((message) => messageContainsText(message, topicFindState.query.trim()))
@@ -1504,6 +1504,32 @@ export default function App() {
           (result) => result.topic_id === routeTopicId && result.message_id === focusMessageId
         ) ?? null
       : null
+
+  useEffect(() => {
+    if (!topicDetail?.focus_message_id) {
+      return
+    }
+    suppressNextFindScrollRef.current = topicFindState.open && topicFindMatches.length > 0
+    const element = document.getElementById(`msg-${topicDetail.focus_message_id}`)
+    if (!element) {
+      return
+    }
+    element.scrollIntoView({ behavior: "smooth", block: "center" })
+  }, [topicDetail, topicFindMatches.length, topicFindState.open])
+
+  useEffect(() => {
+    if (!topicFindState.open || !topicFindState.query.trim() || topicFindMatches.length === 0) {
+      suppressNextFindScrollRef.current = false
+    }
+  }, [topicFindMatches.length, topicFindState.open, topicFindState.query])
+
+  useEffect(() => {
+    activeTabRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "nearest",
+      inline: "nearest",
+    })
+  }, [routeTopicId, workbenchState.openTopicIds])
 
   useEffect(() => {
     setTopicFindState((current) => {
