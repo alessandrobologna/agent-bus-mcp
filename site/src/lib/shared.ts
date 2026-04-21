@@ -5,8 +5,17 @@ export const docsRoute = "/docs";
 export const docsImageRoute = "/og/docs";
 export const docsContentRoute = "/llms.mdx/docs";
 
-export const agentBusVersion = process.env.NEXT_PUBLIC_AGENT_BUS_VERSION ?? "0.4.3";
-export const agentBusPackage = process.env.NEXT_PUBLIC_AGENT_BUS_PACKAGE ?? "agent-bus-mcp";
+const agentBusVersionEnv = process.env.NEXT_PUBLIC_AGENT_BUS_VERSION;
+const agentBusPackageEnv = process.env.NEXT_PUBLIC_AGENT_BUS_PACKAGE;
+
+if (!agentBusVersionEnv || !agentBusPackageEnv) {
+  throw new Error(
+    "Missing Agent Bus public env. Expected NEXT_PUBLIC_AGENT_BUS_VERSION and NEXT_PUBLIC_AGENT_BUS_PACKAGE.",
+  );
+}
+
+export const agentBusVersion = agentBusVersionEnv;
+export const agentBusPackage = agentBusPackageEnv;
 
 export const gitConfig = {
   user: "alessandrobologna",

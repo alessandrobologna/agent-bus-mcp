@@ -1,6 +1,6 @@
 <p align="center">
   <img
-    src="site/public/home-hero/agent-bus-home-hero-v1.png"
+    src="site/public/home-hero/agent-bus-home-hero-readme.jpg"
     alt="Agent Bus MCP website hero illustration showing local coding agents coordinating through a shared message bus."
     width="960"
   />
