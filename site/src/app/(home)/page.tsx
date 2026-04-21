@@ -1,29 +1,33 @@
 import Link from "next/link";
+import { Download, MessageSquare, Search } from "lucide-react";
 import { ParallaxHero } from "@/components/parallax-hero";
+import { ClientsStrip } from "@/components/clients-strip";
+import { HowItWorks } from "@/components/how-it-works";
+import { InstallSnippet } from "@/components/install-snippet";
+import { FitAndNotFit } from "@/components/fit-and-not-fit";
+import { WhereToNext } from "@/components/where-to-next";
+import { ClosingCta } from "@/components/closing-cta";
+import { SectionKicker } from "@/components/section-kicker";
 import { docsHref, withBasePath } from "@/lib/shared";
 
-const sectionLinks = [
+const WEB_UI_CALLOUTS = [
   {
-    title: "Run a handoff",
-    href: docsHref("tutorials/first-topic-between-two-peers"),
+    Icon: Search,
+    title: "Find a topic",
     description:
-      "Walk through two agents joining the same topic, exchanging messages, and replaying the result.",
+      "Sidebar of recent topics with search, status filters, and sort by latest activity.",
   },
   {
-    title: "Install Agent Bus MCP",
-    href: docsHref("how-to/install-and-configure-agent-bus"),
+    Icon: MessageSquare,
+    title: "Open a thread",
     description:
-      "Add the MCP server to your clients and point them at the same local database.",
+      "Ordered messages, peer identities, and topic metadata in a single inspector view.",
   },
   {
-    title: "Look up commands",
-    href: docsHref("reference/runtime-reference"),
-    description: "Find exact MCP tools, CLI commands, environment variables, and behavior.",
-  },
-  {
-    title: "Why & fit",
-    href: docsHref("explanation/why-agent-bus"),
-    description: "See when Agent Bus MCP helps, what it does not try to be, and why it is local-first.",
+    Icon: Download,
+    title: "Export a topic",
+    description:
+      "Download a browser-friendly export of any thread to archive a handoff or share a past review.",
   },
 ];
 
@@ -62,108 +66,85 @@ export default function HomePage() {
         ]}
       />
 
-      <div className="mx-auto mt-12 grid w-full max-w-7xl items-start gap-12 px-6 pb-10 md:px-10 md:pb-12 lg:grid-cols-[1.05fr_0.95fr] lg:px-12">
-        <div className="space-y-8">
-          <div className="space-y-5">
-            <div className="inline-flex items-center rounded-md border border-fd-border bg-fd-muted px-3 py-1.5 text-sm font-semibold text-fd-muted-foreground">
-              Choose a path
+      <ClientsStrip />
+
+      <HowItWorks />
+
+      <WebUiFeature />
+
+      <InstallSnippet />
+
+      <FitAndNotFit />
+
+      <WhereToNext />
+
+      <ClosingCta />
+    </main>
+  );
+}
+
+function WebUiFeature() {
+  return (
+    <section className="border-b border-fd-border bg-fd-muted/30">
+      <div className="mx-auto w-full max-w-7xl px-6 py-16 md:px-10 md:py-20 lg:px-12">
+        <div className="grid gap-10 lg:grid-cols-[1.05fr_0.95fr] lg:items-center">
+          <div className="rounded-2xl border border-fd-border bg-fd-card p-5">
+            <div className="rounded-xl border border-fd-border bg-fd-muted p-3">
+              <div className="mb-3 flex items-center gap-1.5 px-1">
+                <span className="h-2.5 w-2.5 rounded-full bg-rose-400/90" />
+                <span className="h-2.5 w-2.5 rounded-full bg-amber-400/90" />
+                <span className="h-2.5 w-2.5 rounded-full bg-emerald-400/90" />
+                <span className="ml-3 font-mono text-xs font-medium uppercase tracking-[0.18em] text-fd-muted-foreground">
+                  Agent Bus MCP Web UI
+                </span>
+              </div>
+              <div className="overflow-hidden rounded-lg border border-fd-border bg-fd-card">
+                <img
+                  src={withBasePath("/docs-assets/images/webui-overview.png")}
+                  alt="Screenshot of the Agent Bus MCP Web UI topic list."
+                  className="h-auto w-full"
+                />
+              </div>
             </div>
-            <h2 className="max-w-3xl text-3xl font-semibold tracking-[-0.04em] text-fd-foreground md:text-4xl">
-              Start with the workflow you need.
+          </div>
+
+          <div>
+            <SectionKicker>Web UI</SectionKicker>
+            <h2 className="mt-3 text-3xl font-semibold tracking-[-0.04em] text-fd-foreground md:text-4xl">
+              See the coordination your agents leave behind.
             </h2>
-            <p className="max-w-2xl text-lg leading-8 text-fd-muted-foreground">
-              Try a two-agent handoff first, then install Agent Bus MCP in your own clients. Use the
-              reference when you need exact tool behavior, and the design guide when you want to
-              understand the local-first tradeoffs.
+            <p className="mt-4 text-lg leading-8 text-fd-muted-foreground">
+              Open any topic to review the ordered thread, inspect peer activity, search the
+              history, and export a handoff or review session.
             </p>
-          </div>
 
-          <div className="grid gap-4 md:grid-cols-2">
-            {sectionLinks.map((section) => (
+            <ul className="mt-8 space-y-5">
+              {WEB_UI_CALLOUTS.map(({ Icon, title, description }) => (
+                <li key={title} className="flex items-start gap-4">
+                  <div className="mt-0.5 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-fd-border bg-fd-background text-fd-foreground">
+                    <Icon className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-semibold text-fd-foreground">{title}</h3>
+                    <p className="mt-1 text-sm leading-6 text-fd-muted-foreground">
+                      {description}
+                    </p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+
+            <div className="mt-8">
               <Link
-                key={section.href}
-                href={section.href}
-                className="group rounded-xl border border-fd-border bg-fd-card p-5 transition hover:border-fd-primary/40 hover:bg-fd-muted"
+                href={docsHref("how-to/use-the-web-ui")}
+                className="inline-flex items-center text-sm font-medium text-fd-foreground/85 transition hover:text-[color:var(--color-accent-amber)]"
               >
-                <div className="flex items-center justify-between gap-4">
-                  <div className="text-base font-semibold text-fd-foreground">
-                    {section.title}
-                  </div>
-                  <div className="text-sm font-medium text-fd-muted-foreground transition group-hover:text-fd-primary">
-                    View
-                  </div>
-                </div>
-                <p className="mt-2 text-sm leading-6 text-fd-muted-foreground">
-                  {section.description}
-                </p>
+                How to use the Web UI &rarr;
               </Link>
-            ))}
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-fd-border bg-fd-card p-5">
-          <div className="rounded-xl border border-fd-border bg-fd-muted p-3">
-            <div className="mb-3 flex items-center gap-1.5 px-1">
-              <span className="h-2.5 w-2.5 rounded-full bg-rose-400/90" />
-              <span className="h-2.5 w-2.5 rounded-full bg-amber-400/90" />
-              <span className="h-2.5 w-2.5 rounded-full bg-emerald-400/90" />
-              <span className="ml-3 text-xs font-medium uppercase tracking-[0.18em] text-fd-muted-foreground">
-                Agent Bus MCP Web UI
-              </span>
-            </div>
-            <div className="overflow-hidden rounded-lg border border-fd-border bg-fd-card">
-              <img
-                src={withBasePath("/docs-assets/images/webui-overview.png")}
-                alt="Screenshot of the Agent Bus MCP Web UI topic list."
-                className="h-auto w-full"
-              />
-            </div>
-          </div>
-
-          <div className="mt-5 space-y-4">
-            <div>
-              <h2 className="text-lg font-semibold text-fd-foreground">
-                See the coordination your agents leave behind
-              </h2>
-              <p className="mt-2 text-sm leading-6 text-fd-muted-foreground">
-                Open any topic to review the ordered thread, inspect peer activity, search the
-                history, and export a handoff or review session.
-              </p>
-            </div>
-            <div className="rounded-xl border border-fd-border bg-fd-muted px-4 py-4">
-              <div className="text-xs font-semibold uppercase tracking-[0.16em] text-fd-muted-foreground">
-                Common next steps
-              </div>
-              <div className="mt-3 space-y-2 text-sm">
-                <Link
-                  href={docsHref("how-to/install-and-configure-agent-bus")}
-                  className="block text-fd-foreground underline decoration-fd-border underline-offset-4 transition hover:text-fd-primary"
-                >
-                  Install and configure Agent Bus MCP
-                </Link>
-                <Link
-                  href={docsHref("tutorials/first-topic-between-two-peers")}
-                  className="block text-fd-foreground underline decoration-fd-border underline-offset-4 transition hover:text-fd-primary"
-                >
-                  Walk through a first topic between two peers
-                </Link>
-                <Link
-                  href={docsHref("how-to/use-the-web-ui")}
-                  className="block text-fd-foreground underline decoration-fd-border underline-offset-4 transition hover:text-fd-primary"
-                >
-                  Use the Agent Bus MCP Web UI
-                </Link>
-                <Link
-                  href={docsHref("reference/runtime-reference")}
-                  className="block text-fd-foreground underline decoration-fd-border underline-offset-4 transition hover:text-fd-primary"
-                >
-                  Open the runtime reference
-                </Link>
-              </div>
             </div>
           </div>
         </div>
       </div>
-    </main>
+    </section>
   );
 }

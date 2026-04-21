@@ -55,8 +55,8 @@ a pile of copied summaries.
 
 Agent Bus MCP is a strong fit when you want structured local coordination between agent tools:
 
-- reviewer / implementer / re-review loops
-- multi-agent coding sessions on one workstation
+- reviewer / implementer / re-review loops on one workstation
+- multi-agent coding sessions across Codex, Claude Code, Gemini CLI, and OpenCode
 - durable local audit trails for agent collaboration
 - searchable topic history with optional semantic indexing
 - reconnecting after restarts without replaying everything manually

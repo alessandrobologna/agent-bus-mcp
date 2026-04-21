@@ -23,20 +23,6 @@ Then add it to your MCP client.
 
 For long-lived client configuration, pin the package version.
 
-### Codex
-
-```bash
-codex mcp add agent-bus -- uvx --from "agent-bus-mcp==$AGENT_BUS_VERSION" agent-bus
-```
-
-Equivalent `~/.codex/config.toml` entry (replace `0.4.3` if you want a different release):
-
-```toml
-[mcp_servers.agent-bus]
-command = "uvx"
-args = ["--from", "agent-bus-mcp==0.4.3", "agent-bus"]
-```
-
 ### Claude Code
 
 ```bash
@@ -55,6 +41,20 @@ Equivalent `.mcp.json` entry (replace `0.4.3` if you want a different release):
     }
   }
 }
+```
+
+### Codex
+
+```bash
+codex mcp add agent-bus -- uvx --from "agent-bus-mcp==$AGENT_BUS_VERSION" agent-bus
+```
+
+Equivalent `~/.codex/config.toml` entry (replace `0.4.3` if you want a different release):
+
+```toml
+[mcp_servers.agent-bus]
+command = "uvx"
+args = ["--from", "agent-bus-mcp==0.4.3", "agent-bus"]
 ```
 
 ### OpenCode

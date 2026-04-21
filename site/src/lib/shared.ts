@@ -5,6 +5,9 @@ export const docsRoute = "/docs";
 export const docsImageRoute = "/og/docs";
 export const docsContentRoute = "/llms.mdx/docs";
 
+export const agentBusVersion = "0.4.3";
+export const agentBusPackage = "agent-bus-mcp";
+
 export const gitConfig = {
   user: "alessandrobologna",
   repo: "agent-bus-mcp",

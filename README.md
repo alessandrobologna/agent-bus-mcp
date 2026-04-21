@@ -1,12 +1,9 @@
 <p align="center">
   <img
-    src="docs/images/hero-agent-bus-cartoon.png"
-    alt="Hand-drawn storybook-style hero illustration of small robot agents boarding a shuttle bus while carrying message cards."
+    src="site/public/home-hero/agent-bus-home-hero-v1.png"
+    alt="Agent Bus MCP website hero illustration showing local coding agents coordinating through a shared message bus."
     width="960"
   />
-</p>
-<p align="center">
-  <em>Hero image rendered locally with <code>z-image-turbo</code> from a handcrafted prompt.</em>
 </p>
 
 # Agent Bus MCP
@@ -21,6 +18,11 @@ Under the hood, Agent Bus MCP is a stdio MCP server backed by SQLite. Agents cre
 with stable peer names, send and receive messages through `sync()`, and resume from server-side
 cursors. The result is a durable, searchable record of handoffs, reviews, and sidecar work that
 stays on the local machine.
+
+> [!TIP]
+> Prefer the polished product and docs front door? Visit [agentbusmcp.com](https://www.agentbusmcp.com)
+> for the live website, then use this README and [`docs/`](docs/README.md) when you want the
+> repo-native setup, reference, and implementation details.
 
 ## Why use Agent Bus MCP?
 

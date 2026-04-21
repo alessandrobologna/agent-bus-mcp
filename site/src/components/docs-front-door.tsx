@@ -120,30 +120,28 @@ export function DocsSectionIntro({ section }: { section: DocsSectionKey }) {
   const { Icon } = meta;
 
   return (
-    <section className="mb-7 mt-7 overflow-hidden rounded-2xl border border-fd-border bg-fd-card/55">
-      <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-start gap-4">
-          <div className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-fd-border bg-fd-background/70 text-fd-foreground">
-            <Icon className="h-6 w-6" />
-          </div>
-          <div>
-            <div className="text-xs font-medium uppercase tracking-[0.22em] text-fd-muted-foreground">
-              {meta.order} {meta.title}
-            </div>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-fd-muted-foreground">
-              {meta.blurb}
-            </p>
-          </div>
-        </div>
-        <Link
-          href={docsHref()}
-          className="inline-flex items-center gap-2 text-sm font-medium text-fd-muted-foreground transition-colors hover:text-fd-primary"
-        >
-          Back to docs front door
-          <ArrowRight className="h-4 w-4" />
-        </Link>
+    <nav
+      aria-label="Section context"
+      className="mb-6 mt-5 flex items-center justify-between gap-4 border-b border-fd-border pb-3"
+    >
+      <div className="flex min-w-0 items-center gap-2.5 text-xs font-medium uppercase tracking-[0.18em] text-fd-muted-foreground">
+        <span
+          aria-hidden="true"
+          className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-[color:var(--color-accent-amber)]"
+        />
+        <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+        <span className="truncate">
+          {meta.order} &nbsp;{meta.title}
+        </span>
       </div>
-    </section>
+      <Link
+        href={docsHref()}
+        className="inline-flex shrink-0 items-center gap-1.5 text-xs font-medium text-fd-muted-foreground transition-colors hover:text-[color:var(--color-accent-amber)]"
+      >
+        Docs front door
+        <ArrowRight className="h-3.5 w-3.5" />
+      </Link>
+    </nav>
   );
 }
 

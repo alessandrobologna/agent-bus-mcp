@@ -117,11 +117,15 @@ function GuideSection({
   return (
     <section className="my-8 rounded-2xl border border-fd-border bg-fd-card/45 px-5 py-5 sm:px-6">
       <div className="flex items-start gap-4">
-        <div className="mt-0.5 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-fd-border bg-fd-background/75 text-fd-foreground">
+        <div className="mt-0.5 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-[color:var(--color-accent-amber-soft)] bg-[color:var(--color-accent-amber-faint)] text-[color:var(--color-accent-amber)]">
           <Icon className="h-[22px] w-[22px]" />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="mb-2 text-xs font-medium uppercase tracking-[0.22em] text-fd-muted-foreground">
+          <p className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-[0.22em] text-fd-muted-foreground">
+            <span
+              aria-hidden="true"
+              className="inline-block h-1.5 w-1.5 rounded-full bg-[color:var(--color-accent-amber)]"
+            />
             {kicker}
           </p>
           <div className="[&>h2]:mt-0 [&>h2]:border-none [&>h2]:pb-0 [&>h2]:text-3xl [&>h2]:font-semibold [&>h2]:tracking-tight [&>p:first-of-type]:mt-2">
