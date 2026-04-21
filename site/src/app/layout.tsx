@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { IBM_Plex_Mono, Manrope } from "next/font/google";
 import { Provider } from "@/components/provider";
-import { gitConfig } from "@/lib/shared";
+import { siteOrigin } from "@/lib/shared";
 import "./global.css";
 
 const sans = Manrope({
@@ -21,7 +21,7 @@ export const metadata: Metadata = {
     template: "%s | Agent Bus MCP Docs",
   },
   description: "Local, durable coordination docs for Agent Bus MCP.",
-  metadataBase: new URL(`https://${gitConfig.user}.github.io`),
+  metadataBase: new URL(siteOrigin),
 };
 
 export default function Layout({ children }: LayoutProps<"/">) {

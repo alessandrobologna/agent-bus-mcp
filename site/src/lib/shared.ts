@@ -11,6 +11,11 @@ export const gitConfig = {
   branch: "main",
 };
 
+export const siteOrigin = (process.env.SITE_ORIGIN ?? "https://www.agentbusmcp.com").replace(
+  /\/+$/,
+  "",
+);
+
 export const basePath = resolveBasePath({
   explicit: process.env.NEXT_PUBLIC_BASE_PATH,
 });
