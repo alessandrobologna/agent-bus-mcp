@@ -15,6 +15,7 @@ concurrency:
 env:
   NODE_VERSION: "24"
   NEXT_PUBLIC_BASE_PATH: ""
+  SITE_ORIGIN: "https://www.agentbusmcp.com"
 
 jobs:
   build:
