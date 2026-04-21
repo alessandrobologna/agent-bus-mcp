@@ -94,7 +94,7 @@ export function ParallaxHero({
           src={imageSrc}
           alt=""
           aria-hidden="true"
-          className="absolute inset-y-0 right-0 hidden h-full w-[56%] max-w-none object-cover object-right opacity-90 md:block"
+          className="absolute inset-0 h-full w-full max-w-none object-cover object-[70%_center] opacity-45 md:inset-y-0 md:right-0 md:left-auto md:w-[56%] md:object-right md:opacity-90"
           style={{
             filter: "saturate(0.35) brightness(0.86) contrast(1.08)",
             transform: prefersReducedMotion
@@ -102,7 +102,8 @@ export function ParallaxHero({
               : `translateY(${offset}px) scale(1.06)`,
           }}
         />
-        <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(10,10,10,0.97)_0%,rgba(10,10,10,0.88)_34%,rgba(10,10,10,0.60)_62%,rgba(10,10,10,0.22)_100%)]" />
+        <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(10,10,10,0.55)_0%,rgba(10,10,10,0.78)_55%,rgba(10,10,10,0.95)_100%)] md:hidden" />
+        <div className="absolute inset-0 hidden bg-[linear-gradient(90deg,rgba(10,10,10,0.97)_0%,rgba(10,10,10,0.88)_34%,rgba(10,10,10,0.60)_62%,rgba(10,10,10,0.22)_100%)] md:block" />
         <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(23,23,23,0.06)_0%,rgba(23,23,23,0.28)_100%)]" />
       </div>
 

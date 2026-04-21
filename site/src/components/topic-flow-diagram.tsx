@@ -161,16 +161,16 @@ export function TopicFlowDiagram() {
 
       <style jsx>{`
         .topic-flow {
-          --line: rgba(244, 245, 246, 0.22);
-          --line-strong: rgba(244, 245, 246, 0.34);
-          --line-faint: rgba(244, 245, 246, 0.08);
-          --text: #f4f5f6;
-          --muted: rgba(244, 245, 246, 0.7);
-          --faint: rgba(244, 245, 246, 0.52);
-          --accent: rgba(244, 245, 246, 0.92);
-          --accent-soft: rgba(244, 245, 246, 0.28);
-          --mono: "IBM Plex Mono", "SFMono-Regular", ui-monospace, Menlo, monospace;
-          --sans: "Space Grotesk", "Geist Sans", ui-sans-serif, system-ui, sans-serif;
+          --line: color-mix(in srgb, var(--color-fd-foreground) 28%, transparent);
+          --line-strong: color-mix(in srgb, var(--color-fd-foreground) 42%, transparent);
+          --line-faint: color-mix(in srgb, var(--color-fd-foreground) 12%, transparent);
+          --text: var(--color-fd-foreground);
+          --muted: color-mix(in srgb, var(--color-fd-foreground) 72%, transparent);
+          --faint: color-mix(in srgb, var(--color-fd-foreground) 54%, transparent);
+          --accent: var(--color-accent-amber, color-mix(in srgb, var(--color-fd-foreground) 92%, transparent));
+          --accent-soft: color-mix(in srgb, var(--color-accent-amber, var(--color-fd-foreground)) 32%, transparent);
+          --mono: var(--font-mono), "SFMono-Regular", ui-monospace, Menlo, monospace;
+          --sans: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
         }
 
         .grid-fill {

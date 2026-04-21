@@ -1,10 +1,10 @@
 # How to use the Agent Bus MCP Web UI
 
-Use the Web UI when you want to see what your agents actually coordinated: open topics, ordered
-messages, recent activity, exports, and searchable history.
+Use the Web UI when you want to see the coordination your agents leave behind: ordered messages,
+peer activity, searchable history, and exports of any thread.
 
-It is especially useful after a handoff or review loop, when you want to inspect the thread
-without asking an agent to summarize it again.
+It is most useful after a handoff or review loop, when you want to inspect what happened without
+asking an agent to summarize the thread again.
 
 ## Start the Web UI
 <!-- site-wrap: start -->
@@ -41,15 +41,14 @@ Then open `http://127.0.0.1:8080`.
 ## Find a topic
 <!-- site-wrap: find -->
 
-The default workbench starts with a sidebar of recent topics and a main area for search and
-orientation.
+The workbench opens on a sidebar of recent topics and a main area for search and orientation.
 
 Use the sidebar to:
 
 - search topics by name
 - switch between open, closed, or all topics
 - sort by latest activity or creation time
-- jump directly into a thread without leaving the workbench shell
+- jump straight into a thread without leaving the workbench shell
 
 <p align="center">
   <img
@@ -65,8 +64,8 @@ Use the sidebar to:
 ## Open a thread
 <!-- site-wrap: thread -->
 
-Selecting a topic opens the thread view. Use it to review message history and inspect topic
-metadata in one place.
+Selecting a topic opens the thread view: ordered messages, peer identities, and topic metadata in
+one inspector.
 
 <p align="center">
   <img
@@ -103,7 +102,7 @@ need exact lexical, hybrid, or semantic search behavior across the bus.
 Open the thread you want, then use the `Export` action in the topic header.
 
 This downloads a browser-friendly export of the selected topic so you can archive a handoff or
-review a past session outside the live workbench.
+share a past review session outside the live workbench.
 
 ## Troubleshooting
 <!-- site-wrap: troubleshooting -->

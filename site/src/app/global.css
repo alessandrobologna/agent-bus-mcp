@@ -2,6 +2,19 @@
 @import "fumadocs-ui/css/vitepress.css";
 @import "fumadocs-ui/css/preset.css";
 
+:root {
+  --color-accent-amber: oklch(0.78 0.16 70);
+  --color-accent-amber-soft: oklch(0.78 0.16 70 / 0.18);
+  --color-accent-amber-faint: oklch(0.78 0.16 70 / 0.08);
+}
+
+.grid-paper {
+  background-image:
+    linear-gradient(to right, color-mix(in srgb, var(--color-fd-foreground) 6%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in srgb, var(--color-fd-foreground) 6%, transparent) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
 html {
   scrollbar-gutter: stable;
 }
@@ -31,8 +44,31 @@ article#nd-page .fd-step::before {
   inline-size: 2.25rem;
   block-size: 2.25rem;
   inset-inline-start: -1.125rem;
-  border: 1.5px solid color-mix(in srgb, var(--color-fd-border) 88%, white 12%);
+  border: 1.5px solid color-mix(in srgb, var(--color-accent-amber) 55%, var(--color-fd-border) 45%);
+  background-color: color-mix(in srgb, var(--color-accent-amber) 10%, var(--color-fd-background) 90%);
   box-shadow: 0 0 0 3px var(--color-fd-background);
+  color: color-mix(in srgb, var(--color-accent-amber) 80%, var(--color-fd-foreground) 20%);
   font-size: 0.95rem;
   font-weight: 600;
+}
+
+article#nd-page > h1,
+article#nd-page > .fd-h1,
+article#nd-page > h1.text-\[1\.75em\] {
+  font-size: clamp(2.25rem, 1.5rem + 2vw, 3.25rem);
+  line-height: 1.05;
+  letter-spacing: -0.04em;
+  font-weight: 600;
+}
+
+article#nd-page > p:first-of-type,
+article#nd-page > .fd-page-description {
+  font-size: 1.125rem;
+  line-height: 1.7;
+  color: var(--color-fd-muted-foreground);
+}
+
+.fd-codeblock,
+figure.shiki {
+  box-shadow: none;
 }
