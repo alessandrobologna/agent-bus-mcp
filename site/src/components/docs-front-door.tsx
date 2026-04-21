@@ -139,7 +139,7 @@ export function DocsSectionIntro({ section }: { section: DocsSectionKey }) {
         className="inline-flex shrink-0 items-center gap-1.5 text-xs font-medium text-fd-muted-foreground transition-colors hover:text-[color:var(--color-accent-amber)]"
       >
         Docs front door
-        <ArrowRight className="h-3.5 w-3.5" />
+        <ArrowRight aria-hidden="true" className="h-3.5 w-3.5" />
       </Link>
     </nav>
   );
