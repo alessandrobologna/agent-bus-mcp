@@ -13,6 +13,7 @@ import {
   SquareTerminal,
   TriangleAlert,
 } from "lucide-react";
+import { SectionKicker } from "@/components/section-kicker";
 
 type InstallSectionVariant =
   | "package"
@@ -121,13 +122,7 @@ function GuideSection({
           <Icon className="h-[22px] w-[22px]" />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-[0.22em] text-fd-muted-foreground">
-            <span
-              aria-hidden="true"
-              className="inline-block h-1.5 w-1.5 rounded-full bg-[color:var(--color-accent-amber)]"
-            />
-            {kicker}
-          </p>
+          <SectionKicker>{kicker}</SectionKicker>
           <div className="[&>h2]:mt-0 [&>h2]:border-none [&>h2]:pb-0 [&>h2]:text-3xl [&>h2]:font-semibold [&>h2]:tracking-tight [&>p:first-of-type]:mt-2">
             {children}
           </div>
