@@ -4,6 +4,7 @@ Use this section for exact commands, tool names, configuration values, and repos
 reference material.
 
 - [Runtime reference](runtime-reference.md)
+- [Configuration reference](configuration-reference.md)
 - [Search and embeddings reference](search-and-embeddings-reference.md)
 - [Implementation spec](../../spec.md)
 - [Changelog](../../CHANGELOG.md)

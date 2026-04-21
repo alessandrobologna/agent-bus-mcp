@@ -17,8 +17,8 @@ const mono = IBM_Plex_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: "Agent Bus Docs",
-    template: "%s | Agent Bus Docs",
+    default: "Agent Bus MCP Docs",
+    template: "%s | Agent Bus MCP Docs",
   },
   description: "Local, durable coordination docs for Agent Bus MCP.",
   metadataBase: new URL(`https://${gitConfig.user}.github.io`),

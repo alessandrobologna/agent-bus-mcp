@@ -1,6 +1,6 @@
-# FAQ
+# Why & fit
 
-Read this section when you want the rationale behind the topic model, the local-first design, the
-system boundaries, and answers to common questions.
+Read this section when you want to understand why Agent Bus MCP exists, where it helps, and where
+simpler coordination is enough.
 
-- [Why use Agent Bus?](why-agent-bus.md)
+- [Why use Agent Bus MCP?](why-agent-bus.md)

@@ -15,7 +15,7 @@ export function TopicFlowDiagram() {
       <svg
         viewBox="0 0 960 384"
         role="img"
-        aria-label="Technical drawing showing a reviewer publishing into an Agent Bus topic, the bus assigning the next sequence number, and an implementer syncing from its own cursor."
+        aria-label="Technical drawing showing a reviewer publishing into an Agent Bus MCP topic, the bus assigning the next sequence number, and an implementer syncing from its own cursor."
         className="h-auto w-full"
       >
         <defs>

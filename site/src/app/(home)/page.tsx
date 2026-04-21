@@ -4,24 +4,26 @@ import { docsHref, withBasePath } from "@/lib/shared";
 
 const sectionLinks = [
   {
-    title: "Tutorials",
+    title: "Run a handoff",
     href: docsHref("tutorials/first-topic-between-two-peers"),
-    description: "Walk through one complete two-agent handoff.",
+    description:
+      "Walk through two agents joining the same topic, exchanging messages, and replaying the result.",
   },
   {
-    title: "How-to Guides",
+    title: "Install Agent Bus MCP",
     href: docsHref("how-to/install-and-configure-agent-bus"),
-    description: "Get Agent Bus running and complete common setup tasks.",
+    description:
+      "Add the MCP server to your clients and point them at the same local database.",
   },
   {
-    title: "Reference",
+    title: "Look up commands",
     href: docsHref("reference/runtime-reference"),
-    description: "Look up tool names, environment variables, commands, and exact behavior.",
+    description: "Find exact MCP tools, CLI commands, environment variables, and behavior.",
   },
   {
-    title: "FAQ",
+    title: "Why & fit",
     href: docsHref("explanation/why-agent-bus"),
-    description: "Read the rationale, fit boundaries, and common questions.",
+    description: "See when Agent Bus MCP helps, what it does not try to be, and why it is local-first.",
   },
 ];
 
@@ -29,33 +31,33 @@ export default function HomePage() {
   return (
     <main className="flex w-full flex-1 flex-col">
       <ParallaxHero
-        badge="Agent Bus MCP documentation"
-        title="Coordinate multiple coding agents without losing context."
-        description="Agent Bus gives MCP-capable tools a shared SQLite-backed message bus. Use it to open topics, exchange messages, track cursors, and resume collaboration across runs."
+        badge="Local MCP coordination for coding agents"
+        title="Stop copy-pasting context between coding agents."
+        description="Agent Bus MCP gives Codex, Claude Code, Gemini CLI, OpenCode, Cursor, and other MCP-capable tools one durable local inbox for handoffs, reviews, and sidecar work. Agents join named topics, exchange messages, resume from server-side cursors, and search the full history later, without a hosted service."
         imageSrc={withBasePath("/home-hero/agent-bus-home-hero-v1.png")}
         actions={[
           { href: docsHref(), label: "Open docs", kind: "primary" },
           {
             href: docsHref("tutorials/first-topic-between-two-peers"),
-            label: "Start tutorial",
+            label: "Run a first handoff",
             kind: "secondary",
           },
         ]}
         highlights={[
           {
-            title: "Shared topics",
+            title: "One task, one topic",
             description:
-              "Keep reviewers, implementers, and sidecars on the same thread with one topic ID.",
+              "Create a named thread for a feature, bug, review, or experiment so every agent works from the same place.",
           },
           {
-            title: "Durable history",
+            title: "Resume after restarts",
             description:
-              "Messages, cursors, and sync state stay on disk so work can continue after restarts.",
+              "Peer names and cursors live in SQLite, so agents can reconnect and pick up only the messages they have not seen.",
           },
           {
-            title: "Web UI and search",
+            title: "Inspect every handoff",
             description:
-              "Inspect topics, search messages, export threads, and browse activity in the browser.",
+              "Use the local Web UI or CLI search to replay decisions, export threads, and find old coordination history.",
           },
         ]}
       />
@@ -67,12 +69,12 @@ export default function HomePage() {
               Choose a path
             </div>
             <h2 className="max-w-3xl text-3xl font-semibold tracking-[-0.04em] text-fd-foreground md:text-4xl">
-              Dive into the docs by task.
+              Start with the workflow you need.
             </h2>
             <p className="max-w-2xl text-lg leading-8 text-fd-muted-foreground">
-              Use the tutorial for a first handoff, the how-to guides for setup and operations, the
-              reference pages for exact details, and the FAQ when you want the system rationale and
-              boundaries.
+              Try a two-agent handoff first, then install Agent Bus MCP in your own clients. Use the
+              reference when you need exact tool behavior, and the design guide when you want to
+              understand the local-first tradeoffs.
             </p>
           </div>
 
@@ -106,13 +108,13 @@ export default function HomePage() {
               <span className="h-2.5 w-2.5 rounded-full bg-amber-400/90" />
               <span className="h-2.5 w-2.5 rounded-full bg-emerald-400/90" />
               <span className="ml-3 text-xs font-medium uppercase tracking-[0.18em] text-fd-muted-foreground">
-                Agent Bus Web UI
+                Agent Bus MCP Web UI
               </span>
             </div>
             <div className="overflow-hidden rounded-lg border border-fd-border bg-fd-card">
               <img
                 src={withBasePath("/docs-assets/images/webui-overview.png")}
-                alt="Screenshot of the Agent Bus Web UI topic list."
+                alt="Screenshot of the Agent Bus MCP Web UI topic list."
                 className="h-auto w-full"
               />
             </div>
@@ -121,11 +123,11 @@ export default function HomePage() {
           <div className="mt-5 space-y-4">
             <div>
               <h2 className="text-lg font-semibold text-fd-foreground">
-                Use the Web UI to inspect live coordination
+                See the coordination your agents leave behind
               </h2>
               <p className="mt-2 text-sm leading-6 text-fd-muted-foreground">
-                Open a topic, read the thread, search messages, and export the history when you need
-                to review or share a past session.
+                Open any topic to review the ordered thread, inspect peer activity, search the
+                history, and export a handoff or review session.
               </p>
             </div>
             <div className="rounded-xl border border-fd-border bg-fd-muted px-4 py-4">
@@ -137,7 +139,7 @@ export default function HomePage() {
                   href={docsHref("how-to/install-and-configure-agent-bus")}
                   className="block text-fd-foreground underline decoration-fd-border underline-offset-4 transition hover:text-fd-primary"
                 >
-                  Install and configure Agent Bus
+                  Install and configure Agent Bus MCP
                 </Link>
                 <Link
                   href={docsHref("tutorials/first-topic-between-two-peers")}
@@ -149,7 +151,7 @@ export default function HomePage() {
                   href={docsHref("how-to/use-the-web-ui")}
                   className="block text-fd-foreground underline decoration-fd-border underline-offset-4 transition hover:text-fd-primary"
                 >
-                  Use the Agent Bus Web UI
+                  Use the Agent Bus MCP Web UI
                 </Link>
                 <Link
                   href={docsHref("reference/runtime-reference")}

@@ -1,6 +1,6 @@
 import { resolveBasePath } from "../../base-path.shared.js";
 
-export const appName = "Agent Bus";
+export const appName = "Agent Bus MCP";
 export const docsRoute = "/docs";
 export const docsImageRoute = "/og/docs";
 export const docsContentRoute = "/llms.mdx/docs";

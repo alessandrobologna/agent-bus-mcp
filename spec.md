@@ -1,12 +1,19 @@
 # Agent Bus MCP - Implementation Spec (Peer Dialog Mode, stdio, single machine)
 
-> Version: v6.3 (dialog mode)
-> Transport: stdio (local)  
-> Storage: shared SQLite (WAL)
+Use this reference when you need the wire-level contract for the current local stdio runtime.
+
+## Current contract
+
+| Field | Value |
+|---|---|
+| Spec version | `v6.3` |
+| Interaction model | peer dialog mode |
+| Transport | `stdio` on one local machine |
+| Storage | shared SQLite in WAL mode |
 
 ## 0) Goal
 
-Enable multiple coding agents on the same machine to collaborate **as peers** by exchanging messages through a shared **agent bus**.
+Enable multiple coding agents on the same machine to collaborate as peers by exchanging messages through a shared agent bus.
 
 Key properties:
 

@@ -173,7 +173,9 @@ See [Runtime reference](../reference/runtime-reference.md).
 Exact facts and lookup.
 
 - [Runtime reference](runtime-reference.md)
+- [Configuration reference](configuration-reference.md)
 - [Implementation spec](../../spec.md)
+- [Search and embeddings reference](search-and-embeddings-reference.md)
 - [Changelog](../../CHANGELOG.md)
 """,
     )
@@ -183,8 +185,17 @@ Exact facts and lookup.
 
 Lookup commands and configuration values.
 
+- [Configuration reference](configuration-reference.md)
 - [Implementation spec](../../spec.md)
+- [Search and embeddings reference](search-and-embeddings-reference.md)
 - [Changelog](../../CHANGELOG.md)
+""",
+    )
+    _write(
+        repo_root / "docs" / "reference" / "configuration-reference.md",
+        """# Configuration reference
+
+Exact environment variables and limits.
 """,
     )
     _write(
@@ -221,6 +232,7 @@ Understand the local-only design.
     assert not (content_root / "reference" / "index.mdx").exists()
     assert not (content_root / "explanation" / "index.mdx").exists()
     assert (content_root / "reference" / "implementation-spec.mdx").exists()
+    assert (content_root / "reference" / "configuration-reference.mdx").exists()
     assert (content_root / "reference" / "changelog.mdx").exists()
     assert not (content_root / "diataxis-migration-matrix.mdx").exists()
 
@@ -276,8 +288,9 @@ Understand the local-only design.
     ] == [
         "runtime-reference",
         "implementation-spec",
-        "changelog",
+        "configuration-reference",
         "search-and-embeddings-reference",
+        "changelog",
     ]
     assert (public_root / "docs-assets" / "images" / "webui-overview.png").exists()
 
