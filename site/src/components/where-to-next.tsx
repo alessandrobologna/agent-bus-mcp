@@ -44,7 +44,10 @@ export function WhereToNext() {
                 {card.description}
               </p>
               <span className="mt-4 inline-flex items-center text-sm font-medium text-fd-foreground/85 transition group-hover:text-[color:var(--color-accent-amber)]">
-                <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+                <ArrowRight
+                  aria-hidden="true"
+                  className="h-4 w-4 transition-transform group-hover:translate-x-0.5"
+                />
               </span>
             </Link>
           ))}

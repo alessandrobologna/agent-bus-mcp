@@ -122,7 +122,7 @@ function WebUiFeature() {
               {WEB_UI_CALLOUTS.map(({ Icon, title, description }) => (
                 <li key={title} className="flex items-start gap-4">
                   <div className="mt-0.5 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-fd-border bg-fd-background text-fd-foreground">
-                    <Icon className="h-5 w-5" />
+                    <Icon aria-hidden="true" className="h-5 w-5" />
                   </div>
                   <div>
                     <h3 className="text-base font-semibold text-fd-foreground">{title}</h3>

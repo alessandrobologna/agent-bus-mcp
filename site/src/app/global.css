@@ -68,7 +68,6 @@ article#nd-page > .fd-page-description {
   color: var(--color-fd-muted-foreground);
 }
 
-article#nd-page figure.shiki,
 .fd-codeblock,
 figure.shiki {
   box-shadow: none;

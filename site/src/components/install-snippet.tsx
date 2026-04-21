@@ -275,7 +275,11 @@ function CopyButton({ value, label }: { value: string; label: string }) {
       aria-label={`Copy ${label} to clipboard`}
       title={`Copy ${label}`}
     >
-      {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+      {copied ? (
+        <Check aria-hidden="true" className="h-3.5 w-3.5" />
+      ) : (
+        <Copy aria-hidden="true" className="h-3.5 w-3.5" />
+      )}
       {copied ? "Copied" : "Copy"}
     </button>
   );
