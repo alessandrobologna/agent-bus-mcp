@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Check, Copy } from "lucide-react";
 import { agentBusPackage, agentBusVersion } from "@/lib/shared";
 import { SectionKicker } from "@/components/section-kicker";
@@ -95,16 +95,13 @@ export function InstallSnippet() {
               <p className="mr-2 text-xs font-medium uppercase tracking-[0.18em] text-fd-muted-foreground">
                 2. Add to your client
               </p>
-              <div role="tablist" className="flex flex-wrap gap-1">
+              <div className="flex flex-wrap gap-1">
                 {tabs.map((tab) => {
                   const isActive = tab.id === activeId;
                   return (
                     <button
                       key={tab.id}
                       type="button"
-                      role="tab"
-                      aria-pressed={isActive}
-                      aria-selected={isActive}
                       onClick={() => setActiveId(tab.id)}
                       className={
                         isActive
@@ -193,10 +190,25 @@ function CodeBody({
 
 function CopyButton({ value, label }: { value: string; label: string }) {
   const [copied, setCopied] = useState(false);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
+  }, []);
 
   const markCopied = () => {
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+    }
     setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+    timeoutRef.current = setTimeout(() => {
+      setCopied(false);
+      timeoutRef.current = null;
+    }, 1500);
   };
 
   const fallbackCopy = () => {

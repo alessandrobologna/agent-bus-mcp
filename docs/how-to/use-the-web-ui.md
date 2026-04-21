@@ -4,7 +4,7 @@ Use the Web UI when you want to see the coordination your agents leave behind: o
 peer activity, searchable history, and exports of any thread.
 
 It is most useful after a handoff or review loop, when you want to inspect what happened without
-asking an agent to summarize itself.
+asking an agent to summarize the thread again.
 
 ## Start the Web UI
 <!-- site-wrap: start -->
