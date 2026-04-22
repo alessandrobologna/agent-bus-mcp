@@ -612,6 +612,48 @@ describe("App", () => {
     expect(screen.getByText("Click a marker to jump to that message.")).toBeInTheDocument()
   })
 
+  test("uses stable sender tones for default thread-map markers", async () => {
+    setDesktopWidth()
+
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const url = new URL(String(input), "http://localhost")
+
+      if (url.pathname === "/api/topics") {
+        return jsonResponse(topicsPayload)
+      }
+      if (url.pathname === "/api/topics/t-1") {
+        return jsonResponse(
+          topicDetailWithMessages("t-1", [
+            "alpha section one",
+            "alpha section two",
+            "alpha section three",
+            "alpha section four",
+          ])
+        )
+      }
+
+      throw new Error(`Unhandled fetch ${url.pathname}${url.search}`)
+    })
+
+    renderApp(["/topics/t-1"])
+
+    expect(await screen.findByText("alpha section one")).toBeInTheDocument()
+
+    setTopicThreadLayout({
+      scrollHeight: 1400,
+      clientHeight: 420,
+      messageHeights: [220, 260, 180, 240],
+    })
+
+    await waitFor(() => {
+      const firstMarker = document.querySelector<HTMLElement>("[data-ab-thread-map-marker='t-1-m-1']")
+      const secondMarker = document.querySelector<HTMLElement>("[data-ab-thread-map-marker='t-1-m-2']")
+      expect(firstMarker).toHaveAttribute("data-sender-tone")
+      expect(secondMarker).toHaveAttribute("data-sender-tone")
+      expect(firstMarker?.getAttribute("data-sender-tone")).not.toBe(secondMarker?.getAttribute("data-sender-tone"))
+    })
+  })
+
   test("keeps thread-map markers out of the normal tab order", async () => {
     setDesktopWidth()
 

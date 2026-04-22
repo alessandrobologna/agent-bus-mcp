@@ -109,10 +109,22 @@ type ThreadMapViewport = {
   height: number
 }
 
+type ThreadMapSenderTone = {
+  key: string
+  borderColor: string
+  backgroundColor: string
+  lineColor: string
+}
+
 const SEARCH_HIGHLIGHT_START = "\uE000"
 const SEARCH_HIGHLIGHT_END = "\uE001"
 const THREAD_MAP_DESKTOP_BREAKPOINT = 1280
 const EMPTY_TOPIC_MESSAGES: TopicMessage[] = []
+const THREAD_MAP_LINE_PATTERNS = [
+  [92, 76, 84],
+  [84, 93, 68],
+  [89, 72, 80],
+] as const
 
 const SIDEBAR_LAYOUT_STYLE = {
   "--sidebar-width": "22rem",
@@ -153,6 +165,24 @@ function statusVariant(status: TopicSummary["status"]): "default" | "secondary" 
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max)
+}
+
+function hashString(value: string): number {
+  let hash = 0
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) >>> 0
+  }
+  return hash
+}
+
+function getThreadMapSenderTone(sender: string): ThreadMapSenderTone {
+  const hue = hashString(sender) % 360
+  return {
+    key: String(hue),
+    borderColor: `hsla(${hue}, 72%, 74%, 0.36)`,
+    backgroundColor: `hsla(${hue}, 68%, 58%, 0.14)`,
+    lineColor: `hsla(${hue}, 92%, 92%, 0.84)`,
+  }
 }
 
 function snippetLabel(result: SearchResult): string {
@@ -645,11 +675,11 @@ function ThreadMap(props: {
         data-ab-thread-map="true"
         className="relative min-h-72 flex-1 overflow-hidden rounded-md border border-border bg-background/80"
       >
-        <div className="absolute inset-y-3 left-1/2 w-16 -translate-x-1/2 rounded-full border border-border/70 bg-muted/30 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]" />
+        <div className="absolute inset-y-3 left-1/2 w-[4.5rem] -translate-x-1/2 rounded-[20px] border border-border/70 bg-muted/25 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]" />
         <div className="absolute inset-y-4 left-1/2 w-px -translate-x-1/2 bg-border/80" />
         {viewport ? (
           <div
-            className="pointer-events-none absolute left-1/2 w-20 -translate-x-1/2 rounded-xl border border-primary/45 bg-primary/10 shadow-[0_0_0_1px_rgba(255,255,255,0.02)]"
+            className="pointer-events-none absolute left-1/2 w-[5.5rem] -translate-x-1/2 rounded-2xl border border-primary/45 bg-primary/10 shadow-[0_0_0_1px_rgba(255,255,255,0.02)]"
             style={{
               top: `${clamp(viewport.top * 100, 0, 100)}%`,
               height: `${clamp(viewport.height * 100, 8, 100)}%`,
@@ -658,16 +688,36 @@ function ThreadMap(props: {
         ) : null}
         {markers.map((marker) => {
           const center = clamp((marker.top + marker.height / 2) * 100, 0, 100)
-          const visibleWidth = marker.localActive ? 20 : marker.focused ? 16 : marker.localMatched ? 14 : 10
-          const visibleHeight = marker.localActive ? 12 : marker.focused ? 10 : marker.localMatched ? 9 : 8
-          const hitAreaHeight = Math.max(visibleHeight + 6, 14)
-          const toneClass = marker.localActive
-            ? "border-sky-300/90 bg-sky-300 shadow-[0_0_0_4px_rgba(56,189,248,0.14)]"
+          const visibleWidth = marker.localActive ? 28 : marker.focused ? 26 : marker.localMatched ? 24 : 22
+          const visibleHeight = marker.localActive ? 16 : marker.focused ? 15 : marker.localMatched ? 14 : 13
+          const hitAreaHeight = Math.max(visibleHeight + 6, 20)
+          const senderTone = getThreadMapSenderTone(marker.sender)
+          const tone = marker.localActive
+            ? {
+                borderColor: "rgba(125, 211, 252, 0.95)",
+                backgroundColor: "rgba(56, 189, 248, 0.24)",
+                lineColor: "rgba(224, 242, 254, 0.98)",
+                boxShadow: "0 0 0 4px rgba(56, 189, 248, 0.12)",
+              }
             : marker.localMatched
-              ? "border-cyan-300/80 bg-cyan-300/90"
+              ? {
+                  borderColor: "rgba(103, 232, 249, 0.82)",
+                  backgroundColor: "rgba(34, 211, 238, 0.18)",
+                  lineColor: "rgba(236, 254, 255, 0.96)",
+                  boxShadow: "none",
+                }
               : marker.focused
-                ? "border-primary/80 bg-primary"
-                : "border-border/70 bg-zinc-400/85"
+                ? {
+                    borderColor: "rgba(113, 113, 122, 0.82)",
+                    backgroundColor: "rgba(244, 244, 245, 0.18)",
+                    lineColor: "rgba(250, 250, 250, 0.98)",
+                    boxShadow: "none",
+                  }
+                : {
+                    ...senderTone,
+                    boxShadow: "none",
+                  }
+          const linePattern = THREAD_MAP_LINE_PATTERNS[marker.seq % THREAD_MAP_LINE_PATTERNS.length]!
           const stateLabel = marker.localActive
             ? "active find match"
             : marker.localMatched
@@ -685,24 +735,41 @@ function ThreadMap(props: {
               data-focused={marker.focused ? "true" : "false"}
               data-local-matched={marker.localMatched ? "true" : "false"}
               data-local-active={marker.localActive ? "true" : "false"}
+              data-sender-tone={senderTone.key}
               aria-current={marker.localActive ? "true" : undefined}
               aria-label={`Jump to message #${marker.seq} by ${marker.sender} (${stateLabel})`}
               className="absolute left-1/2 -translate-x-1/2 rounded-full transition-transform hover:scale-110 focus-visible:ring-2 focus-visible:ring-primary/70 focus-visible:outline-none"
               style={{
                 top: `calc(${center}% - ${hitAreaHeight / 2}px)`,
                 height: `${hitAreaHeight}px`,
-                width: "36px",
+                width: "42px",
               }}
               onClick={() => onJumpToMessage(marker.messageId)}
             >
               <span
-                className={`mx-auto block rounded-full border ${toneClass}`}
+                className="mx-auto flex items-start justify-center rounded-md border px-1.5 py-1"
                 style={{
                   width: `${visibleWidth}px`,
                   height: `${visibleHeight}px`,
                   marginTop: `${(hitAreaHeight - visibleHeight) / 2}px`,
+                  borderColor: tone.borderColor,
+                  backgroundColor: tone.backgroundColor,
+                  boxShadow: tone.boxShadow,
                 }}
-              />
+              >
+                <span className="flex w-full flex-col items-start gap-[2px]">
+                  {linePattern.map((width, index) => (
+                    <span
+                      key={index}
+                      className="block h-[1.5px] rounded-full"
+                      style={{
+                        width: `${width}%`,
+                        backgroundColor: tone.lineColor,
+                      }}
+                    />
+                  ))}
+                </span>
+              </span>
             </button>
           )
         })}
