@@ -645,11 +645,11 @@ function ThreadMap(props: {
         data-ab-thread-map="true"
         className="relative min-h-72 flex-1 overflow-hidden rounded-md border border-border bg-background/80"
       >
-        <div className="absolute inset-3 rounded-sm border border-dashed border-border/80" />
-        <div className="absolute inset-y-3 left-1/2 w-px -translate-x-1/2 bg-border/80" />
+        <div className="absolute inset-y-3 left-1/2 w-16 -translate-x-1/2 rounded-full border border-border/70 bg-muted/30 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]" />
+        <div className="absolute inset-y-4 left-1/2 w-px -translate-x-1/2 bg-border/80" />
         {viewport ? (
           <div
-            className="pointer-events-none absolute inset-x-2 rounded-md border border-primary/60 bg-primary/12 shadow-[0_0_0_1px_rgba(255,255,255,0.02)]"
+            className="pointer-events-none absolute left-1/2 w-20 -translate-x-1/2 rounded-xl border border-primary/45 bg-primary/10 shadow-[0_0_0_1px_rgba(255,255,255,0.02)]"
             style={{
               top: `${clamp(viewport.top * 100, 0, 100)}%`,
               height: `${clamp(viewport.height * 100, 8, 100)}%`,
@@ -657,13 +657,17 @@ function ThreadMap(props: {
           />
         ) : null}
         {markers.map((marker) => {
+          const center = clamp((marker.top + marker.height / 2) * 100, 0, 100)
+          const visibleWidth = marker.localActive ? 20 : marker.focused ? 16 : marker.localMatched ? 14 : 10
+          const visibleHeight = marker.localActive ? 12 : marker.focused ? 10 : marker.localMatched ? 9 : 8
+          const hitAreaHeight = Math.max(visibleHeight + 6, 14)
           const toneClass = marker.localActive
-            ? "bg-sky-400 shadow-[0_0_0_1px_rgba(125,211,252,0.35)]"
+            ? "border-sky-300/90 bg-sky-300 shadow-[0_0_0_4px_rgba(56,189,248,0.14)]"
             : marker.localMatched
-              ? "bg-cyan-300/85"
+              ? "border-cyan-300/80 bg-cyan-300/90"
               : marker.focused
-                ? "bg-primary"
-                : "bg-zinc-500/70"
+                ? "border-primary/80 bg-primary"
+                : "border-border/70 bg-zinc-400/85"
           const stateLabel = marker.localActive
             ? "active find match"
             : marker.localMatched
@@ -683,14 +687,22 @@ function ThreadMap(props: {
               data-local-active={marker.localActive ? "true" : "false"}
               aria-current={marker.localActive ? "true" : undefined}
               aria-label={`Jump to message #${marker.seq} by ${marker.sender} (${stateLabel})`}
-              className="absolute inset-x-2 rounded-full transition-transform hover:scale-y-110 focus-visible:ring-2 focus-visible:ring-primary/70 focus-visible:outline-none"
+              className="absolute left-1/2 -translate-x-1/2 rounded-full transition-transform hover:scale-110 focus-visible:ring-2 focus-visible:ring-primary/70 focus-visible:outline-none"
               style={{
-                top: `${clamp(marker.top * 100, 0, 100)}%`,
-                height: `${clamp(marker.height * 100, marker.localActive ? 1.4 : 0.75, 12)}%`,
+                top: `calc(${center}% - ${hitAreaHeight / 2}px)`,
+                height: `${hitAreaHeight}px`,
+                width: "36px",
               }}
               onClick={() => onJumpToMessage(marker.messageId)}
             >
-              <span className={`block h-full w-full rounded-full ${toneClass}`} />
+              <span
+                className={`mx-auto block rounded-full border ${toneClass}`}
+                style={{
+                  width: `${visibleWidth}px`,
+                  height: `${visibleHeight}px`,
+                  marginTop: `${(hitAreaHeight - visibleHeight) / 2}px`,
+                }}
+              />
             </button>
           )
         })}
