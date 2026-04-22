@@ -80,6 +80,60 @@ function topicDetail(
   }
 }
 
+function topicDetailWithMessages(
+  topicId: string,
+  contents: string[],
+  options?: {
+    focusMessageId?: string | null
+    hasEarlier?: boolean
+    startSeq?: number
+    messageIds?: string[]
+  }
+): TopicDetailResponse {
+  const startSeq = options?.startSeq ?? 1
+  const messages = contents.map((content, index) => {
+    const seq = startSeq + index
+    return {
+      message_id: options?.messageIds?.[index] ?? `${topicId}-m-${seq}`,
+      topic_id: topicId,
+      seq,
+      sender: index % 2 === 0 ? "reviewer" : "architect",
+      message_type: "message" as const,
+      reply_to: null,
+      reply_to_sender: null,
+      content_markdown: content,
+      metadata: null,
+      client_message_id: null,
+      created_at: 1_700_000_100 + index,
+    }
+  })
+
+  return {
+    topic: {
+      ...topicsPayload.topics.find((topic) => topic.topic_id === topicId)!,
+      message_count: messages.length,
+      last_seq: messages.at(-1)?.seq ?? 0,
+      last_message_at: messages.at(-1)?.created_at ?? null,
+      last_updated_at: messages.at(-1)?.created_at ?? 1_700_000_100,
+    },
+    messages,
+    message_count: messages.length,
+    first_seq: messages[0]?.seq ?? null,
+    last_seq: messages.at(-1)?.seq ?? null,
+    has_earlier: options?.hasEarlier ?? false,
+    context_mode: Boolean(options?.focusMessageId),
+    focus_message_id: options?.focusMessageId ?? null,
+    presence: [
+      {
+        topic_id: topicId,
+        agent_name: "codex reviewer",
+        last_seq: messages.at(-1)?.seq ?? 0,
+        updated_at: 1_700_000_110,
+      },
+    ],
+  }
+}
+
 function jsonResponse(payload: unknown) {
   return Promise.resolve(
     new Response(JSON.stringify(payload), {
@@ -159,6 +213,75 @@ function renderAppWithControls(initialEntries: string[]) {
       </MemoryRouter>
     </TooltipProvider>
   )
+}
+
+function setDesktopWidth(width = 1440) {
+  window.innerWidth = width
+  window.dispatchEvent(new Event("resize"))
+}
+
+function triggerResizeObservers() {
+  const ResizeObserverCtor = globalThis.ResizeObserver as unknown as {
+    instances: Array<{ trigger: () => void }>
+  }
+
+  for (const observer of ResizeObserverCtor.instances) {
+    observer.trigger()
+  }
+}
+
+function setTopicThreadLayout(props: {
+  scrollHeight: number
+  clientHeight: number
+  scrollTop?: number
+  messageHeights?: number[]
+  messageGap?: number
+}) {
+  const {
+    scrollHeight,
+    clientHeight,
+    scrollTop = 0,
+    messageHeights = [],
+    messageGap = 12,
+  } = props
+
+  const scrollAreaRoot = document.querySelector<HTMLElement>("[data-ab-topic-thread-scroll-area='true']")
+  expect(scrollAreaRoot).toBeTruthy()
+
+  const viewport = scrollAreaRoot!.querySelector<HTMLElement>("[data-slot='scroll-area-viewport']")
+  expect(viewport).toBeTruthy()
+
+  Object.defineProperty(viewport!, "scrollHeight", {
+    configurable: true,
+    value: scrollHeight,
+  })
+  Object.defineProperty(viewport!, "clientHeight", {
+    configurable: true,
+    value: clientHeight,
+  })
+  Object.defineProperty(viewport!, "scrollTop", {
+    configurable: true,
+    writable: true,
+    value: scrollTop,
+  })
+
+  let offset = 0
+  const messageNodes = Array.from(document.querySelectorAll<HTMLElement>("[data-ab-message-id]"))
+  for (const [index, node] of messageNodes.entries()) {
+    const height = messageHeights[index] ?? 180
+    Object.defineProperty(node, "offsetTop", {
+      configurable: true,
+      value: offset,
+    })
+    Object.defineProperty(node, "offsetHeight", {
+      configurable: true,
+      value: height,
+    })
+    offset += height + messageGap
+  }
+
+  triggerResizeObservers()
+  viewport!.dispatchEvent(new Event("scroll"))
 }
 
 function topicStream(topicId: string) {
@@ -448,6 +571,386 @@ describe("App", () => {
           (element) => element.textContent === "alpha"
         )
       ).toBe(true)
+    )
+  })
+
+  test("shows a shared Map and Inspector rail for overflowing desktop topics", async () => {
+    setDesktopWidth()
+
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const url = new URL(String(input), "http://localhost")
+
+      if (url.pathname === "/api/topics") {
+        return jsonResponse(topicsPayload)
+      }
+      if (url.pathname === "/api/topics/t-1") {
+        return jsonResponse(
+          topicDetailWithMessages("t-1", [
+            "alpha section one",
+            "alpha section two",
+            "alpha section three",
+            "alpha section four",
+          ])
+        )
+      }
+
+      throw new Error(`Unhandled fetch ${url.pathname}${url.search}`)
+    })
+
+    renderApp(["/topics/t-1"])
+
+    expect(await screen.findByText("alpha section one")).toBeInTheDocument()
+
+    setTopicThreadLayout({
+      scrollHeight: 1400,
+      clientHeight: 420,
+      messageHeights: [220, 260, 180, 240],
+    })
+
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Map" })).toBeInTheDocument())
+    expect(screen.getByRole("tab", { name: "Inspector" })).toBeInTheDocument()
+    expect(screen.getByText("Click a marker to jump to that message.")).toBeInTheDocument()
+  })
+
+  test("keeps thread-map markers out of the normal tab order", async () => {
+    setDesktopWidth()
+
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const url = new URL(String(input), "http://localhost")
+
+      if (url.pathname === "/api/topics") {
+        return jsonResponse(topicsPayload)
+      }
+      if (url.pathname === "/api/topics/t-1") {
+        return jsonResponse(
+          topicDetailWithMessages("t-1", [
+            "alpha section one",
+            "alpha section two",
+            "alpha section three",
+          ])
+        )
+      }
+
+      throw new Error(`Unhandled fetch ${url.pathname}${url.search}`)
+    })
+
+    renderApp(["/topics/t-1"])
+
+    expect(await screen.findByText("alpha section one")).toBeInTheDocument()
+
+    setTopicThreadLayout({
+      scrollHeight: 1300,
+      clientHeight: 360,
+      messageHeights: [220, 220, 220],
+    })
+
+    await waitFor(() =>
+      expect(
+        document.querySelector<HTMLElement>("[data-ab-thread-map-marker='t-1-m-1']")
+      ).toHaveAttribute("tabindex", "-1")
+    )
+  })
+
+  test("keeps the inspector-only rail for desktop topics without overflow", async () => {
+    setDesktopWidth()
+
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const url = new URL(String(input), "http://localhost")
+
+      if (url.pathname === "/api/topics") {
+        return jsonResponse(topicsPayload)
+      }
+      if (url.pathname === "/api/topics/t-1") {
+        return jsonResponse(topicDetailWithMessages("t-1", ["short one", "short two"]))
+      }
+
+      throw new Error(`Unhandled fetch ${url.pathname}${url.search}`)
+    })
+
+    renderApp(["/topics/t-1"])
+
+    expect(await screen.findByText("short one")).toBeInTheDocument()
+
+    setTopicThreadLayout({
+      scrollHeight: 400,
+      clientHeight: 400,
+      messageHeights: [140, 140],
+    })
+
+    await waitFor(() => expect(screen.queryByRole("tab", { name: "Map" })).not.toBeInTheDocument())
+    expect(screen.getByText("Topic metadata")).toBeInTheDocument()
+  })
+
+  test("clicking a thread-map marker jumps to its message", async () => {
+    setDesktopWidth()
+
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const url = new URL(String(input), "http://localhost")
+
+      if (url.pathname === "/api/topics") {
+        return jsonResponse(topicsPayload)
+      }
+      if (url.pathname === "/api/topics/t-1") {
+        return jsonResponse(
+          topicDetailWithMessages("t-1", ["first jump target", "second jump target", "third jump target"])
+        )
+      }
+
+      throw new Error(`Unhandled fetch ${url.pathname}${url.search}`)
+    })
+
+    renderApp(["/topics/t-1"])
+
+    expect(await screen.findByText("first jump target")).toBeInTheDocument()
+
+    setTopicThreadLayout({
+      scrollHeight: 1300,
+      clientHeight: 380,
+      messageHeights: [200, 220, 240],
+    })
+
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Map" })).toBeInTheDocument())
+
+    const target = document.getElementById("msg-t-1-m-2")
+    expect(target).toBeTruthy()
+    const scrollSpy = vi.spyOn(target!, "scrollIntoView").mockImplementation(() => {})
+
+    fireEvent.click(screen.getByRole("button", { name: /Jump to message #2 by architect/i }))
+
+    expect(scrollSpy).toHaveBeenCalled()
+  })
+
+  test("updates thread-map marker states from local thread find", async () => {
+    setDesktopWidth()
+
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const url = new URL(String(input), "http://localhost")
+
+      if (url.pathname === "/api/topics") {
+        return jsonResponse(topicsPayload)
+      }
+      if (url.pathname === "/api/topics/t-1") {
+        return jsonResponse(
+          topicDetailWithMessages("t-1", [
+            "alpha one",
+            "alpha two",
+            "plain context",
+          ])
+        )
+      }
+
+      throw new Error(`Unhandled fetch ${url.pathname}${url.search}`)
+    })
+
+    renderApp(["/topics/t-1"])
+
+    expect(await screen.findByText("alpha one")).toBeInTheDocument()
+
+    setTopicThreadLayout({
+      scrollHeight: 1200,
+      clientHeight: 360,
+      messageHeights: [190, 190, 190],
+    })
+
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Map" })).toBeInTheDocument())
+
+    fireEvent.keyDown(window, { key: "f", metaKey: true })
+    fireEvent.change(await screen.findByPlaceholderText(/Find in this thread/i), {
+      target: { value: "alpha" },
+    })
+
+    setTopicThreadLayout({
+      scrollHeight: 1200,
+      clientHeight: 360,
+      messageHeights: [190, 190, 190],
+    })
+
+    const firstMarker = document.querySelector<HTMLElement>("[data-ab-thread-map-marker='t-1-m-1']")
+    const secondMarker = document.querySelector<HTMLElement>("[data-ab-thread-map-marker='t-1-m-2']")
+
+    await waitFor(() => {
+      expect(firstMarker).toHaveAttribute("data-local-matched", "true")
+      expect(firstMarker).toHaveAttribute("data-local-active", "true")
+      expect(secondMarker).toHaveAttribute("data-local-matched", "true")
+      expect(secondMarker).toHaveAttribute("data-local-active", "false")
+    })
+
+    fireEvent.click(screen.getByRole("button", { name: "Next" }))
+
+    await waitFor(() => {
+      expect(firstMarker).toHaveAttribute("data-local-active", "false")
+      expect(secondMarker).toHaveAttribute("data-local-active", "true")
+    })
+  })
+
+  test("shows the focused-message marker for route-driven focus navigation", async () => {
+    setDesktopWidth()
+
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const url = new URL(String(input), "http://localhost")
+
+      if (url.pathname === "/api/topics") {
+        return jsonResponse(topicsPayload)
+      }
+      if (url.pathname === "/api/topics/t-1" && url.searchParams.get("focus") === "focused-message") {
+        return jsonResponse(
+          topicDetailWithMessages(
+            "t-1",
+            ["focused detail", "background context"],
+            {
+              focusMessageId: "focused-message",
+              messageIds: ["focused-message", "t-1-m-2"],
+            }
+          )
+        )
+      }
+
+      throw new Error(`Unhandled fetch ${url.pathname}${url.search}`)
+    })
+
+    renderApp(["/topics/t-1?focus=focused-message"])
+
+    expect(await screen.findByText("focused detail")).toBeInTheDocument()
+
+    setTopicThreadLayout({
+      scrollHeight: 1100,
+      clientHeight: 320,
+      messageHeights: [210, 210],
+    })
+
+    await waitFor(() =>
+      expect(
+        document.querySelector<HTMLElement>("[data-ab-thread-map-marker='focused-message']")
+      ).toHaveAttribute("data-focused", "true")
+    )
+  })
+
+  test("recomputes the thread map after loading earlier messages without losing the selected rail", async () => {
+    setDesktopWidth()
+
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const url = new URL(String(input), "http://localhost")
+
+      if (url.pathname === "/api/topics") {
+        return jsonResponse(topicsPayload)
+      }
+      if (url.pathname === "/api/topics/t-1") {
+        return jsonResponse(
+          topicDetailWithMessages("t-1", ["later one", "later two"], {
+            hasEarlier: true,
+            startSeq: 101,
+          })
+        )
+      }
+      if (url.pathname === "/api/topics/t-1/messages" && url.searchParams.get("before_seq") === "101") {
+        const earlier = topicDetailWithMessages("t-1", ["earlier one", "earlier two"], {
+          startSeq: 1,
+        }).messages
+
+        return jsonResponse({
+          messages: earlier,
+          first_seq: earlier[0]?.seq ?? null,
+          last_seq: earlier[earlier.length - 1]?.seq ?? null,
+          has_earlier: false,
+        })
+      }
+
+      throw new Error(`Unhandled fetch ${url.pathname}${url.search}`)
+    })
+
+    renderApp(["/topics/t-1"])
+
+    expect(await screen.findByText("later one")).toBeInTheDocument()
+
+    setTopicThreadLayout({
+      scrollHeight: 1200,
+      clientHeight: 360,
+      messageHeights: [260, 260],
+    })
+
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Map" })).toBeInTheDocument())
+
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Inspector" }))
+    await waitFor(() =>
+      expect(screen.getByRole("tab", { name: "Inspector" })).toHaveAttribute("aria-selected", "true")
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: /Load earlier/i }))
+    expect(await screen.findByText("earlier one")).toBeInTheDocument()
+
+    setTopicThreadLayout({
+      scrollHeight: 1800,
+      clientHeight: 360,
+      messageHeights: [200, 200, 260, 260],
+    })
+
+    await waitFor(() =>
+      expect(screen.getByRole("tab", { name: "Inspector" })).toHaveAttribute("aria-selected", "true")
+    )
+
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Map" }))
+    await waitFor(() =>
+      expect(document.querySelectorAll("[data-ab-thread-map-marker]")).toHaveLength(4)
+    )
+  })
+
+  test("does not recreate thread-map observers on presence-only stream updates", async () => {
+    setDesktopWidth()
+
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const url = new URL(String(input), "http://localhost")
+
+      if (url.pathname === "/api/topics") {
+        return jsonResponse(topicsPayload)
+      }
+      if (url.pathname === "/api/topics/t-1") {
+        return jsonResponse(
+          topicDetailWithMessages("t-1", [
+            "alpha section one",
+            "alpha section two",
+            "alpha section three",
+          ])
+        )
+      }
+
+      throw new Error(`Unhandled fetch ${url.pathname}${url.search}`)
+    })
+
+    renderApp(["/topics/t-1"])
+
+    expect(await screen.findByText("alpha section one")).toBeInTheDocument()
+
+    setTopicThreadLayout({
+      scrollHeight: 1300,
+      clientHeight: 360,
+      messageHeights: [220, 220, 220],
+    })
+
+    const ResizeObserverCtor = globalThis.ResizeObserver as unknown as {
+      instances: Array<unknown>
+    }
+
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Map" })).toBeInTheDocument())
+    const initialObserverCount = ResizeObserverCtor.instances.length
+
+    topicStream("t-1").emit("topic.update", {
+      topic_id: "t-1",
+      last_seq: 3,
+      message_count: 3,
+      presence: [
+        {
+          topic_id: "t-1",
+          agent_name: "presence probe",
+          last_seq: 3,
+          updated_at: 1_700_000_330,
+        },
+      ],
+    })
+
+    await waitFor(() => expect(screen.getAllByText("presence probe").length).toBeGreaterThan(0))
+
+    await waitFor(() =>
+      expect(ResizeObserverCtor.instances.length).toBe(initialObserverCount)
     )
   })
 

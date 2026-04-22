@@ -1,4 +1,4 @@
-import { startTransition, useEffect, useRef, useState, type CSSProperties } from "react"
+import { startTransition, useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import ReactMarkdown, { type Components } from "react-markdown"
 import { useLocation, useNavigate } from "react-router-dom"
 import remarkGfm from "remark-gfm"
@@ -64,6 +64,7 @@ import {
   SidebarTrigger,
   useSidebar,
 } from "@/components/ui/sidebar"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 
 type SearchState = {
@@ -90,8 +91,28 @@ type MessageHighlightSpec = {
   terms: string[]
 }
 
+type TopicRailMode = "map" | "inspector"
+
+type ThreadMapMarker = {
+  messageId: string
+  seq: number
+  sender: string
+  top: number
+  height: number
+  focused: boolean
+  localMatched: boolean
+  localActive: boolean
+}
+
+type ThreadMapViewport = {
+  top: number
+  height: number
+}
+
 const SEARCH_HIGHLIGHT_START = "\uE000"
 const SEARCH_HIGHLIGHT_END = "\uE001"
+const THREAD_MAP_DESKTOP_BREAKPOINT = 1280
+const EMPTY_TOPIC_MESSAGES: TopicMessage[] = []
 
 const SIDEBAR_LAYOUT_STYLE = {
   "--sidebar-width": "22rem",
@@ -128,6 +149,10 @@ function mergeMessages(existing: TopicMessage[], incoming: TopicMessage[]): Topi
 
 function statusVariant(status: TopicSummary["status"]): "default" | "secondary" | "outline" {
   return status === "open" ? "default" : "secondary"
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max)
 }
 
 function snippetLabel(result: SearchResult): string {
@@ -273,7 +298,7 @@ function findTermRanges(text: string, terms: string[]): TextRange[] {
   for (const char of text) {
     const start = originalIndex
     const end = start + char.length
-    for (const _normalizedChar of normalizeSearchText(char)) {
+    for (let normalizedIndex = 0; normalizedIndex < normalizeSearchText(char).length; normalizedIndex += 1) {
       normalizedIndexToOriginalRange.push({ start, end })
     }
     originalIndex = end
@@ -509,6 +534,7 @@ function MessageCard(props: {
   return (
     <article
       id={`msg-${message.message_id}`}
+      data-ab-message-id={message.message_id}
       className={[
         "w-full min-w-0 border px-5 py-5 transition-colors",
         localActive
@@ -550,6 +576,129 @@ function MessageCard(props: {
         </div>
       </div>
     </article>
+  )
+}
+
+function TopicInspectorPanel(props: { topicDetail: TopicDetailResponse }) {
+  const { topicDetail } = props
+
+  return (
+    <div className="flex flex-1 flex-col gap-4 p-4 text-sm">
+      <div className="grid grid-cols-2 gap-2">
+        <div className="border border-border bg-background px-3 py-3">
+          <div className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Status</div>
+          <div className="mt-2 font-medium">{topicDetail.topic.status}</div>
+        </div>
+        <div className="border border-border bg-background px-3 py-3">
+          <div className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Messages</div>
+          <div className="mt-2 font-medium">{topicDetail.message_count}</div>
+        </div>
+        <div className="border border-border bg-background px-3 py-3">
+          <div className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Last seq</div>
+          <div className="mt-2 font-medium">{topicDetail.last_seq ?? 0}</div>
+        </div>
+        <div className="border border-border bg-background px-3 py-3">
+          <div className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Updated</div>
+          <div className="mt-2 font-medium">{formatRelativeTime(topicDetail.topic.last_updated_at)}</div>
+        </div>
+      </div>
+      <div className="border border-border bg-background px-3 py-3">
+        <div className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Created</div>
+        <div className="mt-2 font-medium">{formatAbsoluteTime(topicDetail.topic.created_at)}</div>
+      </div>
+      <Separator />
+      <div className="flex flex-col gap-3">
+        <div className="font-medium">Presence</div>
+        {topicDetail.presence.length === 0 ? (
+          <p className="text-muted-foreground">No peers have touched this topic recently.</p>
+        ) : (
+          topicDetail.presence.map((presence: CursorPresence) => (
+            <div key={presence.agent_name} className="border border-border bg-background px-3 py-3">
+              <div className="font-medium">{presence.agent_name}</div>
+              <div className="text-xs text-muted-foreground">
+                last seq {presence.last_seq} · {formatRelativeTime(presence.updated_at)}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  )
+}
+
+function ThreadMap(props: {
+  topicDetail: TopicDetailResponse
+  markers: ThreadMapMarker[]
+  viewport: ThreadMapViewport | null
+  onJumpToMessage: (messageId: string) => void
+}) {
+  const { topicDetail, markers, viewport, onJumpToMessage } = props
+
+  return (
+    <div className="flex h-full flex-col p-4">
+      <div className="mb-4 flex items-center justify-between text-xs uppercase tracking-[0.18em] text-muted-foreground">
+        <span>Thread map</span>
+        <span>{markers.length}</span>
+      </div>
+      <div className="mb-3 text-sm text-muted-foreground">Click a marker to jump to that message.</div>
+      <div
+        data-ab-thread-map="true"
+        className="relative min-h-72 flex-1 overflow-hidden rounded-md border border-border bg-background/80"
+      >
+        <div className="absolute inset-3 rounded-sm border border-dashed border-border/80" />
+        <div className="absolute inset-y-3 left-1/2 w-px -translate-x-1/2 bg-border/80" />
+        {viewport ? (
+          <div
+            className="pointer-events-none absolute inset-x-2 rounded-md border border-primary/60 bg-primary/12 shadow-[0_0_0_1px_rgba(255,255,255,0.02)]"
+            style={{
+              top: `${clamp(viewport.top * 100, 0, 100)}%`,
+              height: `${clamp(viewport.height * 100, 8, 100)}%`,
+            }}
+          />
+        ) : null}
+        {markers.map((marker) => {
+          const toneClass = marker.localActive
+            ? "bg-sky-400 shadow-[0_0_0_1px_rgba(125,211,252,0.35)]"
+            : marker.localMatched
+              ? "bg-cyan-300/85"
+              : marker.focused
+                ? "bg-primary"
+                : "bg-zinc-500/70"
+          const stateLabel = marker.localActive
+            ? "active find match"
+            : marker.localMatched
+              ? "find match"
+              : marker.focused
+                ? "focused message"
+                : "message"
+
+          return (
+            <button
+              key={marker.messageId}
+              type="button"
+              tabIndex={-1}
+              data-ab-thread-map-marker={marker.messageId}
+              data-focused={marker.focused ? "true" : "false"}
+              data-local-matched={marker.localMatched ? "true" : "false"}
+              data-local-active={marker.localActive ? "true" : "false"}
+              aria-current={marker.localActive ? "true" : undefined}
+              aria-label={`Jump to message #${marker.seq} by ${marker.sender} (${stateLabel})`}
+              className="absolute inset-x-2 rounded-full transition-transform hover:scale-y-110 focus-visible:ring-2 focus-visible:ring-primary/70 focus-visible:outline-none"
+              style={{
+                top: `${clamp(marker.top * 100, 0, 100)}%`,
+                height: `${clamp(marker.height * 100, marker.localActive ? 1.4 : 0.75, 12)}%`,
+              }}
+              onClick={() => onJumpToMessage(marker.messageId)}
+            >
+              <span className={`block h-full w-full rounded-full ${toneClass}`} />
+            </button>
+          )
+        })}
+      </div>
+      <div className="mt-3 text-xs text-muted-foreground">
+        {topicDetail.message_count} messages in this topic
+      </div>
+    </div>
   )
 }
 
@@ -597,6 +746,162 @@ function TopicView(props: {
       ? findMatches[Math.min(findState.activeIndex, findMatches.length - 1)]?.message_id ?? null
       : null
   const activeSearchTerms = activeSearchResult ? extractSnippetTerms(activeSearchResult.snippet) : []
+  const localMatchedMessageIds = useMemo(
+    () => new Set(findMatches.map((message) => message.message_id)),
+    [findMatches]
+  )
+  const threadViewportRef = useRef<HTMLDivElement | null>(null)
+  const threadListRef = useRef<HTMLDivElement | null>(null)
+  const [railMode, setRailMode] = useState<TopicRailMode>("map")
+  const [isDesktopThreadMap, setIsDesktopThreadMap] = useState(false)
+  const [threadMapMarkers, setThreadMapMarkers] = useState<ThreadMapMarker[]>([])
+  const [threadMapViewport, setThreadMapViewport] = useState<ThreadMapViewport | null>(null)
+  const [threadMapQualifies, setThreadMapQualifies] = useState(false)
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return
+    }
+
+    const mediaQuery = window.matchMedia(`(min-width: ${THREAD_MAP_DESKTOP_BREAKPOINT}px)`)
+    const updateDesktopState = () => setIsDesktopThreadMap(mediaQuery.matches)
+
+    updateDesktopState()
+    mediaQuery.addEventListener("change", updateDesktopState)
+    return () => mediaQuery.removeEventListener("change", updateDesktopState)
+  }, [])
+
+  useEffect(() => {
+    if (!isDesktopThreadMap) {
+      return
+    }
+
+    const viewport = threadViewportRef.current
+    const threadList = threadListRef.current
+    if (!viewport || !threadList) {
+      return
+    }
+
+    const messageMap = new Map(
+      topicDetail.messages.map((message) => [
+        message.message_id,
+        {
+          message,
+          focused: topicDetail.focus_message_id === message.message_id,
+          localMatched: localMatchedMessageIds.has(message.message_id),
+          localActive: activeFindMessageId === message.message_id,
+        },
+      ])
+    )
+
+    const updateViewport = () => {
+      const nextQualifies = viewport.scrollHeight > viewport.clientHeight + 1
+      setThreadMapQualifies(nextQualifies)
+
+      if (!nextQualifies || viewport.scrollHeight <= 0) {
+        setThreadMapViewport(null)
+        return
+      }
+
+      const nextViewport = {
+        top: clamp(viewport.scrollTop / viewport.scrollHeight, 0, 1),
+        height: clamp(viewport.clientHeight / viewport.scrollHeight, 0, 1),
+      }
+
+      setThreadMapViewport((current) => {
+        if (
+          current &&
+          Math.abs(current.top - nextViewport.top) < 0.001 &&
+          Math.abs(current.height - nextViewport.height) < 0.001
+        ) {
+          return current
+        }
+        return nextViewport
+      })
+    }
+
+    const measureMarkers = () => {
+      const nextQualifies = viewport.scrollHeight > viewport.clientHeight + 1
+      setThreadMapQualifies(nextQualifies)
+
+      if (!nextQualifies || viewport.scrollHeight <= 0) {
+        setThreadMapMarkers([])
+        setThreadMapViewport(null)
+        return
+      }
+
+      const nextMarkers = Array.from(
+        threadList.querySelectorAll<HTMLElement>("[data-ab-message-id]")
+      ).flatMap((node) => {
+        const messageId = node.dataset.abMessageId
+        if (!messageId) {
+          return []
+        }
+
+        const entry = messageMap.get(messageId)
+        if (!entry) {
+          return []
+        }
+
+        return [
+          {
+            messageId,
+            seq: entry.message.seq,
+            sender: entry.message.sender,
+            top: clamp(node.offsetTop / viewport.scrollHeight, 0, 1),
+            height: clamp(node.offsetHeight / viewport.scrollHeight, 0.0025, 1),
+            focused: entry.focused,
+            localMatched: entry.localMatched,
+            localActive: entry.localActive,
+          } satisfies ThreadMapMarker,
+        ]
+      })
+
+      setThreadMapMarkers(nextMarkers)
+      updateViewport()
+    }
+
+    const onScroll = () => updateViewport()
+    viewport.addEventListener("scroll", onScroll, { passive: true })
+
+    const resizeObserver =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => measureMarkers())
+    if (resizeObserver) {
+      resizeObserver.observe(viewport)
+      resizeObserver.observe(threadList)
+      for (const node of threadList.querySelectorAll<HTMLElement>("[data-ab-message-id]")) {
+        resizeObserver.observe(node)
+      }
+    } else {
+      window.addEventListener("resize", measureMarkers)
+    }
+
+    measureMarkers()
+
+    return () => {
+      viewport.removeEventListener("scroll", onScroll)
+      resizeObserver?.disconnect()
+      if (!resizeObserver) {
+        window.removeEventListener("resize", measureMarkers)
+      }
+    }
+  }, [
+    activeFindMessageId,
+    isDesktopThreadMap,
+    localMatchedMessageIds,
+    topicDetail.focus_message_id,
+    topicDetail.messages,
+  ])
+
+  function jumpToMessage(messageId: string) {
+    const element = document.getElementById(`msg-${messageId}`)
+    if (!element) {
+      return
+    }
+    element.scrollIntoView({ behavior: "smooth", block: "center" })
+  }
+
+  const showSharedRail = isDesktopThreadMap && threadMapQualifies
 
   return (
     <div className="grid h-full min-h-0 flex-1 grid-cols-1 gap-0 border border-border bg-card xl:grid-cols-[minmax(0,1fr)_12rem]">
@@ -706,8 +1011,12 @@ function TopicView(props: {
               <span>Thread</span>
               <span>{topicDetail.message_count} message{topicDetail.message_count === 1 ? "" : "s"}</span>
             </div>
-            <ScrollArea className="min-h-0 flex-1 bg-[#1a1d22]">
-              <div className="flex min-h-full w-full min-w-0 flex-col gap-3 p-4">
+            <ScrollArea
+              className="min-h-0 flex-1 bg-[#1a1d22]"
+              data-ab-topic-thread-scroll-area="true"
+              viewportRef={threadViewportRef}
+            >
+              <div ref={threadListRef} className="flex min-h-full w-full min-w-0 flex-col gap-3 p-4">
                 {topicDetail.messages.length === 0 ? (
                   <div className="flex min-h-64 flex-col items-center justify-center gap-3 border border-dashed border-border bg-muted/20 text-center">
                     <MessageSquareMoreIcon className="size-8 text-muted-foreground" />
@@ -764,50 +1073,43 @@ function TopicView(props: {
         </CardContent>
       </section>
       <aside className="hidden min-h-0 flex-col overflow-hidden border-l border-border bg-[#202227] xl:flex">
-        <CardHeader className="border-b border-border px-4 py-3">
-          <div className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground">Inspector</div>
-          <CardTitle className="text-base">Topic metadata</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-1 flex-col gap-4 p-4 text-sm">
-          <div className="grid grid-cols-2 gap-2">
-            <div className="border border-border bg-background px-3 py-3">
-              <div className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Status</div>
-              <div className="mt-2 font-medium">{topicDetail.topic.status}</div>
-            </div>
-            <div className="border border-border bg-background px-3 py-3">
-              <div className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Messages</div>
-              <div className="mt-2 font-medium">{topicDetail.message_count}</div>
-            </div>
-            <div className="border border-border bg-background px-3 py-3">
-              <div className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Last seq</div>
-              <div className="mt-2 font-medium">{topicDetail.last_seq ?? 0}</div>
-            </div>
-            <div className="border border-border bg-background px-3 py-3">
-              <div className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Updated</div>
-              <div className="mt-2 font-medium">{formatRelativeTime(topicDetail.topic.last_updated_at)}</div>
-            </div>
-          </div>
-          <div className="border border-border bg-background px-3 py-3">
-            <div className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Created</div>
-            <div className="mt-2 font-medium">{formatAbsoluteTime(topicDetail.topic.created_at)}</div>
-          </div>
-          <Separator />
-          <div className="flex flex-col gap-3">
-            <div className="font-medium">Presence</div>
-            {topicDetail.presence.length === 0 ? (
-              <p className="text-muted-foreground">No peers have touched this topic recently.</p>
-            ) : (
-              topicDetail.presence.map((presence: CursorPresence) => (
-                <div key={presence.agent_name} className="border border-border bg-background px-3 py-3">
-                  <div className="font-medium">{presence.agent_name}</div>
-                  <div className="text-xs text-muted-foreground">
-                    last seq {presence.last_seq} · {formatRelativeTime(presence.updated_at)}
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </CardContent>
+        {showSharedRail ? (
+          <Tabs
+            value={railMode}
+            onValueChange={(value) => setRailMode(value as TopicRailMode)}
+            className="flex min-h-0 flex-1 flex-col gap-0"
+          >
+            <CardHeader className="gap-3 border-b border-border px-4 py-3">
+              <div className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground">Topic rail</div>
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="map">Map</TabsTrigger>
+                <TabsTrigger value="inspector">Inspector</TabsTrigger>
+              </TabsList>
+            </CardHeader>
+            <TabsContent value="map" className="mt-0 flex min-h-0 flex-1 flex-col">
+              <ThreadMap
+                topicDetail={topicDetail}
+                markers={threadMapMarkers}
+                viewport={threadMapViewport}
+                onJumpToMessage={jumpToMessage}
+              />
+            </TabsContent>
+            <TabsContent value="inspector" className="mt-0 flex min-h-0 flex-1 flex-col">
+              <CardHeader className="border-b border-border px-4 py-3">
+                <CardTitle className="text-base">Topic metadata</CardTitle>
+              </CardHeader>
+              <TopicInspectorPanel topicDetail={topicDetail} />
+            </TabsContent>
+          </Tabs>
+        ) : (
+          <>
+            <CardHeader className="border-b border-border px-4 py-3">
+              <div className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground">Inspector</div>
+              <CardTitle className="text-base">Topic metadata</CardTitle>
+            </CardHeader>
+            <TopicInspectorPanel topicDetail={topicDetail} />
+          </>
+        )}
       </aside>
     </div>
   )
@@ -1494,10 +1796,17 @@ export default function App() {
     }
   }, [routeTopicId])
 
-  const topicFindMatches =
-    topicDetail && topicFindState.query.trim()
-      ? topicDetail.messages.filter((message) => messageContainsText(message, topicFindState.query.trim()))
-      : []
+  const topicMessages = topicDetail?.messages ?? EMPTY_TOPIC_MESSAGES
+
+  const topicFindMatches = useMemo(() => {
+    if (!topicFindState.query.trim()) {
+      return []
+    }
+
+    return topicMessages.filter((message) =>
+      messageContainsText(message, topicFindState.query.trim())
+    )
+  }, [topicMessages, topicFindState.query])
   const activeRailSearchResult =
     routeTopicId && focusMessageId
       ? railSearchState.results.find(
@@ -1788,6 +2097,7 @@ export default function App() {
                   </Card>
                 ) : topicDetail ? (
         <TopicView
+          key={topicDetail.topic.topic_id}
           topicDetail={topicDetail}
           activeSearchResult={activeRailSearchResult}
           sidebarSearchQuery={railSearchState.query}
