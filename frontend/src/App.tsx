@@ -1092,9 +1092,6 @@ function TopicView(props: {
     if (resizeObserver) {
       resizeObserver.observe(viewport)
       resizeObserver.observe(threadList)
-      for (const node of threadList.querySelectorAll<HTMLElement>("[data-ab-message-id]")) {
-        resizeObserver.observe(node)
-      }
     } else {
       window.addEventListener("resize", measureMarkers)
     }
