@@ -669,7 +669,11 @@ function ThreadMap(props: {
 }) {
   const { markers, viewport, visible, onJumpToMessage, onViewportDrag } = props
   const mapRef = useRef<HTMLDivElement | null>(null)
-  const dragStateRef = useRef<{ grabOffset: number; viewportHeight: number } | null>(null)
+  const dragStateRef = useRef<{
+    actualViewportHeight: number
+    grabOffset: number
+    renderedViewportHeight: number
+  } | null>(null)
   const senderTones = useMemo(() => {
     const tones = new Map<string, ThreadMapSenderTone>()
     for (const marker of markers) {
@@ -693,8 +697,11 @@ function ThreadMap(props: {
     }
 
     const pointerTop = (clientY - rect.top) / rect.height
-    const maxTop = Math.max(1 - dragState.viewportHeight, 0)
-    onViewportDrag(clamp(pointerTop - dragState.grabOffset, 0, maxTop))
+    const renderedMaxTop = Math.max(1 - dragState.renderedViewportHeight, 0)
+    const renderedTop = clamp(pointerTop - dragState.grabOffset, 0, renderedMaxTop)
+    const actualMaxTop = Math.max(1 - dragState.actualViewportHeight, 0)
+    const actualTop = renderedMaxTop > 0 ? (renderedTop / renderedMaxTop) * actualMaxTop : 0
+    onViewportDrag(clamp(actualTop, 0, actualMaxTop))
   }
 
   const renderedViewport = viewport
@@ -739,14 +746,14 @@ function ThreadMap(props: {
                 return
               }
 
-              const viewportHeight = renderedViewport.height
               dragStateRef.current = {
+                actualViewportHeight: viewport ? clamp(viewport.height, 0, 1) : renderedViewport.height,
                 grabOffset: clamp(
                   (event.clientY - rect.top) / rect.height - renderedViewport.top,
                   0,
-                  viewportHeight
+                  renderedViewport.height
                 ),
-                viewportHeight,
+                renderedViewportHeight: renderedViewport.height,
               }
               event.currentTarget.setPointerCapture(event.pointerId)
               event.preventDefault()
