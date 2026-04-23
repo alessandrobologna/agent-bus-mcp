@@ -284,6 +284,13 @@ function setTopicThreadLayout(props: {
   viewport!.dispatchEvent(new Event("scroll"))
 }
 
+function revealThreadMapOverlay() {
+  const hotspot = document.querySelector<HTMLElement>("[data-ab-thread-map-hotspot='true']")
+  expect(hotspot).toBeTruthy()
+  fireEvent.pointerEnter(hotspot!)
+  fireEvent.pointerMove(hotspot!)
+}
+
 function topicStream(topicId: string) {
   const EventSourceCtor = globalThis.EventSource as unknown as {
     instances: Array<{ url: string; emit: (type: string, payload?: unknown) => void }>
@@ -574,7 +581,7 @@ describe("App", () => {
     )
   })
 
-  test("shows a shared Map and Inspector rail for overflowing desktop topics", async () => {
+  test("keeps the inspector in the rail and reveals the thread-map overlay from the hotspot", async () => {
     setDesktopWidth()
 
     vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
@@ -607,9 +614,63 @@ describe("App", () => {
       messageHeights: [220, 260, 180, 240],
     })
 
-    await waitFor(() => expect(screen.getByRole("tab", { name: "Map" })).toBeInTheDocument())
-    expect(screen.getByRole("tab", { name: "Inspector" })).toBeInTheDocument()
-    expect(screen.getByText("Click a marker to jump to that message.")).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByText("Topic metadata")).toBeInTheDocument())
+    expect(screen.queryByRole("tab", { name: "Map" })).not.toBeInTheDocument()
+    expect(document.querySelector("[data-ab-thread-map='true']")).toHaveAttribute("data-visible", "false")
+
+    revealThreadMapOverlay()
+
+    await waitFor(() =>
+      expect(document.querySelector("[data-ab-thread-map='true']")).toHaveAttribute("data-visible", "true")
+    )
+  })
+
+  test("auto-hides the thread-map overlay after pointer inactivity", async () => {
+    setDesktopWidth()
+
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const url = new URL(String(input), "http://localhost")
+
+      if (url.pathname === "/api/topics") {
+        return jsonResponse(topicsPayload)
+      }
+      if (url.pathname === "/api/topics/t-1") {
+        return jsonResponse(
+          topicDetailWithMessages("t-1", [
+            "alpha section one",
+            "alpha section two",
+            "alpha section three",
+            "alpha section four",
+          ])
+        )
+      }
+
+      throw new Error(`Unhandled fetch ${url.pathname}${url.search}`)
+    })
+
+    renderApp(["/topics/t-1"])
+
+    expect(await screen.findByText("alpha section one")).toBeInTheDocument()
+
+    setTopicThreadLayout({
+      scrollHeight: 1400,
+      clientHeight: 420,
+      messageHeights: [220, 260, 180, 240],
+    })
+
+    await waitFor(() =>
+      expect(document.querySelector("[data-ab-thread-map-hotspot='true']")).toBeTruthy()
+    )
+
+    revealThreadMapOverlay()
+
+    expect(document.querySelector("[data-ab-thread-map='true']")).toHaveAttribute("data-visible", "true")
+
+    await new Promise((resolve) => window.setTimeout(resolve, 1900))
+
+    await waitFor(() =>
+      expect(document.querySelector("[data-ab-thread-map='true']")).toHaveAttribute("data-visible", "false")
+    )
   })
 
   test("uses stable sender tones for default thread-map markers", async () => {
@@ -719,11 +780,11 @@ describe("App", () => {
       messageHeights: [140, 140],
     })
 
-    await waitFor(() => expect(screen.queryByRole("tab", { name: "Map" })).not.toBeInTheDocument())
+    await waitFor(() => expect(document.querySelector("[data-ab-thread-map='true']")).toBeNull())
     expect(screen.getByText("Topic metadata")).toBeInTheDocument()
   })
 
-  test("clicking a thread-map marker jumps to its message", async () => {
+  test("clicking a thread-map marker band jumps to its message", async () => {
     setDesktopWidth()
 
     vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
@@ -751,15 +812,83 @@ describe("App", () => {
       messageHeights: [200, 220, 240],
     })
 
-    await waitFor(() => expect(screen.getByRole("tab", { name: "Map" })).toBeInTheDocument())
+    await waitFor(() => expect(document.querySelector("[data-ab-thread-map='true']")).toBeInTheDocument())
+    revealThreadMapOverlay()
 
     const target = document.getElementById("msg-t-1-m-2")
     expect(target).toBeTruthy()
     const scrollSpy = vi.spyOn(target!, "scrollIntoView").mockImplementation(() => {})
+    const markerBand = screen.getByRole("button", { name: /Jump to message #2 by architect/i })
 
-    fireEvent.click(screen.getByRole("button", { name: /Jump to message #2 by architect/i }))
+    expect(Number.parseFloat(markerBand.style.height)).toBeGreaterThan(10)
+    expect(markerBand.style.height).toContain("%")
+
+    fireEvent.click(markerBand)
 
     expect(scrollSpy).toHaveBeenCalled()
+  })
+
+  test("dragging the thread-map viewport scrolls the thread", async () => {
+    setDesktopWidth()
+
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const url = new URL(String(input), "http://localhost")
+
+      if (url.pathname === "/api/topics") {
+        return jsonResponse(topicsPayload)
+      }
+      if (url.pathname === "/api/topics/t-1") {
+        return jsonResponse(
+          topicDetailWithMessages("t-1", ["first drag target", "second drag target", "third drag target"])
+        )
+      }
+
+      throw new Error(`Unhandled fetch ${url.pathname}${url.search}`)
+    })
+
+    renderApp(["/topics/t-1"])
+
+    expect(await screen.findByText("first drag target")).toBeInTheDocument()
+
+    setTopicThreadLayout({
+      scrollHeight: 1200,
+      clientHeight: 300,
+      messageHeights: [240, 260, 280],
+    })
+
+    await waitFor(() => expect(document.querySelector("[data-ab-thread-map='true']")).toBeInTheDocument())
+    revealThreadMapOverlay()
+
+    const mapFrame = document.querySelector<HTMLElement>("[data-ab-thread-map-frame='true']")
+    expect(mapFrame).toBeTruthy()
+    vi.spyOn(mapFrame!, "getBoundingClientRect").mockReturnValue({
+      x: 0,
+      y: 0,
+      top: 0,
+      left: 0,
+      bottom: 300,
+      right: 100,
+      width: 100,
+      height: 300,
+      toJSON: () => {},
+    } as DOMRect)
+
+    const viewport = document.querySelector<HTMLElement>(
+      "[data-ab-topic-thread-scroll-area='true'] [data-slot='scroll-area-viewport']"
+    )
+    expect(viewport).toBeTruthy()
+    expect(viewport!.scrollTop).toBe(0)
+
+    const cursor = document.querySelector<HTMLElement>("[data-ab-thread-map-viewport='true']")
+    expect(cursor).toBeTruthy()
+    cursor!.setPointerCapture = vi.fn()
+    cursor!.releasePointerCapture = vi.fn()
+
+    fireEvent.pointerDown(cursor!, { button: 0, pointerId: 1, clientY: 15 })
+    fireEvent.pointerMove(cursor!, { pointerId: 1, clientY: 165 })
+    fireEvent.pointerUp(cursor!, { pointerId: 1, clientY: 165 })
+
+    expect(viewport!.scrollTop).toBeGreaterThan(0)
   })
 
   test("updates thread-map marker states from local thread find", async () => {
@@ -794,7 +923,7 @@ describe("App", () => {
       messageHeights: [190, 190, 190],
     })
 
-    await waitFor(() => expect(screen.getByRole("tab", { name: "Map" })).toBeInTheDocument())
+    await waitFor(() => expect(document.querySelector("[data-ab-thread-map='true']")).toBeInTheDocument())
 
     fireEvent.keyDown(window, { key: "f", metaKey: true })
     fireEvent.change(await screen.findByPlaceholderText(/Find in this thread/i), {
@@ -910,12 +1039,8 @@ describe("App", () => {
       messageHeights: [260, 260],
     })
 
-    await waitFor(() => expect(screen.getByRole("tab", { name: "Map" })).toBeInTheDocument())
-
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Inspector" }))
-    await waitFor(() =>
-      expect(screen.getByRole("tab", { name: "Inspector" })).toHaveAttribute("aria-selected", "true")
-    )
+    await waitFor(() => expect(document.querySelector("[data-ab-thread-map='true']")).toBeInTheDocument())
+    expect(screen.getByText("Topic metadata")).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole("button", { name: /Load earlier/i }))
     expect(await screen.findByText("earlier one")).toBeInTheDocument()
@@ -926,11 +1051,6 @@ describe("App", () => {
       messageHeights: [200, 200, 260, 260],
     })
 
-    await waitFor(() =>
-      expect(screen.getByRole("tab", { name: "Inspector" })).toHaveAttribute("aria-selected", "true")
-    )
-
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Map" }))
     await waitFor(() =>
       expect(document.querySelectorAll("[data-ab-thread-map-marker]")).toHaveLength(4)
     )
@@ -972,7 +1092,7 @@ describe("App", () => {
       instances: Array<unknown>
     }
 
-    await waitFor(() => expect(screen.getByRole("tab", { name: "Map" })).toBeInTheDocument())
+    await waitFor(() => expect(document.querySelector("[data-ab-thread-map='true']")).toBeInTheDocument())
     const initialObserverCount = ResizeObserverCtor.instances.length
 
     topicStream("t-1").emit("topic.update", {
