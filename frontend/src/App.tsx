@@ -697,6 +697,13 @@ function ThreadMap(props: {
     onViewportDrag(clamp(pointerTop - dragState.grabOffset, 0, maxTop))
   }
 
+  const renderedViewport = viewport
+    ? {
+        height: clamp(viewport.height, 0.08, 1),
+        top: clamp(viewport.top, 0, 1 - clamp(viewport.height, 0.08, 1)),
+      }
+    : null
+
   return (
     <div
       data-ab-thread-map="true"
@@ -708,13 +715,13 @@ function ThreadMap(props: {
     >
       <div ref={mapRef} data-ab-thread-map-frame="true" className="relative h-full w-full">
         <div className="absolute inset-1 bg-muted/8" />
-        {viewport ? (
+        {renderedViewport ? (
           <div
             data-ab-thread-map-viewport="true"
             className="absolute inset-x-1 z-10 cursor-grab border-y border-primary/35 bg-primary/10 active:cursor-grabbing"
             style={{
-              top: `${clamp(viewport.top * 100, 0, 100)}%`,
-              height: `${clamp(viewport.height * 100, 8, 100)}%`,
+              top: `${renderedViewport.top * 100}%`,
+              height: `${renderedViewport.height * 100}%`,
             }}
             onClick={(event) => event.stopPropagation()}
             onPointerDown={(event) => {
@@ -732,9 +739,13 @@ function ThreadMap(props: {
                 return
               }
 
-              const viewportHeight = clamp(viewport.height, 0, 1)
+              const viewportHeight = renderedViewport.height
               dragStateRef.current = {
-                grabOffset: clamp((event.clientY - rect.top) / rect.height - viewport.top, 0, viewportHeight),
+                grabOffset: clamp(
+                  (event.clientY - rect.top) / rect.height - renderedViewport.top,
+                  0,
+                  viewportHeight
+                ),
                 viewportHeight,
               }
               event.currentTarget.setPointerCapture(event.pointerId)
@@ -783,8 +794,9 @@ function ThreadMap(props: {
             : 100
           const slotTop = index === 0 ? 0 : (previousCenter + center) / 2
           const slotBottom = index === markers.length - 1 ? 100 : (center + nextCenter) / 2
-          const slotHeight = Math.max(slotBottom - slotTop, 0.25)
-          const glyphTop = clamp(((center - slotTop) / slotHeight) * 100, 0, 100)
+          const slotHeight = Math.max(slotBottom - slotTop, 0)
+          const glyphSlotHeight = Math.max(slotHeight, 0.25)
+          const glyphTop = clamp(((center - slotTop) / glyphSlotHeight) * 100, 0, 100)
           const visibleHeight = marker.localActive ? 11 : marker.focused ? 10 : marker.localMatched ? 9 : 8
           const senderTone = senderTones.get(marker.sender) ?? getThreadMapSenderTone(marker.sender)
           const tone = marker.localActive
@@ -1158,7 +1170,22 @@ function TopicView(props: {
 
     revealThreadMap()
     viewport.scrollTop = clamp(top, 0, 1) * viewport.scrollHeight
-    viewport.dispatchEvent(new Event("scroll"))
+    if (viewport.scrollHeight > 0) {
+      const nextViewport = {
+        top: clamp(viewport.scrollTop / viewport.scrollHeight, 0, 1),
+        height: clamp(viewport.clientHeight / viewport.scrollHeight, 0, 1),
+      }
+      setThreadMapViewport((current) => {
+        if (
+          current &&
+          Math.abs(current.top - nextViewport.top) < 0.001 &&
+          Math.abs(current.height - nextViewport.height) < 0.001
+        ) {
+          return current
+        }
+        return nextViewport
+      })
+    }
   }
 
   const showThreadMapOverlay = isDesktopThreadMap && threadMapQualifies
