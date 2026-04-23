@@ -670,6 +670,15 @@ function ThreadMap(props: {
   const { markers, viewport, visible, onJumpToMessage, onViewportDrag } = props
   const mapRef = useRef<HTMLDivElement | null>(null)
   const dragStateRef = useRef<{ grabOffset: number; viewportHeight: number } | null>(null)
+  const senderTones = useMemo(() => {
+    const tones = new Map<string, ThreadMapSenderTone>()
+    for (const marker of markers) {
+      if (!tones.has(marker.sender)) {
+        tones.set(marker.sender, getThreadMapSenderTone(marker.sender))
+      }
+    }
+    return tones
+  }, [markers])
 
   const moveViewportCursor = (clientY: number) => {
     const map = mapRef.current
@@ -777,7 +786,7 @@ function ThreadMap(props: {
           const slotHeight = Math.max(slotBottom - slotTop, 0.25)
           const glyphTop = clamp(((center - slotTop) / slotHeight) * 100, 0, 100)
           const visibleHeight = marker.localActive ? 11 : marker.focused ? 10 : marker.localMatched ? 9 : 8
-          const senderTone = getThreadMapSenderTone(marker.sender)
+          const senderTone = senderTones.get(marker.sender) ?? getThreadMapSenderTone(marker.sender)
           const tone = marker.localActive
             ? {
                 accentColor: "rgba(125, 211, 252, 0.95)",
@@ -921,6 +930,8 @@ function TopicView(props: {
   const threadViewportRef = useRef<HTMLDivElement | null>(null)
   const threadListRef = useRef<HTMLDivElement | null>(null)
   const threadMapHideTimerRef = useRef<number | null>(null)
+  const threadMapHideAtRef = useRef(0)
+  const threadMapHideTimerDueAtRef = useRef(0)
   const [isDesktopThreadMap, setIsDesktopThreadMap] = useState(false)
   const [threadMapMeasuredMarkers, setThreadMapMeasuredMarkers] = useState<
     ThreadMapMeasuredMarker[]
@@ -962,6 +973,8 @@ function TopicView(props: {
       window.clearTimeout(threadMapHideTimerRef.current)
       threadMapHideTimerRef.current = null
     }
+    threadMapHideAtRef.current = 0
+    threadMapHideTimerDueAtRef.current = 0
   })
 
   const scheduleThreadMapHide = useEffectEvent((delay = THREAD_MAP_AUTO_HIDE_MS) => {
@@ -969,11 +982,34 @@ function TopicView(props: {
       return
     }
 
-    clearThreadMapHideTimer()
-    threadMapHideTimerRef.current = window.setTimeout(() => {
-      setThreadMapVisible(false)
-      threadMapHideTimerRef.current = null
-    }, delay)
+    const armTimer = (timeout: number) => {
+      threadMapHideTimerDueAtRef.current = Date.now() + timeout
+      threadMapHideTimerRef.current = window.setTimeout(() => {
+        const remaining = threadMapHideAtRef.current - Date.now()
+        if (remaining > 0) {
+          armTimer(remaining)
+          return
+        }
+
+        setThreadMapVisible(false)
+        threadMapHideTimerRef.current = null
+        threadMapHideAtRef.current = 0
+        threadMapHideTimerDueAtRef.current = 0
+      }, timeout)
+    }
+
+    const nextHideAt = Date.now() + delay
+    threadMapHideAtRef.current = nextHideAt
+
+    if (threadMapHideTimerRef.current !== null) {
+      if (nextHideAt < threadMapHideTimerDueAtRef.current - 16) {
+        window.clearTimeout(threadMapHideTimerRef.current)
+        armTimer(delay)
+      }
+      return
+    }
+
+    armTimer(delay)
   })
 
   const revealThreadMap = useEffectEvent((delay = THREAD_MAP_AUTO_HIDE_MS) => {
@@ -988,19 +1024,11 @@ function TopicView(props: {
   useEffect(() => {
     if (!isDesktopThreadMap || !threadMapQualifies) {
       setThreadMapVisible(false)
-      if (threadMapHideTimerRef.current !== null) {
-        window.clearTimeout(threadMapHideTimerRef.current)
-        threadMapHideTimerRef.current = null
-      }
+      clearThreadMapHideTimer()
     }
 
-    return () => {
-      if (threadMapHideTimerRef.current !== null) {
-        window.clearTimeout(threadMapHideTimerRef.current)
-        threadMapHideTimerRef.current = null
-      }
-    }
-  }, [isDesktopThreadMap, threadMapQualifies])
+    return () => clearThreadMapHideTimer()
+  }, [clearThreadMapHideTimer, isDesktopThreadMap, threadMapQualifies])
 
   useEffect(() => {
     if (findState.open || activeFindMessageId || topicDetail.focus_message_id) {
