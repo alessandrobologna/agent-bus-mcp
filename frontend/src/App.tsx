@@ -90,12 +90,15 @@ type MessageHighlightSpec = {
   terms: string[]
 }
 
-type ThreadMapMarker = {
+type ThreadMapMeasuredMarker = {
   messageId: string
   seq: number
   sender: string
   top: number
   height: number
+}
+
+type ThreadMapMarker = ThreadMapMeasuredMarker & {
   focused: boolean
   localMatched: boolean
   localActive: boolean
@@ -915,10 +918,27 @@ function TopicView(props: {
   const threadListRef = useRef<HTMLDivElement | null>(null)
   const threadMapHideTimerRef = useRef<number | null>(null)
   const [isDesktopThreadMap, setIsDesktopThreadMap] = useState(false)
-  const [threadMapMarkers, setThreadMapMarkers] = useState<ThreadMapMarker[]>([])
+  const [threadMapMeasuredMarkers, setThreadMapMeasuredMarkers] = useState<
+    ThreadMapMeasuredMarker[]
+  >([])
   const [threadMapViewport, setThreadMapViewport] = useState<ThreadMapViewport | null>(null)
   const [threadMapQualifies, setThreadMapQualifies] = useState(false)
   const [threadMapVisible, setThreadMapVisible] = useState(false)
+  const threadMapMarkers = useMemo(
+    () =>
+      threadMapMeasuredMarkers.map((marker) => ({
+        ...marker,
+        focused: topicDetail.focus_message_id === marker.messageId,
+        localMatched: localMatchedMessageIds.has(marker.messageId),
+        localActive: activeFindMessageId === marker.messageId,
+      })),
+    [
+      activeFindMessageId,
+      localMatchedMessageIds,
+      threadMapMeasuredMarkers,
+      topicDetail.focus_message_id,
+    ]
+  )
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -995,17 +1015,7 @@ function TopicView(props: {
       return
     }
 
-    const messageMap = new Map(
-      topicDetail.messages.map((message) => [
-        message.message_id,
-        {
-          message,
-          focused: topicDetail.focus_message_id === message.message_id,
-          localMatched: localMatchedMessageIds.has(message.message_id),
-          localActive: activeFindMessageId === message.message_id,
-        },
-      ])
-    )
+    const messageMap = new Map(topicDetail.messages.map((message) => [message.message_id, message]))
 
     const updateViewport = () => {
       const nextQualifies = viewport.scrollHeight > viewport.clientHeight + 1
@@ -1038,7 +1048,7 @@ function TopicView(props: {
       setThreadMapQualifies(nextQualifies)
 
       if (!nextQualifies || viewport.scrollHeight <= 0) {
-        setThreadMapMarkers([])
+        setThreadMapMeasuredMarkers([])
         setThreadMapViewport(null)
         return
       }
@@ -1059,18 +1069,15 @@ function TopicView(props: {
         return [
           {
             messageId,
-            seq: entry.message.seq,
-            sender: entry.message.sender,
+            seq: entry.seq,
+            sender: entry.sender,
             top: clamp(node.offsetTop / viewport.scrollHeight, 0, 1),
             height: clamp(node.offsetHeight / viewport.scrollHeight, 0.0025, 1),
-            focused: entry.focused,
-            localMatched: entry.localMatched,
-            localActive: entry.localActive,
-          } satisfies ThreadMapMarker,
+          } satisfies ThreadMapMeasuredMarker,
         ]
       })
 
-      setThreadMapMarkers(nextMarkers)
+      setThreadMapMeasuredMarkers(nextMarkers)
       updateViewport()
     }
 
@@ -1101,13 +1108,7 @@ function TopicView(props: {
         window.removeEventListener("resize", measureMarkers)
       }
     }
-  }, [
-    activeFindMessageId,
-    isDesktopThreadMap,
-    localMatchedMessageIds,
-    topicDetail.focus_message_id,
-    topicDetail.messages,
-  ])
+  }, [isDesktopThreadMap, topicDetail.messages])
 
   function jumpToMessage(messageId: string) {
     revealThreadMap()
