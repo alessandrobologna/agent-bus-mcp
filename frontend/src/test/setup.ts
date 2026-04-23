@@ -182,6 +182,9 @@ afterEach(() => {
 window.addEventListener("resize", () => {
   for (const mediaQuery of mediaQueries) {
     const nextMatches = matchesMediaQuery(mediaQuery.media)
+    if (nextMatches === mediaQuery.matches) {
+      continue
+    }
     mediaQuery.matches = nextMatches
     const event = { matches: nextMatches, media: mediaQuery.media } as MediaQueryListEvent
     mediaQuery.onchange?.(event)

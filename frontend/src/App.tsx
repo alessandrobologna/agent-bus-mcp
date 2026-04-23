@@ -328,7 +328,8 @@ function findTermRanges(text: string, terms: string[]): TextRange[] {
   for (const char of text) {
     const start = originalIndex
     const end = start + char.length
-    for (let normalizedIndex = 0; normalizedIndex < normalizeSearchText(char).length; normalizedIndex += 1) {
+    const normalizedChar = normalizeSearchText(char)
+    for (let normalizedIndex = 0; normalizedIndex < normalizedChar.length; normalizedIndex += 1) {
       normalizedIndexToOriginalRange.push({ start, end })
     }
     originalIndex = end

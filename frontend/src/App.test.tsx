@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { MemoryRouter, useNavigate } from "react-router-dom"
 import { describe, expect, test, vi } from "vitest"
 
@@ -662,15 +662,21 @@ describe("App", () => {
       expect(document.querySelector("[data-ab-thread-map-hotspot='true']")).toBeTruthy()
     )
 
-    revealThreadMapOverlay()
+    vi.useFakeTimers()
 
-    expect(document.querySelector("[data-ab-thread-map='true']")).toHaveAttribute("data-visible", "true")
+    try {
+      revealThreadMapOverlay()
 
-    await new Promise((resolve) => window.setTimeout(resolve, 1900))
+      expect(document.querySelector("[data-ab-thread-map='true']")).toHaveAttribute("data-visible", "true")
 
-    await waitFor(() =>
+      await act(async () => {
+        vi.advanceTimersByTime(1900)
+      })
+
       expect(document.querySelector("[data-ab-thread-map='true']")).toHaveAttribute("data-visible", "false")
-    )
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   test("uses stable sender tones for default thread-map markers", async () => {
