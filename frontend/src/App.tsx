@@ -918,8 +918,10 @@ function TopicView(props: {
     onDeleteTopic,
   } = props
 
+  const trimmedFindQuery = findState.query.trim()
+  const hasTrimmedFindQuery = Boolean(trimmedFindQuery)
   const activeFindMessageId =
-    findState.query.trim() && findMatches.length > 0
+    hasTrimmedFindQuery && findMatches.length > 0
       ? findMatches[Math.min(findState.activeIndex, findMatches.length - 1)]?.message_id ?? null
       : null
   const activeSearchTerms = activeSearchResult ? extractSnippetTerms(activeSearchResult.snippet) : []
@@ -1319,9 +1321,8 @@ function TopicView(props: {
                   ) : (
                     topicDetail.messages.map((message) => {
                       const localMatched =
-                        Boolean(findState.query.trim()) &&
-                        findMatches.some((candidate) => candidate.message_id === message.message_id)
-                      const localFindQuery = localMatched ? findState.query.trim() : null
+                        hasTrimmedFindQuery && localMatchedMessageIds.has(message.message_id)
+                      const localFindQuery = localMatched ? trimmedFindQuery : null
                       const focusedSearchMessage =
                         activeSearchResult?.message_id === message.message_id ? activeSearchResult : null
                       const highlightTerms = uniqueStrings([
