@@ -34,6 +34,14 @@ def main() -> None:
     beta = db.topic_create(name="Beta thread", metadata=None, mode="new")
 
     send(db, topic_id=alpha.topic_id, sender="reviewer", content="hello from alpha")
+    for index in range(1, 21):
+        sender = "reviewer" if index % 2 == 0 else "architect"
+        send(
+            db,
+            topic_id=alpha.topic_id,
+            sender=sender,
+            content=f"alpha checkpoint {index}: thread-map fixture message with enough text to wrap in the desktop topic view.",
+        )
     send(db, topic_id=beta.topic_id, sender="architect", content="beta handoff summary")
 
 

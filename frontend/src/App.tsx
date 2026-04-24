@@ -1,4 +1,4 @@
-import { startTransition, useEffect, useRef, useState, type CSSProperties } from "react"
+import { startTransition, useEffect, useEffectEvent, useMemo, useRef, useState, type CSSProperties } from "react"
 import ReactMarkdown, { type Components } from "react-markdown"
 import { useLocation, useNavigate } from "react-router-dom"
 import remarkGfm from "remark-gfm"
@@ -90,8 +90,42 @@ type MessageHighlightSpec = {
   terms: string[]
 }
 
+type ThreadMapMeasuredMarker = {
+  messageId: string
+  seq: number
+  sender: string
+  top: number
+  height: number
+}
+
+type ThreadMapMarker = ThreadMapMeasuredMarker & {
+  focused: boolean
+  localMatched: boolean
+  localActive: boolean
+}
+
+type ThreadMapViewport = {
+  top: number
+  height: number
+}
+
+type ThreadMapSenderTone = {
+  key: string
+  borderColor: string
+  backgroundColor: string
+  lineColor: string
+}
+
 const SEARCH_HIGHLIGHT_START = "\uE000"
 const SEARCH_HIGHLIGHT_END = "\uE001"
+const THREAD_MAP_DESKTOP_BREAKPOINT = 1280
+const THREAD_MAP_AUTO_HIDE_MS = 1800
+const EMPTY_TOPIC_MESSAGES: TopicMessage[] = []
+const THREAD_MAP_LINE_PATTERNS = [
+  [92, 76, 84],
+  [84, 93, 68],
+  [89, 72, 80],
+] as const
 
 const SIDEBAR_LAYOUT_STYLE = {
   "--sidebar-width": "22rem",
@@ -128,6 +162,30 @@ function mergeMessages(existing: TopicMessage[], incoming: TopicMessage[]): Topi
 
 function statusVariant(status: TopicSummary["status"]): "default" | "secondary" | "outline" {
   return status === "open" ? "default" : "secondary"
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max)
+}
+
+function hashString(value: string): number {
+  let hash = 0
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) >>> 0
+  }
+  return hash
+}
+
+function getThreadMapSenderTone(sender: string): ThreadMapSenderTone {
+  const seed = hashString(sender)
+  const hue = 198 + (seed % 48)
+  const saturation = 18 + (Math.floor(seed / 48) % 4) * 10
+  return {
+    key: `${hue}-${saturation}`,
+    borderColor: `hsla(${hue}, ${Math.min(saturation + 8, 58)}%, 76%, 0.36)`,
+    backgroundColor: `hsla(${hue}, ${saturation}%, 62%, 0.14)`,
+    lineColor: `hsla(${hue}, ${Math.min(saturation + 14, 64)}%, 92%, 0.62)`,
+  }
 }
 
 function snippetLabel(result: SearchResult): string {
@@ -273,7 +331,8 @@ function findTermRanges(text: string, terms: string[]): TextRange[] {
   for (const char of text) {
     const start = originalIndex
     const end = start + char.length
-    for (const _normalizedChar of normalizeSearchText(char)) {
+    const normalizedChar = normalizeSearchText(char)
+    for (let normalizedIndex = 0; normalizedIndex < normalizedChar.length; normalizedIndex += 1) {
       normalizedIndexToOriginalRange.push({ start, end })
     }
     originalIndex = end
@@ -509,6 +568,7 @@ function MessageCard(props: {
   return (
     <article
       id={`msg-${message.message_id}`}
+      data-ab-message-id={message.message_id}
       className={[
         "w-full min-w-0 border px-5 py-5 transition-colors",
         localActive
@@ -553,6 +613,291 @@ function MessageCard(props: {
   )
 }
 
+function TopicInspectorPanel(props: { topicDetail: TopicDetailResponse }) {
+  const { topicDetail } = props
+
+  return (
+    <div className="flex flex-1 flex-col gap-4 p-4 text-sm">
+      <div className="grid grid-cols-2 gap-2">
+        <div className="border border-border bg-background px-3 py-3">
+          <div className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Status</div>
+          <div className="mt-2 font-medium">{topicDetail.topic.status}</div>
+        </div>
+        <div className="border border-border bg-background px-3 py-3">
+          <div className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Messages</div>
+          <div className="mt-2 font-medium">{topicDetail.message_count}</div>
+        </div>
+        <div className="border border-border bg-background px-3 py-3">
+          <div className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Last seq</div>
+          <div className="mt-2 font-medium">{topicDetail.last_seq ?? 0}</div>
+        </div>
+        <div className="border border-border bg-background px-3 py-3">
+          <div className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Updated</div>
+          <div className="mt-2 font-medium">{formatRelativeTime(topicDetail.topic.last_updated_at)}</div>
+        </div>
+      </div>
+      <div className="border border-border bg-background px-3 py-3">
+        <div className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Created</div>
+        <div className="mt-2 font-medium">{formatAbsoluteTime(topicDetail.topic.created_at)}</div>
+      </div>
+      <Separator />
+      <div className="flex flex-col gap-3">
+        <div className="font-medium">Presence</div>
+        {topicDetail.presence.length === 0 ? (
+          <p className="text-muted-foreground">No peers have touched this topic recently.</p>
+        ) : (
+          topicDetail.presence.map((presence: CursorPresence) => (
+            <div key={presence.agent_name} className="border border-border bg-background px-3 py-3">
+              <div className="font-medium">{presence.agent_name}</div>
+              <div className="text-xs text-muted-foreground">
+                last seq {presence.last_seq} · {formatRelativeTime(presence.updated_at)}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  )
+}
+
+function ThreadMap(props: {
+  markers: ThreadMapMarker[]
+  viewport: ThreadMapViewport | null
+  visible: boolean
+  onJumpToMessage: (messageId: string) => void
+  onViewportDrag: (top: number) => void
+}) {
+  const { markers, viewport, visible, onJumpToMessage, onViewportDrag } = props
+  const mapRef = useRef<HTMLDivElement | null>(null)
+  const dragStateRef = useRef<{
+    actualViewportHeight: number
+    grabOffset: number
+    renderedViewportHeight: number
+  } | null>(null)
+  const senderTones = useMemo(() => {
+    const tones = new Map<string, ThreadMapSenderTone>()
+    for (const marker of markers) {
+      if (!tones.has(marker.sender)) {
+        tones.set(marker.sender, getThreadMapSenderTone(marker.sender))
+      }
+    }
+    return tones
+  }, [markers])
+
+  const moveViewportCursor = (clientY: number) => {
+    const map = mapRef.current
+    const dragState = dragStateRef.current
+    if (!map || !dragState) {
+      return
+    }
+
+    const rect = map.getBoundingClientRect()
+    if (rect.height <= 0) {
+      return
+    }
+
+    const pointerTop = (clientY - rect.top) / rect.height
+    const renderedMaxTop = Math.max(1 - dragState.renderedViewportHeight, 0)
+    const renderedTop = clamp(pointerTop - dragState.grabOffset, 0, renderedMaxTop)
+    const actualMaxTop = Math.max(1 - dragState.actualViewportHeight, 0)
+    const actualTop = renderedMaxTop > 0 ? (renderedTop / renderedMaxTop) * actualMaxTop : 0
+    onViewportDrag(clamp(actualTop, 0, actualMaxTop))
+  }
+
+  const renderedViewport = viewport
+    ? {
+        height: clamp(viewport.height, 0.08, 1),
+        top: clamp(viewport.top, 0, 1 - clamp(viewport.height, 0.08, 1)),
+      }
+    : null
+
+  return (
+    <div
+      data-ab-thread-map="true"
+      data-visible={visible ? "true" : "false"}
+      aria-hidden={visible ? undefined : true}
+      className={`absolute inset-y-3 right-3 z-20 w-[7rem] overflow-hidden border border-border/60 bg-[#17191e]/84 shadow-[0_8px_20px_rgba(0,0,0,0.24)] backdrop-blur-[2px] transition-all duration-200 ${
+        visible ? "opacity-100" : "pointer-events-none translate-x-2 opacity-0"
+      }`}
+    >
+      <div ref={mapRef} data-ab-thread-map-frame="true" className="relative h-full w-full">
+        <div className="absolute inset-1 bg-muted/8" />
+        {renderedViewport ? (
+          <div
+            data-ab-thread-map-viewport="true"
+            className="absolute inset-x-1 z-10 cursor-grab border-y border-primary/35 bg-primary/10 active:cursor-grabbing"
+            style={{
+              top: `${renderedViewport.top * 100}%`,
+              height: `${renderedViewport.height * 100}%`,
+            }}
+            onClick={(event) => event.stopPropagation()}
+            onPointerDown={(event) => {
+              if (event.button !== 0) {
+                return
+              }
+
+              const map = mapRef.current
+              if (!map) {
+                return
+              }
+
+              const rect = map.getBoundingClientRect()
+              if (rect.height <= 0) {
+                return
+              }
+
+              dragStateRef.current = {
+                actualViewportHeight: viewport ? clamp(viewport.height, 0, 1) : renderedViewport.height,
+                grabOffset: clamp(
+                  (event.clientY - rect.top) / rect.height - renderedViewport.top,
+                  0,
+                  renderedViewport.height
+                ),
+                renderedViewportHeight: renderedViewport.height,
+              }
+              event.currentTarget.setPointerCapture(event.pointerId)
+              event.preventDefault()
+              event.stopPropagation()
+              moveViewportCursor(event.clientY)
+            }}
+            onPointerMove={(event) => {
+              if (!dragStateRef.current) {
+                return
+              }
+
+              event.preventDefault()
+              event.stopPropagation()
+              moveViewportCursor(event.clientY)
+            }}
+            onPointerUp={(event) => {
+              if (!dragStateRef.current) {
+                return
+              }
+
+              dragStateRef.current = null
+              if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                event.currentTarget.releasePointerCapture(event.pointerId)
+              }
+              event.preventDefault()
+              event.stopPropagation()
+            }}
+            onPointerCancel={(event) => {
+              dragStateRef.current = null
+              if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                event.currentTarget.releasePointerCapture(event.pointerId)
+              }
+            }}
+          />
+        ) : null}
+        {markers.map((marker, index) => {
+          const center = clamp((marker.top + marker.height / 2) * 100, 0, 100)
+          const previousMarker = markers[index - 1]
+          const nextMarker = markers[index + 1]
+          const previousCenter = previousMarker
+            ? clamp((previousMarker.top + previousMarker.height / 2) * 100, 0, 100)
+            : 0
+          const nextCenter = nextMarker
+            ? clamp((nextMarker.top + nextMarker.height / 2) * 100, 0, 100)
+            : 100
+          const slotTop = index === 0 ? 0 : (previousCenter + center) / 2
+          const slotBottom = index === markers.length - 1 ? 100 : (center + nextCenter) / 2
+          const slotHeight = Math.max(slotBottom - slotTop, 0)
+          const glyphSlotHeight = Math.max(slotHeight, 0.25)
+          const glyphTop = clamp(((center - slotTop) / glyphSlotHeight) * 100, 0, 100)
+          const visibleHeight = marker.localActive ? 11 : marker.focused ? 10 : marker.localMatched ? 9 : 8
+          const senderTone = senderTones.get(marker.sender) ?? getThreadMapSenderTone(marker.sender)
+          const tone = marker.localActive
+            ? {
+                accentColor: "rgba(125, 211, 252, 0.95)",
+                backgroundColor: "rgba(56, 189, 248, 0.12)",
+                lineColor: "rgba(224, 242, 254, 0.84)",
+              }
+            : marker.localMatched
+              ? {
+                  accentColor: "rgba(103, 232, 249, 0.82)",
+                  backgroundColor: "rgba(34, 211, 238, 0.09)",
+                  lineColor: "rgba(236, 254, 255, 0.76)",
+                }
+              : marker.focused
+                ? {
+                    accentColor: "rgba(113, 113, 122, 0.82)",
+                    backgroundColor: "rgba(244, 244, 245, 0.08)",
+                    lineColor: "rgba(250, 250, 250, 0.74)",
+                  }
+                : {
+                    accentColor: senderTone.borderColor,
+                    backgroundColor: "transparent",
+                    lineColor: senderTone.lineColor,
+                  }
+          const linePattern = THREAD_MAP_LINE_PATTERNS[marker.seq % THREAD_MAP_LINE_PATTERNS.length]!
+          const stateLabel = marker.localActive
+            ? "active find match"
+            : marker.localMatched
+              ? "find match"
+              : marker.focused
+                ? "focused message"
+                : "message"
+
+          return (
+            <button
+              key={marker.messageId}
+              type="button"
+              tabIndex={-1}
+              data-ab-thread-map-marker={marker.messageId}
+              data-focused={marker.focused ? "true" : "false"}
+              data-local-matched={marker.localMatched ? "true" : "false"}
+              data-local-active={marker.localActive ? "true" : "false"}
+              data-sender-tone={senderTone.key}
+              aria-current={marker.localActive ? "true" : undefined}
+              aria-label={`Jump to message #${marker.seq} by ${marker.sender} (${stateLabel})`}
+              className="absolute left-0 right-0 transition-colors focus-visible:ring-2 focus-visible:ring-primary/70 focus-visible:outline-none"
+              style={{
+                top: `${slotTop}%`,
+                height: `${slotHeight}%`,
+              }}
+              onClick={() => onJumpToMessage(marker.messageId)}
+            >
+              <span
+                className="absolute left-2 right-2 block px-2"
+                style={{
+                  top: `${glyphTop}%`,
+                  height: `${visibleHeight}px`,
+                  transform: "translateY(-50%)",
+                  backgroundColor: tone.backgroundColor,
+                }}
+              >
+                {(marker.localActive || marker.localMatched || marker.focused) ? (
+                  <span
+                    className="absolute inset-y-0 left-0 w-[2px]"
+                    style={{ backgroundColor: tone.accentColor }}
+                  />
+                ) : null}
+                <span
+                  className="flex h-full w-full flex-col justify-center gap-[2px]"
+                  style={{
+                    paddingLeft: marker.localActive || marker.localMatched || marker.focused ? "6px" : "0px",
+                  }}
+                >
+                  {linePattern.map((width, index) => (
+                    <span
+                      key={index}
+                      className="block h-px"
+                      style={{
+                        width: `${width}%`,
+                        backgroundColor: tone.lineColor,
+                      }}
+                    />
+                  ))}
+                </span>
+              </span>
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 function TopicView(props: {
   topicDetail: TopicDetailResponse
   activeSearchResult: SearchResult | null
@@ -592,11 +937,265 @@ function TopicView(props: {
     onDeleteTopic,
   } = props
 
+  const trimmedFindQuery = findState.query.trim()
+  const hasTrimmedFindQuery = Boolean(trimmedFindQuery)
   const activeFindMessageId =
-    findState.query.trim() && findMatches.length > 0
+    hasTrimmedFindQuery && findMatches.length > 0
       ? findMatches[Math.min(findState.activeIndex, findMatches.length - 1)]?.message_id ?? null
       : null
   const activeSearchTerms = activeSearchResult ? extractSnippetTerms(activeSearchResult.snippet) : []
+  const localMatchedMessageIds = useMemo(
+    () => new Set(findMatches.map((message) => message.message_id)),
+    [findMatches]
+  )
+  const threadViewportRef = useRef<HTMLDivElement | null>(null)
+  const threadListRef = useRef<HTMLDivElement | null>(null)
+  const threadMapHideTimerRef = useRef<number | null>(null)
+  const threadMapHideAtRef = useRef(0)
+  const threadMapHideTimerDueAtRef = useRef(0)
+  const [isDesktopThreadMap, setIsDesktopThreadMap] = useState(false)
+  const [threadMapMeasuredMarkers, setThreadMapMeasuredMarkers] = useState<
+    ThreadMapMeasuredMarker[]
+  >([])
+  const [threadMapViewport, setThreadMapViewport] = useState<ThreadMapViewport | null>(null)
+  const [threadMapQualifies, setThreadMapQualifies] = useState(false)
+  const [threadMapVisible, setThreadMapVisible] = useState(false)
+  const threadMapMarkers = useMemo(
+    () =>
+      threadMapMeasuredMarkers.map((marker) => ({
+        ...marker,
+        focused: topicDetail.focus_message_id === marker.messageId,
+        localMatched: localMatchedMessageIds.has(marker.messageId),
+        localActive: activeFindMessageId === marker.messageId,
+      })),
+    [
+      activeFindMessageId,
+      localMatchedMessageIds,
+      threadMapMeasuredMarkers,
+      topicDetail.focus_message_id,
+    ]
+  )
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return
+    }
+
+    const mediaQuery = window.matchMedia(`(min-width: ${THREAD_MAP_DESKTOP_BREAKPOINT}px)`)
+    const updateDesktopState = () => setIsDesktopThreadMap(mediaQuery.matches)
+
+    updateDesktopState()
+    mediaQuery.addEventListener("change", updateDesktopState)
+    return () => mediaQuery.removeEventListener("change", updateDesktopState)
+  }, [])
+
+  const clearThreadMapHideTimer = useEffectEvent(() => {
+    if (threadMapHideTimerRef.current !== null) {
+      window.clearTimeout(threadMapHideTimerRef.current)
+      threadMapHideTimerRef.current = null
+    }
+    threadMapHideAtRef.current = 0
+    threadMapHideTimerDueAtRef.current = 0
+  })
+
+  const scheduleThreadMapHide = useEffectEvent((delay = THREAD_MAP_AUTO_HIDE_MS) => {
+    if (typeof window === "undefined") {
+      return
+    }
+
+    const armTimer = (timeout: number) => {
+      threadMapHideTimerDueAtRef.current = Date.now() + timeout
+      threadMapHideTimerRef.current = window.setTimeout(() => {
+        const remaining = threadMapHideAtRef.current - Date.now()
+        if (remaining > 0) {
+          armTimer(remaining)
+          return
+        }
+
+        setThreadMapVisible(false)
+        threadMapHideTimerRef.current = null
+        threadMapHideAtRef.current = 0
+        threadMapHideTimerDueAtRef.current = 0
+      }, timeout)
+    }
+
+    const nextHideAt = Date.now() + delay
+    threadMapHideAtRef.current = nextHideAt
+
+    if (threadMapHideTimerRef.current !== null) {
+      if (nextHideAt < threadMapHideTimerDueAtRef.current - 16) {
+        window.clearTimeout(threadMapHideTimerRef.current)
+        armTimer(delay)
+      }
+      return
+    }
+
+    armTimer(delay)
+  })
+
+  const revealThreadMap = useEffectEvent((delay = THREAD_MAP_AUTO_HIDE_MS) => {
+    if (typeof window === "undefined" || !isDesktopThreadMap || !threadMapQualifies) {
+      return
+    }
+
+    setThreadMapVisible(true)
+    scheduleThreadMapHide(delay)
+  })
+
+  useEffect(() => {
+    if (!isDesktopThreadMap || !threadMapQualifies) {
+      setThreadMapVisible(false)
+      clearThreadMapHideTimer()
+    }
+
+    return () => clearThreadMapHideTimer()
+  }, [clearThreadMapHideTimer, isDesktopThreadMap, threadMapQualifies])
+
+  useEffect(() => {
+    if (findState.open || activeFindMessageId || topicDetail.focus_message_id) {
+      revealThreadMap()
+    }
+  }, [activeFindMessageId, findState.open, isDesktopThreadMap, revealThreadMap, threadMapQualifies, topicDetail.focus_message_id])
+
+  useEffect(() => {
+    if (!isDesktopThreadMap) {
+      return
+    }
+
+    const viewport = threadViewportRef.current
+    const threadList = threadListRef.current
+    if (!viewport || !threadList) {
+      return
+    }
+
+    const messageMap = new Map(topicDetail.messages.map((message) => [message.message_id, message]))
+
+    const updateViewport = () => {
+      const nextQualifies = viewport.scrollHeight > viewport.clientHeight + 1
+      setThreadMapQualifies(nextQualifies)
+
+      if (!nextQualifies || viewport.scrollHeight <= 0) {
+        setThreadMapViewport(null)
+        return
+      }
+
+      const nextViewport = {
+        top: clamp(viewport.scrollTop / viewport.scrollHeight, 0, 1),
+        height: clamp(viewport.clientHeight / viewport.scrollHeight, 0, 1),
+      }
+
+      setThreadMapViewport((current) => {
+        if (
+          current &&
+          Math.abs(current.top - nextViewport.top) < 0.001 &&
+          Math.abs(current.height - nextViewport.height) < 0.001
+        ) {
+          return current
+        }
+        return nextViewport
+      })
+    }
+
+    const measureMarkers = () => {
+      const nextQualifies = viewport.scrollHeight > viewport.clientHeight + 1
+      setThreadMapQualifies(nextQualifies)
+
+      if (!nextQualifies || viewport.scrollHeight <= 0) {
+        setThreadMapMeasuredMarkers([])
+        setThreadMapViewport(null)
+        return
+      }
+
+      const nextMarkers = Array.from(
+        threadList.querySelectorAll<HTMLElement>("[data-ab-message-id]")
+      ).flatMap((node) => {
+        const messageId = node.dataset.abMessageId
+        if (!messageId) {
+          return []
+        }
+
+        const entry = messageMap.get(messageId)
+        if (!entry) {
+          return []
+        }
+
+        return [
+          {
+            messageId,
+            seq: entry.seq,
+            sender: entry.sender,
+            top: clamp(node.offsetTop / viewport.scrollHeight, 0, 1),
+            height: clamp(node.offsetHeight / viewport.scrollHeight, 0.0025, 1),
+          } satisfies ThreadMapMeasuredMarker,
+        ]
+      })
+
+      setThreadMapMeasuredMarkers(nextMarkers)
+      updateViewport()
+    }
+
+    const onScroll = () => {
+      updateViewport()
+      revealThreadMap()
+    }
+    viewport.addEventListener("scroll", onScroll, { passive: true })
+
+    const resizeObserver =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => measureMarkers())
+    if (resizeObserver) {
+      resizeObserver.observe(viewport)
+      resizeObserver.observe(threadList)
+    } else {
+      window.addEventListener("resize", measureMarkers)
+    }
+
+    measureMarkers()
+
+    return () => {
+      viewport.removeEventListener("scroll", onScroll)
+      resizeObserver?.disconnect()
+      if (!resizeObserver) {
+        window.removeEventListener("resize", measureMarkers)
+      }
+    }
+  }, [isDesktopThreadMap, topicDetail.messages])
+
+  function jumpToMessage(messageId: string) {
+    revealThreadMap()
+    const element = document.getElementById(`msg-${messageId}`)
+    if (!element) {
+      return
+    }
+    element.scrollIntoView({ behavior: "smooth", block: "center" })
+  }
+
+  function dragThreadMapViewport(top: number) {
+    const viewport = threadViewportRef.current
+    if (!viewport) {
+      return
+    }
+
+    revealThreadMap()
+    viewport.scrollTop = clamp(top, 0, 1) * viewport.scrollHeight
+    if (viewport.scrollHeight > 0) {
+      const nextViewport = {
+        top: clamp(viewport.scrollTop / viewport.scrollHeight, 0, 1),
+        height: clamp(viewport.clientHeight / viewport.scrollHeight, 0, 1),
+      }
+      setThreadMapViewport((current) => {
+        if (
+          current &&
+          Math.abs(current.top - nextViewport.top) < 0.001 &&
+          Math.abs(current.height - nextViewport.height) < 0.001
+        ) {
+          return current
+        }
+        return nextViewport
+      })
+    }
+  }
+
+  const showThreadMapOverlay = isDesktopThreadMap && threadMapQualifies
 
   return (
     <div className="grid h-full min-h-0 flex-1 grid-cols-1 gap-0 border border-border bg-card xl:grid-cols-[minmax(0,1fr)_12rem]">
@@ -706,108 +1305,106 @@ function TopicView(props: {
               <span>Thread</span>
               <span>{topicDetail.message_count} message{topicDetail.message_count === 1 ? "" : "s"}</span>
             </div>
-            <ScrollArea className="min-h-0 flex-1 bg-[#1a1d22]">
-              <div className="flex min-h-full w-full min-w-0 flex-col gap-3 p-4">
-                {topicDetail.messages.length === 0 ? (
-                  <div className="flex min-h-64 flex-col items-center justify-center gap-3 border border-dashed border-border bg-muted/20 text-center">
-                    <MessageSquareMoreIcon className="size-8 text-muted-foreground" />
-                    <div className="flex flex-col gap-1">
-                      <div className="font-medium">No messages yet</div>
-                      <div className="text-sm text-muted-foreground">
-                        This topic exists, but it does not have any content yet.
+            <div
+              data-ab-thread-map-region="true"
+              className="relative flex min-h-0 flex-1 flex-col"
+              onPointerMove={() => {
+                if (threadMapVisible) {
+                  revealThreadMap()
+                }
+              }}
+              onPointerLeave={() => {
+                if (threadMapVisible) {
+                  scheduleThreadMapHide(500)
+                }
+              }}
+            >
+              {showThreadMapOverlay ? (
+                <>
+                  <div
+                    data-ab-thread-map-hotspot="true"
+                    className="absolute inset-y-0 right-0 z-10 w-10"
+                    onPointerEnter={() => revealThreadMap()}
+                    onPointerMove={() => revealThreadMap()}
+                  />
+                  <ThreadMap
+                    visible={threadMapVisible}
+                    markers={threadMapMarkers}
+                    viewport={threadMapViewport}
+                    onJumpToMessage={jumpToMessage}
+                    onViewportDrag={dragThreadMapViewport}
+                  />
+                </>
+              ) : null}
+              <ScrollArea
+                className="min-h-0 flex-1 bg-[#1a1d22]"
+                data-ab-topic-thread-scroll-area="true"
+                viewportRef={threadViewportRef}
+              >
+                <div ref={threadListRef} className="flex min-h-full w-full min-w-0 flex-col gap-3 p-4">
+                  {topicDetail.messages.length === 0 ? (
+                    <div className="flex min-h-64 flex-col items-center justify-center gap-3 border border-dashed border-border bg-muted/20 text-center">
+                      <MessageSquareMoreIcon className="size-8 text-muted-foreground" />
+                      <div className="flex flex-col gap-1">
+                        <div className="font-medium">No messages yet</div>
+                        <div className="text-sm text-muted-foreground">
+                          This topic exists, but it does not have any content yet.
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ) : (
-                  topicDetail.messages.map((message) => {
-                    const localMatched =
-                      Boolean(findState.query.trim()) &&
-                      findMatches.some((candidate) => candidate.message_id === message.message_id)
-                    const localFindQuery = localMatched ? findState.query.trim() : null
-                    const focusedSearchMessage =
-                      activeSearchResult?.message_id === message.message_id ? activeSearchResult : null
-                    const highlightTerms = uniqueStrings([
-                      ...(localFindQuery ? [localFindQuery] : []),
-                      ...(focusedSearchMessage
-                        ? activeSearchTerms.length > 0
-                          ? activeSearchTerms
-                          : sidebarSearchQuery.trim()
-                            ? tokenizeSearchQuery(sidebarSearchQuery)
-                            : []
-                        : []),
-                    ])
-                    const highlight =
-                      highlightTerms.length > 0
-                        ? {
-                            terms: highlightTerms,
-                          }
-                        : null
+                  ) : (
+                    topicDetail.messages.map((message) => {
+                      const localMatched =
+                        hasTrimmedFindQuery && localMatchedMessageIds.has(message.message_id)
+                      const localFindQuery = localMatched ? trimmedFindQuery : null
+                      const focusedSearchMessage =
+                        activeSearchResult?.message_id === message.message_id ? activeSearchResult : null
+                      const highlightTerms = uniqueStrings([
+                        ...(localFindQuery ? [localFindQuery] : []),
+                        ...(focusedSearchMessage
+                          ? activeSearchTerms.length > 0
+                            ? activeSearchTerms
+                            : sidebarSearchQuery.trim()
+                              ? tokenizeSearchQuery(sidebarSearchQuery)
+                              : []
+                          : []),
+                      ])
+                      const highlight =
+                        highlightTerms.length > 0
+                          ? {
+                              terms: highlightTerms,
+                            }
+                          : null
 
-                    return (
-                      <MessageCard
-                        key={message.message_id}
-                        message={message}
-                        highlight={highlight}
-                        focused={topicDetail.focus_message_id === message.message_id}
-                        localMatched={localMatched}
-                        localActive={activeFindMessageId === message.message_id}
-                        selectable={selectionMode}
-                        selected={selectedMessageIds.has(message.message_id)}
-                        onSelectedChange={(next) => onMessageSelectionChange(message.message_id, next)}
-                      />
-                    )
-                  })
-                )}
-              </div>
-            </ScrollArea>
+                      return (
+                        <MessageCard
+                          key={message.message_id}
+                          message={message}
+                          highlight={highlight}
+                          focused={topicDetail.focus_message_id === message.message_id}
+                          localMatched={localMatched}
+                          localActive={activeFindMessageId === message.message_id}
+                          selectable={selectionMode}
+                          selected={selectedMessageIds.has(message.message_id)}
+                          onSelectedChange={(next) => onMessageSelectionChange(message.message_id, next)}
+                        />
+                      )
+                    })
+                  )}
+                </div>
+              </ScrollArea>
+            </div>
           </div>
         </CardContent>
       </section>
       <aside className="hidden min-h-0 flex-col overflow-hidden border-l border-border bg-[#202227] xl:flex">
-        <CardHeader className="border-b border-border px-4 py-3">
-          <div className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground">Inspector</div>
-          <CardTitle className="text-base">Topic metadata</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-1 flex-col gap-4 p-4 text-sm">
-          <div className="grid grid-cols-2 gap-2">
-            <div className="border border-border bg-background px-3 py-3">
-              <div className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Status</div>
-              <div className="mt-2 font-medium">{topicDetail.topic.status}</div>
-            </div>
-            <div className="border border-border bg-background px-3 py-3">
-              <div className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Messages</div>
-              <div className="mt-2 font-medium">{topicDetail.message_count}</div>
-            </div>
-            <div className="border border-border bg-background px-3 py-3">
-              <div className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Last seq</div>
-              <div className="mt-2 font-medium">{topicDetail.last_seq ?? 0}</div>
-            </div>
-            <div className="border border-border bg-background px-3 py-3">
-              <div className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Updated</div>
-              <div className="mt-2 font-medium">{formatRelativeTime(topicDetail.topic.last_updated_at)}</div>
-            </div>
-          </div>
-          <div className="border border-border bg-background px-3 py-3">
-            <div className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Created</div>
-            <div className="mt-2 font-medium">{formatAbsoluteTime(topicDetail.topic.created_at)}</div>
-          </div>
-          <Separator />
-          <div className="flex flex-col gap-3">
-            <div className="font-medium">Presence</div>
-            {topicDetail.presence.length === 0 ? (
-              <p className="text-muted-foreground">No peers have touched this topic recently.</p>
-            ) : (
-              topicDetail.presence.map((presence: CursorPresence) => (
-                <div key={presence.agent_name} className="border border-border bg-background px-3 py-3">
-                  <div className="font-medium">{presence.agent_name}</div>
-                  <div className="text-xs text-muted-foreground">
-                    last seq {presence.last_seq} · {formatRelativeTime(presence.updated_at)}
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </CardContent>
+        <>
+          <CardHeader className="border-b border-border px-4 py-3">
+            <div className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground">Inspector</div>
+            <CardTitle className="text-base">Topic metadata</CardTitle>
+          </CardHeader>
+          <TopicInspectorPanel topicDetail={topicDetail} />
+        </>
       </aside>
     </div>
   )
@@ -1494,10 +2091,17 @@ export default function App() {
     }
   }, [routeTopicId])
 
-  const topicFindMatches =
-    topicDetail && topicFindState.query.trim()
-      ? topicDetail.messages.filter((message) => messageContainsText(message, topicFindState.query.trim()))
-      : []
+  const topicMessages = topicDetail?.messages ?? EMPTY_TOPIC_MESSAGES
+
+  const topicFindMatches = useMemo(() => {
+    if (!topicFindState.query.trim()) {
+      return []
+    }
+
+    return topicMessages.filter((message) =>
+      messageContainsText(message, topicFindState.query.trim())
+    )
+  }, [topicMessages, topicFindState.query])
   const activeRailSearchResult =
     routeTopicId && focusMessageId
       ? railSearchState.results.find(
@@ -1788,6 +2392,7 @@ export default function App() {
                   </Card>
                 ) : topicDetail ? (
         <TopicView
+          key={topicDetail.topic.topic_id}
           topicDetail={topicDetail}
           activeSearchResult={activeRailSearchResult}
           sidebarSearchQuery={railSearchState.query}
