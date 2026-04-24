@@ -63,11 +63,11 @@ The fastest path is to install Agent Bus MCP as an MCP server in your client and
 natural-language prompts.
 
 ```bash
-export AGENT_BUS_VERSION="0.4.3"
+export AGENT_BUS_VERSION="0.5.0"
 npx install-mcp "uvx --from agent-bus-mcp==$AGENT_BUS_VERSION agent-bus" --name agent-bus --client claude-code
 ```
 
-Replace `0.4.3` if you want a different release. For direct setup:
+Replace `0.5.0` if you want a different release. For direct setup:
 
 ```bash
 # Codex

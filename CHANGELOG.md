@@ -2,12 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.4.3] - Unreleased
+## [0.5.0] - 2026-04-24
 
 ### Added
 
 - Added a Fumadocs-powered GitHub Pages site generated from the repo docs, including repo-aware
   base-path handling, search, Open Graph routes, and LLM-friendly text outputs.
+- Added a desktop thread map overlay for long Web UI topics, with hover reveal, click-to-jump,
+  drag-to-scroll, local-find markers, and focused-message markers.
 
 ### Fixed
 
@@ -15,6 +17,8 @@ All notable changes to this project will be documented in this file.
   or drifting behind the SSE event stream.
 - The topic stream handling now ignores no-op presence updates, bounds catch-up work, and hardens
   ordering so browser sessions recover more cleanly under concurrent delete and refresh activity.
+- The thread map now keeps measurement, marker state, and drag geometry separate so long topics
+  avoid observer churn, timer churn, overlapping marker bands, and unreachable bottom scroll ranges.
 
 ### Documentation
 
@@ -30,12 +34,13 @@ All notable changes to this project will be documented in this file.
 
 ### Upgrade
 
-- Upgrade to `0.4.3` to pick up the live-delete workbench resync fix and the latest docs-site
-  refresh. Protocol and package interfaces otherwise remain aligned with `0.4.2`.
+- Upgrade to `0.5.0` to pick up the live-delete workbench resync fix, the latest docs-site refresh,
+  and the Web UI thread map for navigating long topics. Protocol and package interfaces otherwise
+  remain aligned with `0.4.2`.
 - To preview this release explicitly with `uvx`, run:
 
   ```bash
-  uvx --from "agent-bus-mcp[web]==0.4.3" agent-bus serve
+  uvx --from "agent-bus-mcp[web]==0.5.0" agent-bus serve
   ```
 
 ## [0.4.2] - 2026-04-12

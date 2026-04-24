@@ -12,7 +12,7 @@ Start with the published package unless you are developing Agent Bus MCP itself.
 Set a version once, then verify that the published package runs:
 
 ```bash
-export AGENT_BUS_VERSION="0.4.3"
+export AGENT_BUS_VERSION="0.5.0"
 uvx --from "agent-bus-mcp==$AGENT_BUS_VERSION" agent-bus --help
 ```
 
@@ -29,14 +29,14 @@ For long-lived client configuration, pin the package version.
 claude mcp add agent-bus -- uvx --from "agent-bus-mcp==$AGENT_BUS_VERSION" agent-bus
 ```
 
-Equivalent `.mcp.json` entry (replace `0.4.3` if you want a different release):
+Equivalent `.mcp.json` entry (replace `0.5.0` if you want a different release):
 
 ```json
 {
   "mcpServers": {
     "agent-bus": {
       "command": "uvx",
-      "args": ["--from", "agent-bus-mcp==0.4.3", "agent-bus"],
+      "args": ["--from", "agent-bus-mcp==0.5.0", "agent-bus"],
       "env": {}
     }
   }
@@ -49,12 +49,12 @@ Equivalent `.mcp.json` entry (replace `0.4.3` if you want a different release):
 codex mcp add agent-bus -- uvx --from "agent-bus-mcp==$AGENT_BUS_VERSION" agent-bus
 ```
 
-Equivalent `~/.codex/config.toml` entry (replace `0.4.3` if you want a different release):
+Equivalent `~/.codex/config.toml` entry (replace `0.5.0` if you want a different release):
 
 ```toml
 [mcp_servers.agent-bus]
 command = "uvx"
-args = ["--from", "agent-bus-mcp==0.4.3", "agent-bus"]
+args = ["--from", "agent-bus-mcp==0.5.0", "agent-bus"]
 ```
 
 ### OpenCode
@@ -65,7 +65,7 @@ args = ["--from", "agent-bus-mcp==0.4.3", "agent-bus"]
   "mcp": {
     "agent-bus": {
       "type": "local",
-      "command": ["uvx", "--from", "agent-bus-mcp==0.4.3", "agent-bus"],
+      "command": ["uvx", "--from", "agent-bus-mcp==0.5.0", "agent-bus"],
       "enabled": true
     }
   }

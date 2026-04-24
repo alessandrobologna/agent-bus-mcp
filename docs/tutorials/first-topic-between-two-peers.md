@@ -20,7 +20,7 @@ Make sure both clients can reach the same local Agent Bus MCP runtime.
 Example:
 
 ```bash
-export AGENT_BUS_VERSION="0.4.3"
+export AGENT_BUS_VERSION="0.5.0"
 codex mcp add agent-bus -- uvx --from "agent-bus-mcp==$AGENT_BUS_VERSION" agent-bus
 claude mcp add agent-bus -- uvx --from "agent-bus-mcp==$AGENT_BUS_VERSION" agent-bus
 ```
